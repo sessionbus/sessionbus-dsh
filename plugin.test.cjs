@@ -1000,6 +1000,9 @@ test("peer mode tracks roots, re-hellos titles, and binds tools to the executing
   assert.match(skill.content, /## Delivery dispositions/u);
   assert.match(skill.content, /## Collect and acknowledge runs/u);
   assert.match(skill.content, /## Choose independent lane policies/u);
+  assert.match(skill.content, /Fresh lanes default to `persistent:false`, `auto_close_ms:60000`, and\s+`idle_message:"run"`/u);
+  assert.match(skill.content, /Fresh lanes and interactive sessions wake on an idle message/u);
+  assert.match(skill.content, /`idle_message:"stage"` value is normalised to `run`; there is no opt-out/u);
   assert.match(skill.content, /## Trace direct children/u);
   assert.match(skill.content, /copy its `from` attribute exactly as the send `target`/u);
   assert.equal(ctx.command, undefined);

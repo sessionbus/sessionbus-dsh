@@ -68,17 +68,18 @@ does not prove collection, and a missing pointer does not prove failure.
 ## Choose independent lane policies
 
 Fresh lanes default to `persistent:false`, `auto_close_ms:60000`, and
-`idle_message:"stage"`. Persistence controls owner-exit cleanup. Auto-close
+`idle_message:"run"`. Persistence controls owner-exit cleanup. Auto-close
 starts after a native completed, failed, or interrupted terminal, not at Open;
 zero disables it. An unavailable record without a native terminal starts no new
-grace. Collection and staged messages do not extend the deadline.
+grace. Collection does not extend the deadline.
 
-`idle_message:"run"` permits an idle message to start model work; `stage` retains
-it for a later explicit run. These policies are independent. Parent-owned lanes
-notify their authenticated owner unless `notify:false`. Persistent lanes require
-an explicit `notify_target` or one retained on resume. Resume preserves
-persistence and an omitted idle policy, but omitted `auto_close_ms` resets to
-60000. Persistence can be promoted, not demoted. Inspect returned settings.
+Fresh lanes and interactive sessions wake on an idle message. The legacy
+`idle_message:"stage"` value is normalised to `run`; there is no opt-out.
+Parent-owned lanes notify their authenticated owner unless `notify:false`.
+Persistent lanes require an explicit `notify_target` or one retained on resume.
+Resume preserves persistence and an omitted idle policy, but omitted
+`auto_close_ms` resets to 60000. Persistence can be promoted, not demoted.
+Inspect returned settings.
 
 Use `describe` before `spawn` to learn a product's supported `open` fields. A
 fresh spawn chooses a product and native working directory; resume uses
