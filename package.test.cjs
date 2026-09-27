@@ -8,6 +8,7 @@ const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
+const dshVersion = process.env.DSH_TEST_VERSION ?? "0.1.5-rc.2";
 
 test("package metadata stays rooted in the standalone repository", () => {
   const manifest = packageManifest;
@@ -36,9 +37,12 @@ test("the extracted package imports and its real bin performs installation", () 
   const consumer = path.join(directory, "consumer");
   fs.mkdirSync(consumer);
   fs.writeFileSync(path.join(consumer, "package.json"), '{"private":true}\n');
-  const installed = spawnSync("npm", ["install", "--omit=peer", "--ignore-scripts", path.join(directory, filename)], { cwd: consumer, encoding: "utf8" });
+  fs.writeFileSync(path.join(consumer, ".npmrc"), "node-linker=hoisted\nauto-install-peers=false\n");
+  const installed = spawnSync("pnpm", ["add", "--save-exact", `@deepseek-ai/dsh@${dshVersion}`, path.join(directory, filename)], { cwd: consumer, encoding: "utf8" });
   assert.equal(installed.status, 0, installed.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(consumer, "node_modules", "@deepseek-ai", "dsh", "package.json"), "utf8")).version, dshVersion);
   const packageRoot = path.join(consumer, "node_modules", "@sessionbus", "dsh");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")).version, packageVersion);
   const imported = spawnSync(process.execPath, ["-e", "require('./plugin.cjs')"], { cwd: packageRoot, encoding: "utf8" });
   assert.equal(imported.status, 0, imported.stderr);
   const sideEffectHome = path.join(directory, "import-home");
