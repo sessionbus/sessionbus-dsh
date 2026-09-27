@@ -25,6 +25,7 @@ jobs:
           - 0.1.5-rc.2
           - 0.1.6-alpha.1
           - 0.1.6-alpha.2
+          - 0.1.5-rc.3
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

@@ -132,8 +132,7 @@ tarball="$work/$tarball_name"
 home="$work/home"
 mkdir -p "$home"
 printf '%s\n' '{"private":true}' > "$home/package.json"
-published=$(npm view "@deepseek-ai/dsh@$version" "time[$version]" --json | node -pe 'JSON.parse(require("node:fs").readFileSync(0, "utf8"))')
-release_cutoff=$(node -e 'console.log(new Date(Date.parse(process.argv[1]) + 3600000).toISOString())' "$published")
+release_cutoff=$(node "$root/.github/scripts/dsh-closure-cutoff.mjs" "$version")
 npm install --prefix "$home" --save-exact --before "$release_cutoff" \
   "@deepseek-ai/dsh@$version" \
   "@deepseek-ai/cordis@4.0.2" \
