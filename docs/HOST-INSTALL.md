@@ -6,8 +6,10 @@ example. Run it as the ordinary account returned by `id -un`, never with
 account is `antst` and its home is `/home/antst`; earlier references to `pdev`
 were wrong. The target set is DSH `0.1.5-rc.2`, `@antst/dashi-launcher`
 `0.1.2`, `@antst/dashi-app` `0.1.2`, `@sessionbus/dsh`
-`0.1.0-pre.14`, `@sessionbus/kit` `0.5.9`, and the Sessionbus daemon
+`0.1.0-pre.15`, `@sessionbus/kit` `0.5.9`, and the Sessionbus daemon
 `v0.5.9` at revision `b4855293e9296e6544f0c0c27a755dfd401f56b9`.
+The dashi profile additionally needs a Dashi release whose `@antst/dashi-app`
+pins `@sessionbus/dsh` `0.1.0-pre.15`; `0.1.2` still pins `0.1.0-pre.14`.
 Use the plugin source at
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh) and
 daemon release artifacts from
@@ -36,7 +38,7 @@ Run these exact probes immediately before starting:
 ```sh
 npm view @antst/dashi@0.1.2 version && npm view @antst/dashi-app@0.1.2 version
 npm view @antst/dashi-launcher@0.1.2 version && npm view @antst/dsh-file-uploads-none@0.1.2 version
-npm view @sessionbus/dsh@0.1.0-pre.14 version && npm view @sessionbus/kit@0.5.9 version
+npm view @sessionbus/dsh@0.1.0-pre.15 version && npm view @sessionbus/kit@0.5.9 version
 ```
 
 Expected output, in order:
@@ -46,7 +48,7 @@ Expected output, in order:
 0.1.2
 0.1.2
 0.1.2
-0.1.0-pre.14
+0.1.0-pre.15
 0.5.9
 ```
 
@@ -734,6 +736,11 @@ Expected output contains `dashi profile DSH graph nonzero`,
 inventory only and is never an acceptance criterion. The pre-existing
 `@sessionbus/dsh` row remains at its old version until the next section.
 
+The kit assertion needs a Dashi release whose `@antst/dashi-app` pins
+`@sessionbus/dsh` `0.1.0-pre.15`. `@antst/dashi-app` `0.1.2` still pins
+`0.1.0-pre.14` with kit `0.5.7`, which the v0.5.9 daemon does not accept; with
+it the assertion reports `0.5.7` and the run stops here.
+
 ## 4. Upgrade sessionbus-dsh and its profiles
 
 Install the package in the host project. This supplies the command for the
@@ -742,13 +749,13 @@ launcher and installer find their child `dsh`:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
-pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.14
+pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.15
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.1.5-rc.2 report headless
 test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.9
 ```
 
-Expected output reports `@sessionbus/dsh 0.1.0-pre.14` and a nonzero host DSH
+Expected output reports `@sessionbus/dsh 0.1.0-pre.15` and a nonzero host DSH
 count at the single version `0.1.5-rc.2`.
 
 Upgrade the installed sessionbus profile in place. Re-running the installer
@@ -768,7 +775,7 @@ the dashi profile: the dashi product runs the plugin version that dashi-app
 pins, until dashi-app publishes a newer pin.
 
 ```sh
-"$DSH_BIN" plugin --profile sessionbus add @sessionbus/dsh@0.1.0-pre.14
+"$DSH_BIN" plugin --profile sessionbus add @sessionbus/dsh@0.1.0-pre.15
 repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.1.5-rc.2 optional sessionbus
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
 remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
@@ -779,7 +786,7 @@ grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/se
 grep -F 'config: { product: dashi }' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/cordis.patch.yml"
 ```
 
-Expected output contains `@sessionbus/dsh 0.1.0-pre.14` for the sessionbus
+Expected output contains `@sessionbus/dsh 0.1.0-pre.15` for the sessionbus
 profile and the exact version pinned by dashi-app for the dashi profile, no DSH
 version other than rc.2 in the lane graph (which may have zero DSH records),
 and these exact rows:
@@ -796,7 +803,7 @@ group. Re-check its graph immediately after the package add:
 ```sh
 test ! -e "$DSH_HOME/profiles/web"
 "$DSH_BIN" --profile web --dump-default-config >"$ROLLBACK_ROOT/web-default-config.yml"
-"$DSH_BIN" plugin --profile web add @sessionbus/dsh@0.1.0-pre.14
+"$DSH_BIN" plugin --profile web add @sessionbus/dsh@0.1.0-pre.15
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.1.5-rc.2 optional web
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
 remove_untracked_nested_packages "$DSH_HOME/profiles/web"
@@ -1184,7 +1191,7 @@ stops the run before the real-daemon turn.
 
 ## 6. Verification on the real daemon
 
-Plugin pre.14 makes both interactive and managed-lane delivery active. An
+Plugin pre.15 makes both interactive and managed-lane delivery active. An
 interactive message admitted while its DSH root is idle starts a native turn.
 For a lane, the daemon always wakes the idle worker with one managed Run when
 an ordinary message reaches it. In dashi,
@@ -1456,7 +1463,7 @@ for profile_name in web sessionbus; do
   installer="$DSH_HOME/profiles/$profile_name/node_modules/.bin/sessionbus-dsh-install"
   package="$DSH_HOME/profiles/$profile_name/node_modules/@sessionbus/dsh/package.json"
   installed_version=$(if [ -f "$package" ]; then node -p 'require(process.argv[1]).version' "$package" 2>/dev/null || true; fi)
-  if [ "$installed_version" = '0.1.0-pre.14' ] && [ -x "$installer" ]; then
+  if [ "$installed_version" = '0.1.0-pre.15' ] && [ -x "$installer" ]; then
     pnpm --dir "$DSH_HOME/profiles/$profile_name" exec sessionbus-dsh-install --remove "$profile_name"
   fi
 done

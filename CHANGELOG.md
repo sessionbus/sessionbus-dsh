@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-pre.15 — 2026-09-29
+
+- Require Sessionbus v0.5.9, a flag day: the unreleased lane policy field `idle_message` is removed from the tool schema and rejected as an argument, and message wake is mandatory. Upgrade the daemons and hub first, including the offline lane-row edit in the [core v0.5.8 release notes](https://github.com/sessionbus/sessionbus/releases/tag/v0.5.8).
+- Pin `@sessionbus/kit` 0.5.9, the published kit for Sessionbus v0.5.9 (0.5.8 was never published).
+- docs/HOST-INSTALL.md targets this release, kit 0.5.9, the Sessionbus v0.5.9 daemon (revision b4855293e9296e6544f0c0c27a755dfd401f56b9) and an SDK 0.5.9 or later controller. The dashi profile needs a Dashi release that pins this plugin.
+
 ## 0.1.0-pre.14 — 2026-09-21
 
 - Replace the `/sessionbus` list command with a user- and model-invocable DSH skill so `/sessionbus <text>` stays the user's message and receives canonical Sessionbus guidance (W-099).
