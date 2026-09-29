@@ -6,8 +6,8 @@ example. Run it as the ordinary account returned by `id -un`, never with
 account is `antst` and its home is `/home/antst`; earlier references to `pdev`
 were wrong. The target set is DSH `0.1.5-rc.2`, `@antst/dashi-launcher`
 `0.1.2`, `@antst/dashi-app` `0.1.2`, `@sessionbus/dsh`
-`0.1.0-pre.14`, `@sessionbus/kit` `0.5.7`, and the Sessionbus daemon
-`v0.5.7` at revision `53c5f80e281f39e54bcee1fbe8a253da86ad1c08`.
+`0.1.0-pre.14`, `@sessionbus/kit` `0.5.9`, and the Sessionbus daemon
+`v0.5.9` at revision `b4855293e9296e6544f0c0c27a755dfd401f56b9`.
 Use the plugin source at
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh) and
 daemon release artifacts from
@@ -36,7 +36,7 @@ Run these exact probes immediately before starting:
 ```sh
 npm view @antst/dashi@0.1.2 version && npm view @antst/dashi-app@0.1.2 version
 npm view @antst/dashi-launcher@0.1.2 version && npm view @antst/dsh-file-uploads-none@0.1.2 version
-npm view @sessionbus/dsh@0.1.0-pre.14 version && npm view @sessionbus/kit@0.5.7 version
+npm view @sessionbus/dsh@0.1.0-pre.14 version && npm view @sessionbus/kit@0.5.9 version
 ```
 
 Expected output, in order:
@@ -47,7 +47,7 @@ Expected output, in order:
 0.1.2
 0.1.2
 0.1.0-pre.14
-0.5.7
+0.5.9
 ```
 
 An `E404` means stop; it is not permission to substitute a preview URL or a
@@ -206,7 +206,7 @@ printf 'lane cwd=%s\n%s\nunit=%s\n' "$LANE_CWD" "$SERVICE_PATH_LINE" "$SERVICE_U
 PATH="$SERVICE_PATH" command -v sessionbus
 SESSIONBUS_DAEMON_VERSION=$(PATH="$SERVICE_PATH" sessionbus --version)
 printf 'daemon version=%s\n' "$SESSIONBUS_DAEMON_VERSION"
-test "$SESSIONBUS_DAEMON_VERSION" = 'sessionbus v0.5.7 (53c5f80e281f39e54bcee1fbe8a253da86ad1c08)'
+test "$SESSIONBUS_DAEMON_VERSION" = 'sessionbus v0.5.9 (b4855293e9296e6544f0c0c27a755dfd401f56b9)'
 if PATH="$SERVICE_PATH" command -v sessionbus-dsh dsh >/dev/null 2>&1; then
   printf '%s\n' 'service PATH already resolves sessionbus-dsh and dsh'
 else
@@ -226,7 +226,7 @@ active service:
 lane cwd=/home/antst/e2e-work
 PATH=/home/antst/.local/bin:/usr/local/bin:/usr/bin:/bin
 /home/antst/.local/bin/sessionbus
-daemon version=sessionbus v0.5.7 (53c5f80e281f39e54bcee1fbe8a253da86ad1c08)
+daemon version=sessionbus v0.5.9 (b4855293e9296e6544f0c0c27a755dfd401f56b9)
 service PATH does not resolve sessionbus-dsh and dsh
 Environment=<redacted>
 EnvironmentFile=<redacted>
@@ -725,7 +725,7 @@ if ! sed '/^snapshots:/,$d' "$DSH_HOME/profiles/dashi/pnpm-lock.yaml" | grep -Eq
 fi
 printf '%s\n' 'dashi profile DSH graph nonzero'
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @antst/dashi-app @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@sessionbus/kit/package.json")" = 0.5.7
+test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@sessionbus/kit/package.json")" = 0.5.9
 ```
 
 Expected output contains `dashi profile DSH graph nonzero`,
@@ -745,7 +745,7 @@ cd "$DSH_INSTALL_DIR"
 pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.14
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.1.5-rc.2 report headless
-test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.7
+test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.9
 ```
 
 Expected output reports `@sessionbus/dsh 0.1.0-pre.14` and a nonzero host DSH
@@ -774,7 +774,7 @@ repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.1.5-rc.2 optional sessionbus
 remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
 pnpm --dir "$DSH_HOME/profiles/sessionbus" list --depth 0 @sessionbus/dsh
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/sessionbus/node_modules/@sessionbus/kit/package.json")" = 0.5.7
+test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/sessionbus/node_modules/@sessionbus/kit/package.json")" = 0.5.9
 grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/sessionbus/cordis.patch.yml"
 grep -F 'config: { product: dashi }' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/cordis.patch.yml"
 ```
@@ -800,7 +800,7 @@ test ! -e "$DSH_HOME/profiles/web"
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.1.5-rc.2 optional web
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
 remove_untracked_nested_packages "$DSH_HOME/profiles/web"
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.7
+test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.9
 grep -F 'config: { product: dsh }' "$DSH_HOME/profiles/web/cordis.patch.yml"
 if grep -Eq '(^|[[:space:]{,])groups:' "$DSH_HOME/profiles/web/cordis.patch.yml"; then
   printf '%s\n' 'unexpected configured groups in web profile' >&2
@@ -893,7 +893,7 @@ active
 PATH=/home/antst/node_modules/.bin:/home/antst/.local/bin:/usr/local/bin:/usr/bin:/bin
 /home/antst/node_modules/.bin/sessionbus-dsh
 /home/antst/node_modules/.bin/dsh
-sessionbus v0.5.7 (53c5f80e281f39e54bcee1fbe8a253da86ad1c08)
+sessionbus v0.5.9 (b4855293e9296e6544f0c0c27a755dfd401f56b9)
 sessionbus-dsh advertised: true
 ```
 
@@ -1192,7 +1192,7 @@ an ordinary message reaches it. In dashi,
 user message and the Sessionbus operating instructions are injected as skill
 context before the model turn.
 
-Use one long-lived originating controller built against Sessionbus SDK 0.5.7
+Use one long-lived originating controller built against Sessionbus SDK 0.5.9
 or later for each spawn cell, and keep it connected through the terminal
 record, acknowledgment, and close. Older callers with the pre-`policy.trace`
 closed response schema can reject the successful Open response and disconnect;
@@ -1356,7 +1356,7 @@ nonempty `SESSIONBUS_SOCKET`, otherwise
 path and create one root DSH session. That root advertises product `dsh` and
 group `peer-dev`; no profile row supplies the group.
 
-Use the long-lived SDK 0.5.7+ controller as a same-group sender. Keep a
+Use the long-lived SDK 0.5.9+ controller as a same-group sender. Keep a
 separate persistent native observer in `peer-dev` as the reply target because
 the acceptance controller is not a model and may reject incoming deliveries.
 The controller first lists and then messages the exact idle web session.

@@ -5,7 +5,7 @@ Source and issue tracking live in
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh), and
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
-It depends on the exact `@sessionbus/kit` version `0.5.5`.
+It depends on the exact `@sessionbus/kit` version `0.5.9`.
 It supports DeepSeek Harness `0.1.5-rc.2` and later; tested versions are
 `0.1.5-rc.2`, `0.1.6-alpha.1`, and `0.1.6-alpha.2`.
 A DSH profile must install every DSH package at one uniform DSH version; adding
