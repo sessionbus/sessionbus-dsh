@@ -67,17 +67,16 @@ does not prove collection, and a missing pointer does not prove failure.
 
 ## Choose independent lane policies
 
-Fresh lanes default to `persistent:false`, `auto_close_ms:60000`, and
-`idle_message:"run"`. Persistence controls owner-exit cleanup. Auto-close
-starts after a native completed, failed, or interrupted terminal, not at Open;
-zero disables it. An unavailable record without a native terminal starts no new
-grace. Collection does not extend the deadline.
+Fresh lanes default to `persistent:false` and `auto_close_ms:60000`.
+Persistence controls owner-exit cleanup. Auto-close starts after a native
+completed, failed, or interrupted terminal, not at Open; zero disables it. An
+unavailable record without a native terminal starts no new grace. Collection
+does not extend the deadline.
 
-Fresh lanes and interactive sessions wake on an idle message. The legacy
-`idle_message:"stage"` value is normalised to `run`; there is no opt-out.
-Parent-owned lanes notify their authenticated owner unless `notify:false`.
-Persistent lanes require an explicit `notify_target` or one retained on resume.
-Resume preserves persistence and an omitted idle policy, but omitted
+Fresh lanes and interactive sessions wake on an idle message; there is no
+opt-out. Parent-owned lanes notify their authenticated owner unless
+`notify:false`. Persistent lanes require an explicit `notify_target` or one
+retained on resume. Resume preserves persistence, but omitted
 `auto_close_ms` resets to 60000. Persistence can be promoted, not demoted.
 Inspect returned settings.
 

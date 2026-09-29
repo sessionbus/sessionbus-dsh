@@ -1186,8 +1186,8 @@ stops the run before the real-daemon turn.
 
 Plugin pre.14 makes both interactive and managed-lane delivery active. An
 interactive message admitted while its DSH root is idle starts a native turn.
-For a lane, the daemon's default `idle_message: run` policy seeds one managed
-Run when an ordinary message reaches the idle worker. In dashi,
+For a lane, the daemon always wakes the idle worker with one managed Run when
+an ordinary message reaches it. In dashi,
 `/sessionbus <free text>` is a DSH skill invocation: the typed text remains the
 user message and the Sessionbus operating instructions are injected as skill
 context before the model turn.
@@ -1233,8 +1233,7 @@ the shell and not printed.
 Through the one long-lived controller, make the spawn, ordinary send, and wait
 calls below. Replace `LANE_CWD` only with the exact `$LANE_CWD` printed during
 preflight (`/home/antst/e2e-work` on umka-dev1); replace returned IDs only
-after successful calls. Deliberately omit `idle_message`: this proves the
-daemon's current default rather than an explicit override.
+after successful calls.
 
 ```json
 {"id":"lane-spawn","action":"spawn","arguments":{"product":"sessionbus-dsh","host":"umka-dev1","name":"umka-dev1-lane-check","open":{"cwd":"LANE_CWD"},"extra_groups":["peer-dev"],"persistent":false,"auto_close_ms":0,"notify":false}}
@@ -1242,10 +1241,10 @@ daemon's current default rather than an explicit override.
 {"id":"lane-wait","action":"wait","arguments":{"session_id":"RETURNED_SESSION_ID","timeout_ms":150000}}
 ```
 
-Expected spawn result: a new session ID with host suffix `@umka-dev1` and an
-effective policy containing `idle_message: run`. The send returns one admitted
-delivery. The idle worker starts one managed Run without an explicit `run` or
-`start` call. Expected wait handling depends on the complete retained record:
+Expected spawn result: a new session ID with host suffix `@umka-dev1`. The
+send returns one admitted delivery. The idle worker starts one managed Run
+without an explicit `run` or `start` call. Expected wait handling depends on
+the complete retained record:
 
 - `state: done` is PASS only when `result.outcome: completed` and
   `result.result` is exactly `lane hello`. Record

@@ -15,7 +15,6 @@ function argumentSchema() {
   for (const field of ["targets", "extra_groups"]) properties[field] = { type: "array", items: { type: "string" } };
   for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
   for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
-  properties.idle_message = { type: "string", enum: ["stage", "run"] };
   properties.trace = { type: "string", enum: ["off", "events", "content"] };
   properties.mode = { type: "string", enum: ["off", "events", "content"] };
   const open = {};

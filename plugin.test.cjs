@@ -458,7 +458,7 @@ test("kit preserves spawn policy.trace through peer and lane callers", { timeout
   const socket = path.join(directory, "bus.sock");
   const result = {
     session_id: "spawned-session",
-    policy: { persistent: false, auto_close_ms: 60000, idle_message: "stage", notify: false, trace: "content" },
+    policy: { persistent: false, auto_close_ms: 60000, notify: false, trace: "content" },
   };
   const hellos = [], spawns = [], streams = new Set(), laneOpened = deferred();
   const server = net.createServer((stream) => {
@@ -771,7 +771,7 @@ test("lane ended-run NotRunning reaches the kit reply as an RPC error", { timeou
           send({ id: frame.id, result: {} });
           send({ id: 100, method: "session.open", params: {
             name: "boundary", groups: [],
-            policy: { persistent: false, auto_close_ms: 60000, idle_message: "run", notify: false }, open: {},
+            policy: { persistent: false, auto_close_ms: 60000, notify: false }, open: {},
           } });
         } else if (frame.id === 100 && frame.result?.session_id) {
           send({ id: 101, method: "turn.execute", params: { session_id: frame.result.session_id, run_id: "boundary/1", input: "hold" } });
@@ -1000,9 +1000,8 @@ test("peer mode tracks roots, re-hellos titles, and binds tools to the executing
   assert.match(skill.content, /## Delivery dispositions/u);
   assert.match(skill.content, /## Collect and acknowledge runs/u);
   assert.match(skill.content, /## Choose independent lane policies/u);
-  assert.match(skill.content, /Fresh lanes default to `persistent:false`, `auto_close_ms:60000`, and\s+`idle_message:"run"`/u);
-  assert.match(skill.content, /Fresh lanes and interactive sessions wake on an idle message/u);
-  assert.match(skill.content, /`idle_message:"stage"` value is normalised to `run`; there is no opt-out/u);
+  assert.match(skill.content, /Fresh lanes default to `persistent:false` and `auto_close_ms:60000`/u);
+  assert.match(skill.content, /Fresh lanes and interactive sessions wake on an idle message; there is no\s+opt-out/u);
   assert.match(skill.content, /## Trace direct children/u);
   assert.match(skill.content, /copy its `from` attribute exactly as the send `target`/u);
   assert.equal(ctx.command, undefined);
@@ -1167,7 +1166,6 @@ test("native tool arguments expose the exact closed MCP union", () => {
         extra_groups: { type: "array", items: { type: "string" } },
         persistent: { type: "boolean" }, notify: { type: "boolean" }, forget: { type: "boolean" },
         auto_close_ms: { type: "integer" }, timeout_ms: { type: "integer" },
-        idle_message: { type: "string", enum: ["stage", "run"] },
         trace: { type: "string", enum: ["off", "events", "content"] },
         mode: { type: "string", enum: ["off", "events", "content"] },
         open: {
@@ -1230,8 +1228,8 @@ for (const mode of ["peer", "lane"]) {
       ["send", { target: "recipient", message: "Complete message" }],
       ["send", { targets: ["one", "two"], message: "Complete message" }],
       ["send", { group: "team", host: "host", message: "Complete message" }],
-      ["spawn", { product: "dashi", name: "worker", extra_groups: ["team"], persistent: true, notify: false, notify_target: "owner", auto_close_ms: 0, idle_message: "stage", trace: "events", open: { cwd: "/workspace", permission_mode: "ask", model: "model", reasoning_effort: "high", arguments: ["--flag"] } }],
-      ["spawn", { resume_session_id: "previous", idle_message: "run", trace: "off" }],
+      ["spawn", { product: "dashi", name: "worker", extra_groups: ["team"], persistent: true, notify: false, notify_target: "owner", auto_close_ms: 0, trace: "events", open: { cwd: "/workspace", permission_mode: "ask", model: "model", reasoning_effort: "high", arguments: ["--flag"] } }],
+      ["spawn", { resume_session_id: "previous", trace: "off" }],
       ["trace", { session_id: "worker", mode: "content" }],
       ["run", { session_id: "worker", input: "go" }],
       ["wait", { session_id: "worker", run_id: "run", timeout_ms: 0 }],
@@ -1242,7 +1240,7 @@ for (const mode of ["peer", "lane"]) {
       assert.deepEqual(forwarded.at(-1), { action, args });
       assert.equal(forwarded.at(-1).args, args);
     }
-    assert.equal(new Set(requests.flatMap(([, args]) => Object.keys(args))).size, 22);
+    assert.equal(new Set(requests.flatMap(([, args]) => Object.keys(args))).size, 21);
     for (const [args, message] of [
       [{ target: "recipient", message: "Complete message", summary: "extra" }, /arguments\.summary is not supported/],
       [{ unexpected: true }, /arguments\.unexpected is not supported/],
