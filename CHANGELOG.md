@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-pre.16 — 2026-10-07
+
+- Pin `@sessionbus/kit` 0.5.12, the published kit for Sessionbus v0.5.12. A failed lane interrupt callback now answers Internal ("product interrupt failed"), and a later interrupt calls the product again; before, the caller got a false success and further interrupts of that run were not forwarded. Successful and in-flight duplicate interrupts are unchanged. A superseded interactive peer now ends without waiting for its courtesy reply write, and a failed write is handled; with kit 0.5.9 that failure was an unhandled promise rejection, which terminates a Node process under default rejection handling.
+
 ## 0.1.0-pre.15 — 2026-09-29
 
 - Require Sessionbus v0.5.9, a flag day: the unreleased lane policy field `idle_message` is removed from the tool schema and rejected as an argument, and message wake is mandatory. Upgrade the daemons and hub first, including the offline lane-row edit in the [core v0.5.8 release notes](https://github.com/sessionbus/sessionbus/releases/tag/v0.5.8).

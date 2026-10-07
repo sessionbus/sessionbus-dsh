@@ -1,6 +1,6 @@
 {
   "name": "@sessionbus/dsh",
-  "version": "0.1.0-pre.15",
+  "version": "0.1.0-pre.16",
   "type": "commonjs",
   "main": "plugin.cjs",
   "exports": "./plugin.cjs",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@antst/dsh-file-uploads-none": "^0.1.0",
-    "@sessionbus/kit": "0.5.9"
+    "@sessionbus/kit": "0.5.12"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

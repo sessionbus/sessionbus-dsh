@@ -5,7 +5,7 @@ Source and issue tracking live in
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh), and
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
-It depends on the exact `@sessionbus/kit` version `0.5.9`.
+It depends on the exact `@sessionbus/kit` version `0.5.12`.
 It supports DeepSeek Harness `0.1.5-rc.2` and later; tested versions are
 `0.1.5-rc.2`, `0.1.6-alpha.1`, and `0.1.6-alpha.2`.
 A DSH profile must install every DSH package at one uniform DSH version; adding
@@ -23,9 +23,12 @@ lifetime (trusted host).
 ## Installation
 
 See [Installing a DSH lane host](docs/HOST-INSTALL.md) for the complete
-preflight, installation, verification, and rollback procedure.
-Its provider-parity step must be completed for both the lane and plain peer
-profiles before either one runs a model turn.
+preflight, installation, verification, and rollback procedure for
+`@sessionbus/dsh` `0.1.0-pre.15` with kit `0.5.9`. It does not install or
+validate `0.1.0-pre.16`. Dashi acceptance of pre.16 requires an
+`@antst/dashi-app` release that pins `@sessionbus/dsh` `0.1.0-pre.16`.
+The runbook's provider-parity step must be completed for both the lane and plain
+peer profiles before either one runs a model turn.
 
 Create the base-only lane profile for the package-owned `sessionbus-dsh`
 product with:
