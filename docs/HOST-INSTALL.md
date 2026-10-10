@@ -1120,29 +1120,26 @@ steps stay unchanged.
 
 ## 5. Match the selected provider in model-running profiles
 
-Both the `sessionbus` lane and the plain `web` peer run model turns under the
-host's global default selection. The settings-file provider defaults to
-`$DSH_HOME/settings.yaml` (`packages/settings/settings-file/src/index.ts:50-57`),
-and the selection is stored at `agent-default-model.provider`
-(`packages/core/agent-default-model/src/index.ts:20-37,76-78`). Read and print
-that provider name only; do not print the rest of the settings document:
+The `sessionbus` lane and the plain `web` peer use their own active profile's
+`agent-default-model` selection. Alpha.2 moved the legacy settings document
+into profile configuration (`dsh-settings/lib/index.js:343-362`); do not read
+`$DSH_HOME/settings.yaml`. Record the intended provider name from the owner's
+configuration before adding provider packages. The worked example uses the
+base bundle's `deepseek-official`; replace this explicit choice when the owner
+uses another provider. The offline probe below can independently resolve a
+profile's actual selection through the native settings API when its provider
+argument is omitted. Print the provider name only, never configuration or
+credential values:
 
 ```sh
-MODEL_PROVIDER=$(node --input-type=module - "$DSH_HOME/settings.yaml" "$DSH_INSTALL_DIR/node_modules/@deepseek-ai/dsh/package.json" <<'NODE'
-import { readFileSync, realpathSync } from 'node:fs'
-import { createRequire } from 'node:module'
-const [settingsFile, anchor] = process.argv.slice(2)
-const require = createRequire(realpathSync.native(anchor))
-const { parse } = require('yaml')
-const provider = parse(readFileSync(settingsFile, 'utf8'))?.['agent-default-model']?.provider
-if (typeof provider !== 'string' || provider.length === 0) throw new Error('settings agent-default-model.provider is missing')
-process.stdout.write(provider)
-NODE
-)
+MODEL_PROVIDER=deepseek-official
 printf 'selected provider=%s\n' "$MODEL_PROVIDER"
 ```
 
-Expected output is one non-secret line such as `selected provider=openai-codex`.
+Expected output for this worked example is `selected provider=deepseek-official`.
+If the two profiles select different providers, verify each with its own
+explicit provider or omit the argument to check its native selection; do not
+assume a shared global default.
 
 The alpha.2 base bundle registers `@deepseek-ai/dsh-llm-deepseek-api-key` as row
 `llm-deepseek` (`dsh-base/cordis.patch.yml:513-514`); that plugin
@@ -1239,7 +1236,12 @@ The alpha.2 LLM service exposes
 `listProviders()` (`dsh-llm/lib/index.js:1893`). Write this bounded
 probe into the rollback directory. It passes the native launch environment to
 DSH without printing it, suppresses boot output, makes no provider request, and prints
-only its one result line:
+only its one result line. An explicit provider argument bypasses all settings
+lookup. When omitted, the probe uses the native settings document location
+and active `agent-default-model` entry (`dsh-settings/lib/index.js:399-402,413-451`)
+rather than reading the removed `settings.yaml` (`:343-362`). Home resolution
+uses `dsh-home-paths/lib/index.js:109-110`. Unavailable native settings or a
+missing selection fails clearly; no guessed file or provider is substituted:
 
 ```sh
 cat >"$ROLLBACK_ROOT/check-profile-provider.mjs" <<'NODE'
@@ -1260,13 +1262,13 @@ const profile = process.argv[2]
 if (profile === undefined) throw new Error('usage: check-profile-provider.mjs PROFILE [INSTALL_DIR] [PROVIDER] [CWD]')
 const home = process.env.HOME
 if (home === undefined) throw new Error('HOME is required')
-const dshHome = process.env.DSH_HOME ?? join(home, '.dsh')
 const installDir = process.argv[3] ?? home
 const dshManifest = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
 const anchoredRequire = createRequire(dshManifest)
-const { parse } = anchoredRequire('yaml')
-const provider = process.argv[4] ?? parse(readFileSync(join(dshHome, 'settings.yaml'), 'utf8'))?.['agent-default-model']?.provider
-if (typeof provider !== 'string' || provider.length === 0) throw new Error('settings agent-default-model.provider is missing')
+const { resolveDshHome } = await import(pathToFileURL(anchoredRequire.resolve('@deepseek-ai/dsh-home-paths')).href)
+const dshHome = resolveDshHome()
+let provider = process.argv[4]
+if (provider !== undefined && provider.length === 0) throw new Error('explicit provider must be nonempty')
 const cwd = process.argv[5] ?? process.cwd()
 
 const dshLib = join(dirname(dshManifest), 'lib')
@@ -1295,6 +1297,16 @@ try {
     args: ['--no-open', '--port', '0'],
   })
   shutdown = boot.shutdown
+  if (provider === undefined) {
+    const settings = boot.ctx.get('settings')
+    if (!settings || typeof settings.describe !== 'function' || !settings.documentPath) {
+      throw new Error('native settings API/document path unavailable; supply an explicit provider')
+    }
+    provider = settings.describe({ redactSecrets: true }).find(value => value.ns === 'agent-default-model')?.value?.provider
+    if (typeof provider !== 'string' || provider.length === 0) {
+      throw new Error('native settings agent-default-model.provider unavailable; supply an explicit provider')
+    }
+  }
   providers = boot.ctx.llm.listProviders().map(value => value.id).sort()
 } finally {
   try {
@@ -1326,13 +1338,27 @@ for profile_name in sessionbus web; do
     printf 'provider check failed for profile=%s\n' "$profile_name" >&2
     exit 1
   fi
+  if ! (
+    cd "$LANE_CWD" &&
+    env -u SESSIONBUS_LAUNCH_TOKEN -u SESSIONBUS_GROUPS DSH_HOME="$DSH_HOME" \
+      node "$ROLLBACK_ROOT/check-profile-provider.mjs" "$profile_name" "$DSH_INSTALL_DIR"
+  ); then
+    printf 'native provider selection check failed for profile=%s\n' "$profile_name" >&2
+    exit 1
+  fi
 done
 ```
 
-Expected output, with the provider selected on this host, is:
+The first invocation checks the explicitly requested provider's registration;
+the second omits the provider and checks the profile's actual native selection.
+Its subshell preserves the lane working directory without adding a probe flag
+or changing the operator's shell directory. Either failure stops the loop.
+Expected output for the worked example (both select `deepseek-official`) is:
 
 ```text
 profile=sessionbus provider=deepseek-official registered
+profile=sessionbus provider=deepseek-official registered
+profile=web provider=deepseek-official registered
 profile=web provider=deepseek-official registered
 ```
 
