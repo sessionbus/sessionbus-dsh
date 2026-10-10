@@ -152,6 +152,7 @@ npm install --prefix "$home" --save-exact --before "$release_cutoff" \
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
 if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
   npm install --prefix "$home" --save-exact "@antst/dashi-launcher@$DASHI_APP_VERSION"
+  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
 fi
 dsh="$home/node_modules/.bin/dsh"
 export PATH="$home/node_modules/.bin:$PATH"

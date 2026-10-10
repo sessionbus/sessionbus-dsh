@@ -184,7 +184,11 @@ test "$(readlink -f "$DSH_BIN")" = "$(readlink -f "$HOME/node_modules/.bin/dsh")
 DSH_INSTALL_DIR=$HOME
 test -d "$DSH_HOME/profiles/dashi"
 test -d "$DSH_HOME/profiles/sessionbus"
-test ! -e "$DSH_HOME/profiles/web"
+if [ -e "$DSH_HOME/profiles/web" ]; then
+  printf '%s\n' 'web profile: existing'
+else
+  printf '%s\n' 'web profile: absent'
+fi
 printf '%s\n' 'DSH_INSTALL_DIR selected'
 ```
 
@@ -193,8 +197,12 @@ Expected output:
 ```text
 DSH install locations:
 /home/antst
+web profile: existing
 DSH_INSTALL_DIR selected
 ```
+
+The presence line is `web profile: existing` or `web profile: absent`; both
+are valid inventory results. Preserve an existing web profile in its snapshot.
 
 If an assertion fails, stop and report the inventory. Do not translate the
 commands below into `pnpm --global`.
@@ -341,8 +349,9 @@ Expected final line:
 ```
 
 Define one bounded repair for the host and every profile graph. It inspects the
-lock records, promotes every stale DSH peer provider to an exact direct
-dependency in one command, installs that frozen graph, launches the real DSH
+lock records, promotes every stale DSH peer provider and stale, missing or
+duplicate CLI companion to an exact direct dependency in one command,
+installs that frozen graph, launches the real DSH
 once to heal its shared module fallback, and checks the authoritative paths.
 A profile graph with no DSH records is coherent. It never deletes
 `node_modules`, edits or deletes a lockfile, prunes a fallback extra, or runs a
@@ -350,6 +359,37 @@ broad dedupe. The embedded closure checker reads only `HOME` and `DSH_HOME`
 from the environment and prints only inventory/result lines:
 
 ```sh
+node --input-type=module - "$DSH_BIN" "$ROLLBACK_ROOT/cli-companion-pins.json" <<'NODE'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+const [bin, destination] = process.argv.slice(2)
+const anchor = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json')
+const { dependencies } = JSON.parse(readFileSync(anchor, 'utf8'))
+const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, declaration]) => {
+  if (!name.startsWith('@deepseek-ai/') || name.startsWith('@deepseek-ai/dsh')) return []
+  const floor = /^(?:\^|~|>=)?(\d+\.\d+\.\d+(?:-[\da-z.-]+)?)$/i.exec(declaration)
+  if (!floor) throw new Error(`cannot derive CLI minimum for ${name}: ${declaration}`)
+  return [[name, floor[1]]]
+}))
+writeFileSync(destination, `${JSON.stringify(pins)}\n`)
+console.log(`CLI companion pins: ${JSON.stringify(pins)}`)
+NODE
+cat >"$ROLLBACK_ROOT/check-cli-companions.mjs" <<'NODE'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+const [root, pinFile] = process.argv.slice(2)
+const pins = JSON.parse(readFileSync(pinFile, 'utf8'))
+const lock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n', 1)[0]
+const records = [...lock.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)]
+for (const [name, pin] of Object.entries(pins)) {
+  const versions = records.filter(([, packageName]) => packageName === name).map(([, , version]) => version)
+  if (versions.length !== 1 || versions[0] !== pin) {
+    throw new Error(`${name} must resolve once at CLI minimum ${pin}; found ${versions.join(', ') || 'none'}`)
+  }
+  console.log(`CLI companion ${name}@${pin}: one version`)
+}
+NODE
 cat >"$ROLLBACK_ROOT/check-profile-closure.mjs" <<'NODE'
 import {
   existsSync,
@@ -505,6 +545,7 @@ if (physicalMode !== 'report' && physical.some(record => record.version !== targ
   process.exitCode = 1
 }
 NODE
+  node "$ROLLBACK_ROOT/check-cli-companions.mjs" "$graph_root" "$ROLLBACK_ROOT/cli-companion-pins.json"
   node "$ROLLBACK_ROOT/check-profile-closure.mjs" "$profile" "$DSH_INSTALL_DIR"
   printf 'DSH graph coherent: %s\n' "$graph_root"
 }
@@ -515,12 +556,17 @@ repair_dsh_graph() {
   physical_mode=${3:-optional}
   profile=${4:-headless}
   stale_file=$(mktemp)
-  if node --input-type=module - "$graph_root/pnpm-lock.yaml" "$target_version" "$stale_file" <<'NODE'
+  if node --input-type=module - "$graph_root/pnpm-lock.yaml" "$target_version" "$stale_file" "$ROLLBACK_ROOT/cli-companion-pins.json" <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs'
-const [file, target, staleFile] = process.argv.slice(2)
+const [file, target, staleFile, companionFile] = process.argv.slice(2)
 const packages = readFileSync(file, 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
-const records = [...packages.matchAll(/^  '?(@deepseek-ai\/dsh[^@']*)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
-const stale = [...new Set(records.filter(record => record.version !== target).map(record => record.name))].sort()
+const records = [...packages.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
+const stale = [...new Set(records.filter(record => record.name.startsWith('@deepseek-ai/dsh') && record.version !== target).map(record => `${record.name}@${target}`))]
+for (const [name, pin] of Object.entries(JSON.parse(readFileSync(companionFile, 'utf8')))) {
+  const versions = records.filter(record => record.name === name).map(record => record.version)
+  if (versions.length !== 1 || versions[0] !== pin) stale.push(`${name}@${pin}`)
+}
+stale.sort()
 writeFileSync(staleFile, stale.length ? `${stale.join('\n')}\n` : '')
 NODE
   then
@@ -533,9 +579,7 @@ NODE
   mapfile -t stale_packages <"$stale_file"
   rm "$stale_file"
   if [ "${#stale_packages[@]}" -gt 0 ]; then
-    pins=()
-    for package in "${stale_packages[@]}"; do pins+=("$package@$target_version"); done
-    pnpm --dir "$graph_root" add --save-exact "${pins[@]}"
+    pnpm --dir "$graph_root" add --save-exact "${stale_packages[@]}"
     pnpm --dir "$graph_root" install --frozen-lockfile
   fi
   if [ "$physical_mode" = report ]; then
@@ -639,6 +683,11 @@ DSH physical projection: REPORTED
 DSH physical packages: <inventory count>
 DSH physical versions: <one or more reported versions>
 DSH physical <version>: <count>
+CLI companion @deepseek-ai/cordis@4.0.5-alpha.1: one version
+CLI companion @deepseek-ai/cordis-plugin-include@1.0.10-alpha.1: one version
+CLI companion @deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1: one version
+CLI companion @deepseek-ai/cordis-plugin-timer@1.1.7-alpha.1: one version
+CLI companion @deepseek-ai/schemastery@3.18.5-alpha.1: one version
 profile=headless
 expected=<closure count>
 current=<same closure count>
@@ -649,6 +698,19 @@ extra_entry=<name>: <link target> (<version>)
 DSH graph coherent: /home/antst
 host DSH graph nonzero
 ```
+
+Worked companion example (pnpm 10.28.1, hoisted, auto-install-peers=false,
+no `.pnpmfile`): a fresh alpha.2 CLI plus pre.17 consumer resolved one copy of
+each companion at the five minima above. Retaining a direct Cordis 4.0.2 pin
+instead left both 4.0.2 and 4.0.5-alpha.1 in the lock and physical root Cordis
+at 4.0.2, while all 263 DSH records were still alpha.2. The former DSH-only
+check missed that split. The companion check now refuses it with
+`@deepseek-ai/cordis must resolve once at CLI minimum 4.0.5-alpha.1; found 4.0.2, 4.0.5-alpha.1`.
+The existing repair collects `@deepseek-ai/cordis@4.0.5-alpha.1` in the same
+exact-pin add as any other stale entries. Exact CLI companion pins repaired
+the scratch graph to one version each without a hook. These are reproduction
+counts, not expected host/profile counts; derive pins once from the executing
+CLI, then assert every resulting lock and the native closure on the real host.
 
 Before any profile/plugin writes, assert the executing host meets the declared
 DSH floor (the daemon v0.5.9+ check was in section 1):
