@@ -22,10 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         dsh:
-          - 0.1.5-rc.2
-          - 0.1.6-alpha.1
-          - 0.1.6-alpha.2
-          - 0.1.5-rc.3
+          - 0.2.1-alpha.2
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -34,14 +31,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: npm ci --omit=peer --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts --config.auto-install-peers=false
       - run: npm test
         env:
           DSH_TEST_VERSION: ${{ matrix.dsh }}
       - run: .github/scripts/prove-packed-install.sh "${{ matrix.dsh }}"
 
   peer-floor:
-    name: DSH 0.1.2-rc.1 peer floor
+    name: DSH 0.2.1-alpha.2 peer floor
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -52,7 +49,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: npm ci --omit=peer --ignore-scripts
+      - run: pnpm install --frozen-lockfile --ignore-scripts --config.auto-install-peers=false
       - run: .github/scripts/prove-peer-floor.sh
 
   gate:

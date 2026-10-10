@@ -1,0 +1,33 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@antst/dsh-file-uploads-none':
+        specifier: ^0.1.0
+        version: 0.1.3
+      '@sessionbus/kit':
+        specifier: 0.5.12
+        version: 0.5.12
+
+packages:
+
+  '@antst/dsh-file-uploads-none@0.1.3':
+    resolution: {integrity: sha512-TRlh9ZJisI0ng1Su8Fig+xRYfuqCgbxwgK3HiGMpzGJZA8i3hE9ff0b7TOvKOzS4aguau74yiN0RCo16mZo7EQ==}
+    engines: {node: ^22.19.0 || >=24.0.0}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+
+  '@sessionbus/kit@0.5.12':
+    resolution: {integrity: sha512-Rydn+tWNs2SaOA/RwigoFjmdOXpACcSDFrKiXxBiPFh6s3FUSSMkN5kocFmhKSLUWh0HdOhkCXcLaT4mz98XRQ==}
+
+snapshots:
+
+  '@antst/dsh-file-uploads-none@0.1.3': {}
+
+  '@sessionbus/kit@0.5.12': {}

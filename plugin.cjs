@@ -173,7 +173,7 @@ class NativeSession {
   }
 
   message(body) {
-    return this.createUserMessage({ content: [{ type: "text", text: body }], source: { kind: "plugin", plugin: name, form: "relay" } });
+    return this.createUserMessage({ content: [{ type: "text", text: body }], source: { kind: `plugin:${name}`, form: "relay" } });
   }
 
   receipt(message, session, cancel) {
