@@ -115,7 +115,7 @@ function installAnchor() {
   for (const directory of String(process.env.PATH || "").split(path.delimiter)) {
     const command = path.resolve(directory, process.platform === "win32" ? "dsh.cmd" : "dsh");
     const installed = existsSync(command) && packageDir(realpathSync(command), "@deepseek-ai/dsh");
-    if (installed) return path.join(installed, "package.json");
+    if (installed) return realpathSync(path.join(installed, "package.json"));
   }
 }
 

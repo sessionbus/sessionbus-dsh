@@ -28,6 +28,43 @@ function host(version) {
 const supportedHost = host("0.2.1-alpha.2");
 process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
 
+test("installer canonicalises a pnpm wrapper's symlinked CLI anchor before finding app-boot", () => {
+  for (const version of ["0.2.1-alpha.2", "0.1.5-rc.2"]) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-isolated-"));
+    const modules = path.join(root, "node_modules");
+    const virtual = path.join(modules, ".pnpm/dsh-generation/node_modules/@deepseek-ai");
+    const cli = path.join(virtual, "dsh");
+    const boot = path.join(virtual, "dsh-app-boot");
+    mkdirSync(cli, { recursive: true });
+    mkdirSync(path.join(boot, "node_modules"), { recursive: true });
+    mkdirSync(path.join(modules, "@deepseek-ai"));
+    mkdirSync(path.join(modules, ".bin"));
+    writeFileSync(path.join(cli, "package.json"), JSON.stringify({ name: "@deepseek-ai/dsh", version }));
+    writeFileSync(path.join(boot, "package.json"), '{"name":"@deepseek-ai/dsh-app-boot"}');
+    symlinkSync(semverDir, path.join(boot, "node_modules/semver"));
+    symlinkSync(cli, path.join(modules, "@deepseek-ai/dsh"));
+    // pnpm creates a real wrapper file, not a link to the virtual-store entry.
+    writeFileSync(path.join(modules, ".bin/dsh"), "#!/bin/sh\n# never executed: package is already installed\n");
+    assert.throws(() => createRequire(path.join(modules, "@deepseek-ai/dsh/package.json")).resolve("@deepseek-ai/dsh-app-boot"), { code: "MODULE_NOT_FOUND" });
+    const home = path.join(root, "home"), profile = path.join(home, "profiles/web");
+    mkdirSync(profile, { recursive: true });
+    const manifest = JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } });
+    const patch = "[]\n";
+    writeFileSync(path.join(profile, "package.json"), manifest);
+    writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
+    const result = spawnSync(process.execPath, [path.resolve("bin.mjs"), "--product", "dsh", "web"], {
+      encoding: "utf8", env: { ...process.env, DSH_HOME: home, PATH: `${path.join(modules, ".bin")}${path.delimiter}${process.env.PATH}` },
+    });
+    assert.equal(result.status, version === "0.2.1-alpha.2" ? 0 : 2, result.stderr);
+    assert.equal(readFileSync(path.join(profile, "package.json"), "utf8"), manifest);
+    if (version === "0.2.1-alpha.2") assert.match(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), /product: dsh/u);
+    else {
+      assert.equal(result.stderr, `sessionbus-dsh-install: installed DSH ${version} does not satisfy >=0.2.1-alpha.2; run docs/HOST-INSTALL.md preflight before upgrading\n`);
+      assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), patch);
+    }
+  }
+});
+
 test("installer refuses a below-floor host before installing or touching any profile", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-floor-"));
   const profile = path.join(home, "profiles/web");
