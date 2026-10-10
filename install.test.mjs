@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -27,6 +27,51 @@ function host(version) {
 }
 const supportedHost = host("0.2.1-alpha.2");
 process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
+
+test("runbook resolves verified-absent transitive-only lock records without moving unrelated resolutions", () => {
+  // Only lock repair is under test: no DSH package is installed or booted here.
+  const root = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-orphan-lock-"));
+  try {
+    mkdirSync(path.join(root, "fixture"));
+    writeFileSync(path.join(root, "fixture/package.json"), '{"name":"unrelated-fixture","version":"1.0.0"}\n');
+    writeFileSync(path.join(root, "package.json"), '{"private":true,"dependencies":{"unrelated-fixture":"file:./fixture"}}\n');
+    writeFileSync(path.join(root, ".npmrc"), "auto-install-peers=false\noffline=true\nignore-scripts=true\n");
+    const installed = spawnSync("pnpm", ["--dir", root, "install"], { encoding: "utf8", timeout: 30_000 });
+    assert.equal(installed.status, 0, installed.stderr);
+    const lock = path.join(root, "pnpm-lock.yaml");
+    const before = readFileSync(lock, "utf8");
+    const mixed = before.replace("packages:\n", "packages:\n\n  '@deepseek-ai/dsh-invariants@0.1.5-rc.2':\n    resolution: {integrity: sha512-AA==}\n")
+      .replace("snapshots:\n", "snapshots:\n\n  '@deepseek-ai/dsh-invariants@0.1.5-rc.2': {}\n");
+    assert.notEqual(mixed, before);
+    assert.match(mixed, /^  '@deepseek-ai\/dsh-invariants@0\.1\.5-rc\.2':$/mu);
+    writeFileSync(path.join(root, "cli-companion-pins.json"), "{}\n");
+    writeFileSync(path.join(root, "registry-version.mjs"), "export function registryHasVersion(name, version) { if (name !== '@deepseek-ai/dsh-invariants' || version !== '0.2.1-alpha.2') throw new Error('unexpected registry query'); return false; }\n");
+    const doc = readFileSync(new URL("./docs/HOST-INSTALL.md", import.meta.url), "utf8");
+    const matches = [...doc.matchAll(/(repair_dsh_graph\(\) \{[\s\S]*?\n\})\n\nprofile_lock_has_package\(\)/g)];
+    assert.equal(matches.length, 1);
+    const source = matches[0][1];
+    const fix = '  if [ "$absent_count" -gt 0 ] && [ "${#obsolete_direct[@]}" -eq 0 ] && [ "${#stale_packages[@]}" -eq 0 ]; then\n    pnpm --dir "$graph_root" install --lockfile-only --fix-lockfile --ignore-scripts || return\n  fi\n';
+    assert.ok(source.includes(fix));
+    for (const fixed of [false, true]) {
+      writeFileSync(lock, mixed);
+      const checked = spawnSync("bash", ["-e"], {
+        encoding: "utf8", timeout: 30_000,
+        env: { ...process.env, ROLLBACK_ROOT: root, DSH_BIN: "/bin/true" },
+        input: `check_dsh_graph() { :; }\n${fixed ? source : source.replace(fix, "")}\nrepair_dsh_graph "$ROLLBACK_ROOT" 0.2.1-alpha.2\n`,
+      });
+      assert.equal(checked.error, undefined, checked.error?.message);
+      assert.equal(checked.signal, null);
+      if (!fixed) {
+        assert.equal(checked.status, 1, checked.stderr);
+        assert.match(checked.stderr, /absent target package still in lock: @deepseek-ai\/dsh-invariants/u);
+      } else {
+        assert.equal(checked.status, 0, checked.stderr);
+        assert.match(checked.stdout, /absent target packages: zero lock records/u);
+        assert.equal(readFileSync(lock, "utf8"), before, "unrelated resolution bytes must remain unchanged");
+      }
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("installer canonicalises a pnpm wrapper's symlinked CLI anchor before finding app-boot", () => {
   for (const version of ["0.2.1-alpha.2", "0.1.5-rc.2"]) {

@@ -593,6 +593,7 @@ NODE
   fi
   pin_lines=$(node -e 'for (const pin of JSON.parse(require("fs").readFileSync(process.argv[1])).pins) console.log(pin)' "$stale_file") || return
   remove_lines=$(node -e 'for (const name of JSON.parse(require("fs").readFileSync(process.argv[1])).remove) console.log(name)' "$stale_file") || return
+  absent_count=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).absent.length)' "$stale_file") || return
   stale_packages=(); obsolete_direct=()
   if [ -n "$pin_lines" ]; then mapfile -t stale_packages <<<"$pin_lines"; fi
   if [ -n "$remove_lines" ]; then mapfile -t obsolete_direct <<<"$remove_lines"; fi
@@ -601,6 +602,9 @@ NODE
   fi
   if [ "${#stale_packages[@]}" -gt 0 ]; then
     pnpm --dir "$graph_root" add --save-exact "${stale_packages[@]}" || return
+  fi
+  if [ "$absent_count" -gt 0 ] && [ "${#obsolete_direct[@]}" -eq 0 ] && [ "${#stale_packages[@]}" -eq 0 ]; then
+    pnpm --dir "$graph_root" install --lockfile-only --fix-lockfile --ignore-scripts || return
   fi
   pnpm --dir "$graph_root" install --frozen-lockfile || return
   node --input-type=module - "$graph_root/pnpm-lock.yaml" "$stale_file" <<'NODE' || return
@@ -825,6 +829,14 @@ install must print both `Lockfile is up to date, resolution step is skipped` and
 `Already up to date`. This explicit cleanup is necessary because pnpm 10.28.1
 `prune` and `install --frozen-lockfile --force` both left such directories in
 place on a hoisted profile during the measured in-place-upgrade reproduction.
+
+If registry-verified obsolete names are only transitive lock records, with no
+direct removal or exact-pin add planned, the repair runs one
+`pnpm install --lockfile-only --fix-lockfile --ignore-scripts` before its frozen
+validation. Plain frozen install and plain `--lockfile-only` retained orphan
+records in a populated pnpm 10.28.1 fixture; `--fix-lockfile` removed them while
+preserving unrelated resolution bytes. A still-referenced obsolete package
+continues to fail the zero-absent-record assertion; it is never hand-deleted.
 
 ## 3. Upgrade dashi to 0.2.0-alpha.1 in place
 

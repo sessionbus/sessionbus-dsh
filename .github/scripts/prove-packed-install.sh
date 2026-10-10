@@ -150,6 +150,7 @@ npm install --prefix "$home" --save-exact --before "$release_cutoff" \
   "@deepseek-ai/dsh-agent@$version" "@deepseek-ai/dsh-agent-loop@$version" \
   "${cli_pins[@]}"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
+node "$root/.github/scripts/prove-runtime-resolution.mjs" "$home"
 if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
   npm install --prefix "$home" --save-exact "@antst/dashi-launcher@$DASHI_APP_VERSION"
   node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
