@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-pre.18 — 2026-10-10
+
+- Widen @antst/dsh-file-uploads-none to `^0.1.0 || ^0.2.0-alpha.1` so profiles pinning 0.2.0-alpha.1 share one provider copy while 0.1.3 remains supported (W-119). Stable 0.2.x is admitted; a prerelease on a different base, such as 0.2.1-alpha.x, is not and needs a later range change. No plugin runtime or wire behavior changes.
+
 ## 0.1.0-pre.17 — 2026-10-10
 
 - DSH flag day: require DSH 0.2.1-alpha.2 or newer and Sessionbus daemon v0.5.9 or newer (kit remains 0.5.12). Upgrade the host DSH graph first; the installer refuses below-floor hosts before changing a profile. Manual `pnpm add` bypasses this guard. Keep pre.16 on DSH 0.1.x until the host upgrade.
