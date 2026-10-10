@@ -44,6 +44,7 @@ test("runbook resolves verified-absent transitive-only lock records without movi
       .replace("snapshots:\n", "snapshots:\n\n  '@deepseek-ai/dsh-invariants@0.1.5-rc.2': {}\n");
     assert.notEqual(mixed, before);
     assert.match(mixed, /^  '@deepseek-ai\/dsh-invariants@0\.1\.5-rc\.2':$/mu);
+    assert.match(mixed.split("\nsnapshots:\n")[1] ?? "", /^  '@deepseek-ai\/dsh-invariants@0\.1\.5-rc\.2': \{\}$/mu);
     writeFileSync(path.join(root, "cli-companion-pins.json"), "{}\n");
     writeFileSync(path.join(root, "registry-version.mjs"), "export function registryHasVersion(name, version) { if (name !== '@deepseek-ai/dsh-invariants' || version !== '0.2.1-alpha.2') throw new Error('unexpected registry query'); return false; }\n");
     const doc = readFileSync(new URL("./docs/HOST-INSTALL.md", import.meta.url), "utf8");
