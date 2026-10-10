@@ -351,19 +351,38 @@ Expected final line:
 Define one bounded repair for the host and every profile graph. It inspects the
 lock records, promotes every stale DSH peer provider and stale, missing or
 duplicate CLI companion to an exact direct dependency in one command,
-installs that frozen graph, launches the real DSH
-once to heal its shared module fallback, and checks the authoritative paths.
+installs that frozen graph, boots the real DSH, and checks its native runtime
+resolution. The registry must answer successfully before any removal; only a
+reachable packument whose versions omit the target proves absence. Network,
+auth and registry errors stop the repair without removal. Remove only absent
+direct dependencies through pnpm; obsolete transitive records must disappear
+through resolution. The post-install check refuses any surviving absent record.
 A profile graph with no DSH records is coherent. It never deletes
 `node_modules`, edits or deletes a lockfile, prunes a fallback extra, or runs a
 broad dedupe. The embedded closure checker reads only `HOME` and `DSH_HOME`
 from the environment and prints only inventory/result lines:
 
 ```sh
-node --input-type=module - "$DSH_BIN" "$ROLLBACK_ROOT/cli-companion-pins.json" <<'NODE'
+cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
+import { spawnSync } from 'node:child_process'
+export function registryHasVersion(name, version) {
+  const query = spawnSync('npm', ['view', name, 'versions', '--json'], { encoding: 'utf8' })
+  if (query.status !== 0) throw new Error(query.stderr || query.stdout || `registry query exit ${query.status}`)
+  const answer = JSON.parse(query.stdout)
+  const versions = typeof answer === 'string' ? [answer] : answer
+  if (!Array.isArray(versions) || !versions.every(value => typeof value === 'string')) throw new Error(`invalid registry versions for ${name}`)
+  const available = versions.includes(version)
+  console.log(`registry ${name}@${version}: reachable packument, ${available ? 'PRESENT' : 'ABSENT'}`)
+  return available
+}
+NODE
+node --input-type=module - "$DSH_BIN" "$ROLLBACK_ROOT/cli-companion-pins.json" "$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-const [bin, destination] = process.argv.slice(2)
+import { pathToFileURL } from 'node:url'
+const [bin, destination, registryFile] = process.argv.slice(2)
+const { registryHasVersion } = await import(pathToFileURL(registryFile).href)
 const anchor = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json')
 const { dependencies } = JSON.parse(readFileSync(anchor, 'utf8'))
 const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, declaration]) => {
@@ -372,6 +391,9 @@ const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, dec
   if (!floor) throw new Error(`cannot derive CLI minimum for ${name}: ${declaration}`)
   return [[name, floor[1]]]
 }))
+for (const [name, version] of Object.entries(pins)) {
+  if (!registryHasVersion(name, version)) throw new Error(`CLI declares absent companion ${name}@${version}; stop, do not substitute a version`)
+}
 writeFileSync(destination, `${JSON.stringify(pins)}\n`)
 console.log(`CLI companion pins: ${JSON.stringify(pins)}`)
 NODE
@@ -391,105 +413,89 @@ for (const [name, pin] of Object.entries(pins)) {
 }
 NODE
 cat >"$ROLLBACK_ROOT/check-profile-closure.mjs" <<'NODE'
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  readdirSync,
-  readlinkSync,
-  realpathSync,
-} from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 
-const profile = process.argv[2]
-if (profile === undefined) throw new Error('usage: check-profile-closure.mjs PROFILE [INSTALL_DIR]')
-const home = process.env.HOME
-if (home === undefined) throw new Error('HOME is required')
-const dshHome = process.env.DSH_HOME ?? join(home, '.dsh')
-const installDir = process.argv[3] ?? home
-const installAnchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
-const modulesDir = join(dshHome, 'profiles/node_modules')
-
-function manifest(anchor) {
-  return JSON.parse(readFileSync(anchor, 'utf8'))
+const [profile, installDir = process.env.HOME] = process.argv.slice(2)
+if (!profile || !installDir) throw new Error('usage: check-profile-closure.mjs PROFILE [INSTALL_DIR]')
+const dshHome = process.env.DSH_HOME ?? join(process.env.HOME, '.dsh')
+const anchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
+const require = createRequire(anchor)
+const cli = JSON.parse(readFileSync(anchor, 'utf8'))
+const wanted = Object.fromEntries(Object.entries(cli.dependencies).flatMap(([name, declaration]) => {
+  if (!name.startsWith('@deepseek-ai/') || name.startsWith('@deepseek-ai/dsh')) return []
+  const floor = /^(?:\^|~|>=)?(\d+\.\d+\.\d+(?:-[\da-z.-]+)?)$/i.exec(declaration)
+  if (!floor) throw new Error(`cannot derive CLI minimum ${name}: ${declaration}`)
+  return [[name, floor[1]]]
+}))
+wanted['@deepseek-ai/dsh-base'] = cli.version
+function installedDir(name) {
+  for (const search of require.resolve.paths(name) ?? []) {
+    const candidate = join(search, name)
+    if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate)
+  }
+  throw new Error(`cannot resolve installation package ${name}`)
 }
-
-function packageDirFromAnchor(anchor, name) {
-  for (const searchPath of createRequire(anchor).resolve.paths(name) ?? []) {
-    const candidate = join(searchPath, name)
-    if (existsSync(join(candidate, 'package.json'))) return candidate
+function assertRuntimeSelection(name, version, resolved) {
+  const expected = JSON.parse(readFileSync(join(installedDir(name), 'package.json'), 'utf8'))
+  if (expected.name !== name || expected.version !== version) throw new Error(`installation manifest mismatch ${name}@${version}`)
+  const selected = resolved && JSON.parse(readFileSync(join(resolved.dir, 'package.json'), 'utf8'))
+  if (resolved?.name !== expected.name || resolved?.version !== expected.version ||
+      selected?.name !== expected.name || selected?.version !== expected.version) {
+    throw new Error(`runtime selection mismatch ${name}: ${selected?.version ?? 'missing'} at ${resolved?.dir ?? 'missing'}`)
+  }
+  console.log(`runtime ${name}@${selected.version} -> ${realpathSync(resolved.dir)}: PASS`)
+}
+const [{ runProfile }, { loadLayeredEnv }] = await Promise.all([
+  import(pathToFileURL(join(dirname(anchor), 'lib/profile-boot.js')).href),
+  import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href),
+])
+const overlay = mkdtempSync(join(tmpdir(), 'dsh-runtime-resolution-check-'))
+const patchFile = join(overlay, 'no-task-or-bus.yml')
+const disabled = profile === 'headless' ? ['headless-startup', 'headless-runner'] : profile === 'dashi' ? ['dashi'] : ['sessionbus']
+writeFileSync(patchFile, disabled.map(id => `- id: ${id}\n  disabled: true\n`).join(''))
+let shutdown
+const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write
+try {
+  // Web startup can print a token-bearing URL; do not print native startup output.
+  process.stdout.write = process.stderr.write = () => true
+  const boot = await runProfile({
+    environment: loadLayeredEnv('dsh'), profile, patchFiles: [patchFile],
+    args: profile === 'web' ? ['--no-open', '--port', '0'] : [],
+  })
+  shutdown = boot.shutdown
+  process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite
+  const packages = boot.ctx.pluginPackages
+  if (!packages?.current) throw new Error('native runtime resolution not mounted')
+  const importer = pathToFileURL(join(dshHome, 'profiles', profile, 'cordis.yml')).href
+  for (const [name, version] of Object.entries(wanted)) {
+    const resolved = packages.packageOf(name, importer)
+    assertRuntimeSelection(name, version, resolved)
+  }
+  const entries = packages.current.entries
+  let current = 0
+  for (const entry of entries) {
+    const manifest = JSON.parse(readFileSync(join(entry.packageDir, 'package.json'), 'utf8'))
+    if (manifest.name !== entry.name || manifest.version !== entry.version) throw new Error(`runtime manifest mismatch ${entry.name}`)
+    if (entry.name.startsWith('@deepseek-ai/dsh') && manifest.version !== cli.version) throw new Error(`mixed runtime ${entry.name}@${manifest.version}`)
+    current++
+  }
+  console.log(`profile=${profile}\nexpected=${entries.length}\ncurrent=${current}\nmissing=0\nwrong=0`)
+  const legacy = join(dshHome, 'profiles/node_modules')
+  const names = existsSync(legacy) ? readdirSync(legacy).filter(name => !name.startsWith('.')).flatMap(name =>
+    name.startsWith('@') ? readdirSync(join(legacy, name)).map(child => `${name}/${child}`) : [name]) : []
+  console.log(`legacy_extras=${names.length}: REPORTED ONLY`)
+  for (const name of names.sort()) console.log(`legacy_entry=${name}`)
+} finally {
+  try { if (shutdown) await shutdown.shutdown(0) }
+  finally {
+    process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite
+    rmSync(overlay, { recursive: true, force: true })
   }
 }
-
-const root = manifest(installAnchor)
-const expected = new Map([[root.name, dirname(installAnchor)]])
-const queue = [{ anchor: installAnchor, manifest: root }]
-for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-  const names = [
-    ...Object.keys(next.manifest.dependencies ?? {}),
-    ...Object.keys(next.manifest.peerDependencies ?? {}),
-  ]
-  for (const name of names) {
-    if (expected.has(name)) continue
-    const dir = packageDirFromAnchor(next.anchor, name)
-    if (dir === undefined) continue
-    expected.set(name, dir)
-    const anchor = join(dir, 'package.json')
-    queue.push({ anchor, manifest: manifest(anchor) })
-  }
-}
-
-function installedNames(dir) {
-  const names = []
-  for (const entry of readdirSync(dir).filter(name => !name.startsWith('.'))) {
-    if (!entry.startsWith('@')) names.push(entry)
-    else for (const child of readdirSync(join(dir, entry))) names.push(`${entry}/${child}`)
-  }
-  return names.sort()
-}
-
-const missing = []
-const wrong = []
-for (const [name, target] of expected) {
-  const link = join(modulesDir, name)
-  if (!existsSync(link)) {
-    missing.push(name)
-    continue
-  }
-  const stat = lstatSync(link)
-  const actualTarget = stat.isSymbolicLink() ? readlinkSync(link) : '(not a symlink)'
-  const expectedVersion = manifest(join(target, 'package.json')).version
-  let actualVersion = '(unreadable)'
-  try { actualVersion = manifest(join(link, 'package.json')).version }
-  catch {}
-  if (!stat.isSymbolicLink() || actualTarget !== target || actualVersion !== expectedVersion) {
-    wrong.push(`${name}: expected ${target} (${expectedVersion}); actual ${actualTarget} (${actualVersion})`)
-  }
-}
-
-const extras = []
-for (const name of installedNames(modulesDir)) {
-  if (expected.has(name)) continue
-  const path = join(modulesDir, name)
-  let target = '(not a symlink)'
-  let version = '(unreadable)'
-  try { if (lstatSync(path).isSymbolicLink()) target = readlinkSync(path) } catch {}
-  try { version = manifest(join(path, 'package.json')).version } catch {}
-  extras.push(`${name}: ${target} (${version})`)
-}
-
-console.log(`profile=${profile}`)
-console.log(`install_anchor=${installAnchor}`)
-console.log(`expected=${expected.size}`)
-console.log(`current=${expected.size - missing.length - wrong.length}`)
-console.log(`missing=${missing.length}`)
-for (const line of missing) console.log(`missing_entry=${line}`)
-console.log(`wrong=${wrong.length}`)
-for (const line of wrong) console.log(`wrong_entry=${line}`)
-console.log(`extras=${extras.length}`)
-for (const line of extras) console.log(`extra_entry=${line}`)
-process.exitCode = missing.length === 0 && wrong.length === 0 ? 0 : 1
 NODE
 
 check_dsh_graph() {
@@ -497,7 +503,7 @@ check_dsh_graph() {
   target_version=$2
   physical_mode=${3:-optional}
   profile=${4:-headless}
-  node --input-type=module - "$graph_root" "$target_version" "$physical_mode" <<'NODE'
+  node --input-type=module - "$graph_root" "$target_version" "$physical_mode" <<'NODE' || return
 import { join } from 'node:path'
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 const [root, target, physicalMode] = process.argv.slice(2)
@@ -545,8 +551,8 @@ if (physicalMode !== 'report' && physical.some(record => record.version !== targ
   process.exitCode = 1
 }
 NODE
-  node "$ROLLBACK_ROOT/check-cli-companions.mjs" "$graph_root" "$ROLLBACK_ROOT/cli-companion-pins.json"
-  node "$ROLLBACK_ROOT/check-profile-closure.mjs" "$profile" "$DSH_INSTALL_DIR"
+  node "$ROLLBACK_ROOT/check-cli-companions.mjs" "$graph_root" "$ROLLBACK_ROOT/cli-companion-pins.json" || return
+  node "$ROLLBACK_ROOT/check-profile-closure.mjs" "$profile" "$DSH_INSTALL_DIR" || return
   printf 'DSH graph coherent: %s\n' "$graph_root"
 }
 
@@ -556,18 +562,27 @@ repair_dsh_graph() {
   physical_mode=${3:-optional}
   profile=${4:-headless}
   stale_file=$(mktemp)
-  if node --input-type=module - "$graph_root/pnpm-lock.yaml" "$target_version" "$stale_file" "$ROLLBACK_ROOT/cli-companion-pins.json" <<'NODE'
+  if node --input-type=module - "$graph_root" "$target_version" "$stale_file" "$ROLLBACK_ROOT/cli-companion-pins.json" "$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs'
-const [file, target, staleFile, companionFile] = process.argv.slice(2)
-const packages = readFileSync(file, 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+const [root, target, planFile, companionFile, registryFile] = process.argv.slice(2)
+const { registryHasVersion } = await import(pathToFileURL(registryFile).href)
+const packages = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
 const records = [...packages.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
-const stale = [...new Set(records.filter(record => record.name.startsWith('@deepseek-ai/dsh') && record.version !== target).map(record => `${record.name}@${target}`))]
+const stale = [...new Set(records.filter(record => record.name.startsWith('@deepseek-ai/dsh') && record.version !== target).map(record => record.name))].sort()
+const pins = [], absent = []
+for (const name of stale) {
+  if (registryHasVersion(name, target)) pins.push(`${name}@${target}`)
+  else absent.push(name)
+}
 for (const [name, pin] of Object.entries(JSON.parse(readFileSync(companionFile, 'utf8')))) {
   const versions = records.filter(record => record.name === name).map(record => record.version)
-  if (versions.length !== 1 || versions[0] !== pin) stale.push(`${name}@${pin}`)
+  if (versions.length !== 1 || versions[0] !== pin) pins.push(`${name}@${pin}`)
 }
-stale.sort()
-writeFileSync(staleFile, stale.length ? `${stale.join('\n')}\n` : '')
+const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const direct = new Set(['dependencies', 'devDependencies', 'optionalDependencies'].flatMap(field => Object.keys(manifest[field] ?? {})))
+writeFileSync(planFile, JSON.stringify({ pins: pins.sort(), absent, remove: absent.filter(name => direct.has(name)) }))
 NODE
   then
     :
@@ -576,14 +591,35 @@ NODE
     rm -f "$stale_file"
     return "$repair_status"
   fi
-  mapfile -t stale_packages <"$stale_file"
-  rm "$stale_file"
-  if [ "${#stale_packages[@]}" -gt 0 ]; then
-    pnpm --dir "$graph_root" add --save-exact "${stale_packages[@]}"
-    pnpm --dir "$graph_root" install --frozen-lockfile
+  pin_lines=$(node -e 'for (const pin of JSON.parse(require("fs").readFileSync(process.argv[1])).pins) console.log(pin)' "$stale_file") || return
+  remove_lines=$(node -e 'for (const name of JSON.parse(require("fs").readFileSync(process.argv[1])).remove) console.log(name)' "$stale_file") || return
+  absent_count=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).absent.length)' "$stale_file") || return
+  stale_packages=(); obsolete_direct=()
+  if [ -n "$pin_lines" ]; then mapfile -t stale_packages <<<"$pin_lines"; fi
+  if [ -n "$remove_lines" ]; then mapfile -t obsolete_direct <<<"$remove_lines"; fi
+  if [ "${#obsolete_direct[@]}" -gt 0 ]; then
+    pnpm --dir "$graph_root" remove "${obsolete_direct[@]}" || return
   fi
+  if [ "${#stale_packages[@]}" -gt 0 ]; then
+    pnpm --dir "$graph_root" add --save-exact "${stale_packages[@]}" || return
+  fi
+  if [ "$absent_count" -gt 0 ] && [ "${#obsolete_direct[@]}" -eq 0 ] && [ "${#stale_packages[@]}" -eq 0 ]; then
+    pnpm --dir "$graph_root" install --lockfile-only --fix-lockfile --ignore-scripts || return
+  fi
+  pnpm --dir "$graph_root" install --frozen-lockfile || return
+  node --input-type=module - "$graph_root/pnpm-lock.yaml" "$stale_file" <<'NODE' || return
+import { readFileSync } from 'node:fs'
+const [lockFile, planFile] = process.argv.slice(2)
+const { absent } = JSON.parse(readFileSync(planFile, 'utf8'))
+const lock = readFileSync(lockFile, 'utf8').split('\nsnapshots:\n', 1)[0]
+for (const [, name] of lock.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)) {
+  if (absent.includes(name)) throw new Error(`absent target package still in lock: ${name}`)
+}
+console.log('absent target packages: zero lock records')
+NODE
+  rm "$stale_file"
   if [ "$physical_mode" = report ]; then
-    node --input-type=module - "$DSH_BIN" "$target_version" <<'NODE'
+    node --input-type=module - "$DSH_BIN" "$target_version" <<'NODE' || return
 import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -596,8 +632,8 @@ console.log(`DSH executing version: ${version}`)
 if (version !== target) process.exitCode = 1
 NODE
   fi
-  "$DSH_BIN" --profile headless --help >/dev/null
-  printf '%s\n' 'headless fallback heal exit=0'
+  "$DSH_BIN" --profile headless --help >/dev/null || return
+  printf '%s\n' 'headless boot exit=0; runtime resolution, not physical healing'
   check_dsh_graph "$graph_root" "$target_version" "$physical_mode" "$profile"
 }
 
@@ -673,7 +709,7 @@ from this graph, not copied from the historical inventory):
 ```text
 DSH executing install anchor: <package directory resolved beside the real dsh bin>/package.json
 DSH executing version: 0.2.1-alpha.2
-headless fallback heal exit=0
+headless boot exit=0; runtime resolution, not physical healing
 DSH packages: <nonzero current count>
 DSH versions: 0.2.1-alpha.2
 DSH 0.2.1-alpha.2: <same current count>
@@ -688,13 +724,15 @@ CLI companion @deepseek-ai/cordis-plugin-include@1.0.10-alpha.1: one version
 CLI companion @deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1: one version
 CLI companion @deepseek-ai/cordis-plugin-timer@1.1.7-alpha.1: one version
 CLI companion @deepseek-ai/schemastery@3.18.5-alpha.1: one version
+runtime @deepseek-ai/dsh-base@0.2.1-alpha.2 -> <new installation package>: PASS
+<one runtime selection line per CLI companion>
 profile=headless
 expected=<closure count>
 current=<same closure count>
 missing=0
 wrong=0
-extras=<inventory count>
-extra_entry=<name>: <link target> (<version>)
+legacy_extras=<inventory count>: REPORTED ONLY
+legacy_entry=<old shared-directory package name>
 DSH graph coherent: /home/antst
 host DSH graph nonzero
 ```
@@ -711,6 +749,18 @@ exact-pin add as any other stale entries. Exact CLI companion pins repaired
 the scratch graph to one version each without a hook. These are reproduction
 counts, not expected host/profile counts; derive pins once from the executing
 CLI, then assert every resulting lock and the native closure on the real host.
+
+Worked removed-package example from the real dsh host
+(`/tmp/w115-host-dsh-alpha2-repair.log`, 2026-10-10): the old collector tried
+`@deepseek-ai/dsh-invariants@0.2.1-alpha.2` and stopped with
+`ERR_PNPM_NO_MATCHING_VERSION`. Its reachable registry packument contained 29
+published versions but no alpha.2 target; invariants was removed in alpha.1.
+The corrected collector also verified no target for code-runtime and
+subagent-in-process-driver. Only those two were direct host dependencies,
+so `pnpm remove` removed them; invariants was excluded from the add and vanished
+transitively. One exact-pin add and a frozen no-op install produced 290 DSH
+records, all alpha.2, with zero records of the three absent names. A network or
+auth failure cannot take this path. These counts are evidence, not fixed targets.
 
 Before any profile/plugin writes, assert the executing host meets the declared
 DSH floor (the daemon v0.5.9+ check was in section 1):
@@ -736,40 +786,40 @@ lock pruning do not repair that in-place state. The exact pins are permanent
 manifest dependencies, equivalent to dashi's catalog owning one DSH version.
 Every later host or profile package add calls the same function. For the host,
 the mandatory assertions are a lock uniform at the target, the executing
-install anchor at the target, a successful headless boot, and an exact shared
-fallback closure. Any leftover lock version, wrong executing anchor, failed
-boot, or wrong or broken expected fallback link is listed and stops the run
+install anchor at the target, one companion version at every CLI minimum, and
+a successful native runtime-resolution check. Any leftover lock version,
+wrong executing anchor, failed boot, or wrong native package selection stops the run
 with the rollback copy intact. Profile checks additionally require their
 nonempty physical projections to be uniform; the dashi profile must have a
-nonempty projection. Unexpected fallback extras are listed but never deleted.
+nonempty projection. The old shared physical entries are listed as legacy
+extras only, never asserted as a current closure and never hand-linked/pruned.
 
-DSH computes the expected fallback as a first-resolution-wins breadth-first
-walk over dependencies and peers from the executing `dsh` package
-(`packages/boot/app-boot/src/profile.ts:469-504`). The CLI's `INSTALL_ANCHOR`
-is that executing package (`apps/cli/src/profile-boot.ts:78,187-191,226-243`),
-not the top-level `~/node_modules` projection. Every profile launch checks the
-shared fallback; wrong and broken expected links are replaced
-(`profile.ts:201-239,507-528,552-577`). That is why each repair performs one
-real `dsh --profile headless --help` launch and checks the fallback afterwards.
+DSH 0.2 replaces physical fallback healing with an immutable in-memory table
+(`dsh-app-boot/lib/index.js:748-784`), installed through native ESM/CommonJS
+interception before profile rows mount (`:1718-1722,3353-3363`;
+CLI `lib/profile-boot-BZ2ZjNWi.js:205-215,271-275` at alpha.2). App-boot's README
+states that runtime resolution creates no links (`README.md:67,137-144`).
+The checker boots the actual profile and queries `ctx.pluginPackages.packageOf`
+from its root importer, asserting dsh-base and companions against the executing
+installation's manifest names and versions, reporting the selected realpaths
+without requiring path identity. DSH's native lookup prefers profile-local
+candidates (`dsh-app-boot/lib/index.js:1490-1538`): an exact local pin at the
+same version passes; a different-version local candidate fails. It checks every native table
+manifest and reports expected=current. The disposable overlay disables only
+headless task admission/runner, dashi's terminal driver, or the sessionbus row;
+no model turn or daemon publication occurs. Web startup output is suppressed
+because its URL can carry a token. Native shutdown and overlay cleanup run once.
+No profile manifest/lock/patch is edited by this diagnostic.
 
-On a hoisted install, pnpm can leave old unpacked packages in the top-level
-projection even after the lock is uniform. That projection is a reported
-inventory, not a host assertion: DSH does not resolve through those old copies
-after the shared fallback heals (D-043), though they remain a hazard for other
-code anchored at the host project. Optional cleanup must first be validated
-against an isolated copy of that exact layout before applying the proven pnpm
-10.28.1 reconciliation:
-
-```sh
-npx -y pnpm@10.28.1 --dir "$DSH_INSTALL_DIR" install --frozen-lockfile --force
-repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
-```
-
-The historical isolated hoisted reproduction retained the lockfile hash and
-byte-identical unrelated package manifests. If this optional cleanup
-is chosen, the second command should report one physical version; the blocking
-checks remain the target lock and executing anchor, successful boot, exact
-healed fallback, and `DSH graph coherent: /home/antst`.
+The dsh host's obsolete physical-link oracle reported expected 578/current 380,
+missing 130/wrong 68 after a successful alpha.2 help invocation. The actual
+booted runtime check then passed 581/581 with all six installation selections;
+512 legacy physical entries were left untouched. These are measured inventory,
+not alpha.2 fixed counts. There is no shared fallback rebuild command on 0.2;
+only DSH's own per-profile `.dsh-module-fallback` cleanup remains
+(`dsh-app-boot/lib/index.js:615-631,1058`). Unmapped names and explicit native
+CommonJS paths can still see ordinary ancestor files: legacy extras do not
+certify old plugins as compatible. Do not add a link-healing mechanism.
 
 Every profile exact-pin install below also scans nested `node_modules` package
 manifests against that profile's lock. A lock-tracked package is left alone; an
@@ -779,6 +829,14 @@ install must print both `Lockfile is up to date, resolution step is skipped` and
 `Already up to date`. This explicit cleanup is necessary because pnpm 10.28.1
 `prune` and `install --frozen-lockfile --force` both left such directories in
 place on a hoisted profile during the measured in-place-upgrade reproduction.
+
+If registry-verified obsolete names are only transitive lock records, with no
+direct removal or exact-pin add planned, the repair runs one
+`pnpm install --lockfile-only --fix-lockfile --ignore-scripts` before its frozen
+validation. Plain frozen install and plain `--lockfile-only` retained orphan
+records in a populated pnpm 10.28.1 fixture; `--fix-lockfile` removed them while
+preserving unrelated resolution bytes. A still-referenced obsolete package
+continues to fail the zero-absent-record assertion; it is never hand-deleted.
 
 ## 3. Upgrade dashi to 0.2.0-alpha.1 in place
 
@@ -1137,7 +1195,8 @@ fi
 ```
 
 Expected output lists each exact provider package in both profiles, then shows
-each lock and physical graph coherent at alpha.2 and the shared fallback exact.
+each lock and physical graph coherent at alpha.2 and native runtime selection
+at the new installation, with legacy physical entries reported only.
 
 When `MODEL_PROVIDER=deepseek-official`, a daemon-launched lane must be able to
 resolve `DEEPSEEK_API_KEY`. The alpha.2 credentials-local precedence is inherited
