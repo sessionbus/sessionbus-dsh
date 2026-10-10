@@ -66,6 +66,37 @@ test("the extracted package imports and its real bin performs installation", asy
   assert.equal(JSON.parse(fs.readFileSync(path.join(consumer, "node_modules", "@deepseek-ai", "dsh", "package.json"), "utf8")).version, dshVersion);
   const packageRoot = path.join(consumer, "node_modules", "@sessionbus", "dsh");
   assert.equal(JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8")).version, packageVersion);
+
+  // Run the exact runbook oracle against native profile-local lookup, not a stub.
+  const runbook = fs.readFileSync(path.join(__dirname, "docs/HOST-INSTALL.md"), "utf8");
+  const checkerSource = /cat >"\$ROLLBACK_ROOT\/check-profile-closure.mjs" <<'NODE'\n([\s\S]*?)\nNODE/u.exec(runbook)?.[1];
+  assert.ok(checkerSource, "the runtime checker must remain present in the runbook");
+  const checker = path.join(directory, "check-profile-closure.mjs");
+  fs.writeFileSync(checker, checkerSource);
+  const expectedCordis = JSON.parse(fs.readFileSync(path.join(consumer, "node_modules/@deepseek-ai/cordis/package.json"), "utf8"));
+  for (const version of [expectedCordis.version, "4.0.4"]) {
+    const runtimeHome = path.join(directory, `runtime-${version}`);
+    const runtimeProfile = path.join(runtimeHome, "profiles/headless");
+    const candidate = path.join(runtimeProfile, "node_modules/@deepseek-ai/cordis");
+    fs.mkdirSync(candidate, { recursive: true });
+    fs.writeFileSync(path.join(runtimeProfile, "package.json"), JSON.stringify({
+      private: true, dependencies: { "@deepseek-ai/cordis": version },
+      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"] } },
+    }));
+    fs.writeFileSync(path.join(candidate, "package.json"), JSON.stringify({ ...expectedCordis, version }));
+    const checked = spawnSync(process.execPath, [checker, "headless", consumer], {
+      encoding: "utf8", timeout: 30_000, env: { ...consumerEnv, DSH_HOME: runtimeHome },
+    });
+    assert.equal(checked.error, undefined, checked.error?.message);
+    if (version === expectedCordis.version) {
+      assert.equal(checked.status, 0, checked.stderr);
+      assert.ok(checked.stdout.includes(`runtime @deepseek-ai/cordis@${version} -> ${candidate}: PASS`), checked.stdout);
+    } else {
+      assert.equal(checked.status, 1, checked.stderr);
+      assert.ok(checked.stderr.includes(`runtime selection mismatch @deepseek-ai/cordis: ${version} at ${candidate}`), checked.stderr);
+    }
+  }
+
   const imported = spawnSync(process.execPath, ["-e", "require('./plugin.cjs')"], { cwd: packageRoot, encoding: "utf8" });
   assert.equal(imported.status, 0, imported.stderr);
   const sideEffectHome = path.join(directory, "import-home");

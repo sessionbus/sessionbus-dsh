@@ -439,6 +439,16 @@ function installedDir(name) {
   }
   throw new Error(`cannot resolve installation package ${name}`)
 }
+function assertRuntimeSelection(name, version, resolved) {
+  const expected = JSON.parse(readFileSync(join(installedDir(name), 'package.json'), 'utf8'))
+  if (expected.name !== name || expected.version !== version) throw new Error(`installation manifest mismatch ${name}@${version}`)
+  const selected = resolved && JSON.parse(readFileSync(join(resolved.dir, 'package.json'), 'utf8'))
+  if (resolved?.name !== expected.name || resolved?.version !== expected.version ||
+      selected?.name !== expected.name || selected?.version !== expected.version) {
+    throw new Error(`runtime selection mismatch ${name}: ${selected?.version ?? 'missing'} at ${resolved?.dir ?? 'missing'}`)
+  }
+  console.log(`runtime ${name}@${selected.version} -> ${realpathSync(resolved.dir)}: PASS`)
+}
 const [{ runProfile }, { loadLayeredEnv }] = await Promise.all([
   import(pathToFileURL(join(dirname(anchor), 'lib/profile-boot.js')).href),
   import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href),
@@ -463,10 +473,7 @@ try {
   const importer = pathToFileURL(join(dshHome, 'profiles', profile, 'cordis.yml')).href
   for (const [name, version] of Object.entries(wanted)) {
     const resolved = packages.packageOf(name, importer)
-    if (resolved?.version !== version || realpathSync(resolved.dir) !== installedDir(name)) {
-      throw new Error(`runtime selection mismatch ${name}: ${resolved?.version ?? 'missing'} at ${resolved?.dir ?? 'missing'}`)
-    }
-    console.log(`runtime ${name}@${version} -> ${realpathSync(resolved.dir)}: PASS`)
+    assertRuntimeSelection(name, version, resolved)
   }
   const entries = packages.current.entries
   let current = 0
@@ -790,7 +797,10 @@ CLI `lib/profile-boot-BZ2ZjNWi.js:205-215,271-275` at alpha.2). App-boot's READM
 states that runtime resolution creates no links (`README.md:67,137-144`).
 The checker boots the actual profile and queries `ctx.pluginPackages.packageOf`
 from its root importer, asserting dsh-base and companions against the executing
-installation's manifests, versions and realpaths. It checks every native table
+installation's manifest names and versions, reporting the selected realpaths
+without requiring path identity. DSH's native lookup prefers profile-local
+candidates (`dsh-app-boot/lib/index.js:1490-1538`): an exact local pin at the
+same version passes; a different-version local candidate fails. It checks every native table
 manifest and reports expected=current. The disposable overlay disables only
 headless task admission/runner, dashi's terminal driver, or the sessionbus row;
 no model turn or daemon publication occurs. Web startup output is suppressed
