@@ -1338,13 +1338,27 @@ for profile_name in sessionbus web; do
     printf 'provider check failed for profile=%s\n' "$profile_name" >&2
     exit 1
   fi
+  if ! (
+    cd "$LANE_CWD" &&
+    env -u SESSIONBUS_LAUNCH_TOKEN -u SESSIONBUS_GROUPS DSH_HOME="$DSH_HOME" \
+      node "$ROLLBACK_ROOT/check-profile-provider.mjs" "$profile_name" "$DSH_INSTALL_DIR"
+  ); then
+    printf 'native provider selection check failed for profile=%s\n' "$profile_name" >&2
+    exit 1
+  fi
 done
 ```
 
-Expected output, with the provider selected on this host, is:
+The first invocation checks the explicitly requested provider's registration;
+the second omits the provider and checks the profile's actual native selection.
+Its subshell preserves the lane working directory without adding a probe flag
+or changing the operator's shell directory. Either failure stops the loop.
+Expected output for the worked example (both select `deepseek-official`) is:
 
 ```text
 profile=sessionbus provider=deepseek-official registered
+profile=sessionbus provider=deepseek-official registered
+profile=web provider=deepseek-official registered
 profile=web provider=deepseek-official registered
 ```
 
