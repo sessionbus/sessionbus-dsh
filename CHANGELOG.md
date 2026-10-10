@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-pre.17 — 2026-10-10
+
+- DSH flag day: require DSH 0.2.1-alpha.2 or newer and Sessionbus daemon v0.5.9 or newer (kit remains 0.5.12). Upgrade the host DSH graph first; the installer refuses below-floor hosts before changing a profile. Manual `pnpm add` bypasses this guard. Keep pre.16 on DSH 0.1.x until the host upgrade.
+- Attribute native relay messages to the V4 producer kind `plugin:sessionbus-dsh`; the sender envelope, admission receipts, active delivery and idle wake are unchanged (W-115).
+- The dashi packed acceptance proof was NOT RUN: dashi 0.2.0-alpha.1 is not released (W-114). CI visibly reports this pending case; lane, web and real-Agent proofs remain mandatory. Setting `DASHI_APP_VERSION` makes the matching dashi proof mandatory.
+- Re-pin the host runbook and packed proof to the alpha.2 CLI-derived companion minima; old DSH legs are no longer supported.
+- Preserve the lane's deployment persona under alpha.2's `personaPrefix` key; only provider/model prompt variables remain supported, so native working-directory tools replace the retired `{{cwd}}` interpolation. Re-run the installer after upgrading to rewrite the pre.16 lane patch.
+
 ## 0.1.0-pre.16 — 2026-10-07
 
 - Pin `@sessionbus/kit` 0.5.12, the published kit for Sessionbus v0.5.12. A failed lane interrupt callback now answers Internal ("product interrupt failed"), and a later interrupt calls the product again; before, the caller got a false success and further interrupts of that run were not forwarded. Successful and in-flight duplicate interrupts are unchanged. A superseded interactive peer now ends without waiting for its courtesy reply write, and a failed write is handled; with kit 0.5.9 that failure was an unhandled promise rejection, which terminates a Node process under default rejection handling.

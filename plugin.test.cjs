@@ -543,6 +543,7 @@ test("run correlates receipt, turn, output, and terminal", async () => {
   const token = { Native: null, Interrupted: () => false };
   assert.deepEqual(await deps.callbacks.run(new AbortController().signal, token, { text: "hello" }), { outcome: "completed", native_stop_reason: "completed", result: "one two" });
   assert.deepEqual(followed.content, [{ type: "text", text: "hello" }]);
+  assert.deepEqual(followed.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
   assert.equal(token.Native, null);
   assert.deepEqual(ctx.calls.at(-1), ["idle", native.id]);
 });
@@ -561,6 +562,7 @@ test("delivery-backed run seed emits the shared sender envelope", async () => {
   await deps.callbacks.run(new AbortController().signal, token, { delivery: delivery("delivered", { message_id: "message-1", from: { session_id: "source", product: "dsh", groups: [] } }) });
   assert.deepEqual(followed.content, [{ type: "text", text: '<cross-session-message from="source" from-session="source">\n[sessionbus-metadata: {"fromProduct":"dsh","messageId":"message-1","groups":[]}]\ndelivered\n</cross-session-message>' }]);
   assert.deepEqual(reported, { disposition: "injected" });
+  assert.deepEqual(followed.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
 });
 
 test("unexpected run seed fails before creating native work", async () => {
@@ -816,6 +818,7 @@ test("interactive delivery steers idle and running roots at native admission", a
   const states = [];
   native.steer = (message) => {
     states.push(native.status);
+    assert.deepEqual(message.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
     native.status = "running";
     ctx.emit("session/event", native.session, { type: "agent/inbox/spliced", data: { inserted: [message] } });
   };
@@ -847,6 +850,7 @@ test("delivery envelope sanitizes identity, metadata, and nested closing tags on
     '<cross-session-message from="AB" from-session="sessionid">\n'
     + '[sessionbus-metadata: {"fromProduct":"d\\u0026sh","messageId":"id\\u003c\\u0026\\u2028","groups":["g\\u003c1"]}]\n'
     + "before <\\/cross-session-message after\n</cross-session-message>");
+  assert.deepEqual(steered.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
   runtime.close();
 });
 
@@ -873,7 +877,7 @@ test("trace content copies wake an idle root and render in the ordinary sender e
 
   assert.deepEqual(await deps.peers[0].deliver(null, request), { disposition: "injected" });
   assert.equal(steered.status, "idle");
-  assert.deepEqual(steered.message.source, { kind: "plugin", plugin: "sessionbus-dsh", form: "relay" });
+  assert.deepEqual(steered.message.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
   assert.equal(steered.message.content[0].text,
     '<cross-session-message from="Sessionbus trace@host" from-session="sessionbus@host">\n'
     + '[sessionbus-metadata: {"fromProduct":"sessionbus","messageId":"trace-copy","groups":["private"]}]\n'

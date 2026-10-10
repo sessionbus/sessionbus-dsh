@@ -6,16 +6,17 @@ Source and issue tracking live in
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
 It depends on the exact `@sessionbus/kit` version `0.5.12`.
-It supports DeepSeek Harness `0.1.5-rc.2` and later; tested versions are
-`0.1.5-rc.2`, `0.1.6-alpha.1`, and `0.1.6-alpha.2`.
+It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
+`0.2.1-alpha.2`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
+until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
 A DSH profile must install every DSH package at one uniform DSH version; adding
 one prerelease package can otherwise pull newer prereleases through DSH's caret peers.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH
-permission policy. The waterfall is present since the `0.1.5-rc.2` peer floor.
-`@sessionbus/dsh` is a pkg.pr.new preview until a separately reviewed trusted-
-publishing workflow exists; its first registry version must be published manually
-before trusted publishing can be configured.
+permission policy. Native messages use the producer-owned V4 kind
+`plugin:sessionbus-dsh`, with `form: relay`; the sender envelope is unchanged.
+The package has no TypeScript declaration surface. DSH owns V3-to-V4 log
+migration; this plugin neither reads nor rewrites recorded logs.
 The plugin reads the token once, deletes it from process.env, and retains it
 nowhere in the plugin; DSH's immutable launch snapshot keeps it for the process
 lifetime (trusted host).
@@ -24,9 +25,11 @@ lifetime (trusted host).
 
 See [Installing a DSH lane host](docs/HOST-INSTALL.md) for the complete
 preflight, installation, verification, and rollback procedure for
-`@sessionbus/dsh` `0.1.0-pre.15` with kit `0.5.9`. It does not install or
-validate `0.1.0-pre.16`. Dashi acceptance of pre.16 requires an
-`@antst/dashi-app` release that pins `@sessionbus/dsh` `0.1.0-pre.16`.
+`@sessionbus/dsh` `0.1.0-pre.17` with kit `0.5.12` on DSH alpha.2.
+Dashi packed acceptance is pending `0.2.0-alpha.1` (W-114); do not run a
+dashi 0.1.x release against the alpha.2 graph. The installer checks the host's
+DSH floor before changing a profile; a manual `pnpm add` bypasses that guard.
+pnpm is required for the prerelease floors; strict npm does not admit them.
 The runbook's provider-parity step must be completed for both the lane and plain
 peer profiles before either one runs a model turn.
 
@@ -58,7 +61,7 @@ The installer writes only profile-local rows and leaves an existing
 profile and derives product `sessionbus-dsh`. Use product `dashi` for the dashi
 lane variant, `dsh` for a standalone web or custom peer profile, or another
 stable operator-chosen identifier matching `^[a-z0-9][a-z0-9-]{0,31}$`.
-`@antst/dashi-app@0.1.0-alpha.20` and later own their dashi-profile row and
+The dashi-app bundle owns its dashi-profile row and
 exact plugin dependency; do not run this installer against that profile.
 Non-web profiles also receive the no-upload provider required by DSH's Session
 Controller; ordinary text prompts work while file-upload receipts are rejected.

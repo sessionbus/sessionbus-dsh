@@ -1,12 +1,69 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { install, remove } from "./install.mjs";
 
 const packageVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+// Exercise the real semver comparison with an isolated host, never the user's DSH.
+const npmAnchor = process.env.npm_execpath || path.join(spawnSync("npm", ["root", "-g"], { encoding: "utf8" }).stdout.trim(), "npm/package.json");
+const semverDir = path.dirname(createRequire(npmAnchor).resolve("semver/package.json"));
+function host(version) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-host-"));
+  const dsh = path.join(root, "node_modules/@deepseek-ai/dsh");
+  const boot = path.join(root, "node_modules/@deepseek-ai/dsh-app-boot");
+  mkdirSync(path.join(dsh, "lib"), { recursive: true });
+  mkdirSync(path.join(boot, "node_modules"), { recursive: true });
+  mkdirSync(path.join(root, "node_modules/.bin"));
+  writeFileSync(path.join(dsh, "package.json"), JSON.stringify({ name: "@deepseek-ai/dsh", version }));
+  writeFileSync(path.join(boot, "package.json"), '{"name":"@deepseek-ai/dsh-app-boot"}');
+  writeFileSync(path.join(dsh, "lib/bin.js"), "// isolated installer test anchor\n");
+  symlinkSync(semverDir, path.join(boot, "node_modules/semver"));
+  symlinkSync(path.join(dsh, "lib/bin.js"), path.join(root, "node_modules/.bin/dsh"));
+  return { anchor: path.join(dsh, "package.json"), bin: path.join(root, "node_modules/.bin") };
+}
+const supportedHost = host("0.2.1-alpha.2");
+process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
+
+test("installer refuses a below-floor host before installing or touching any profile", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-floor-"));
+  const profile = path.join(home, "profiles/web");
+  mkdirSync(profile, { recursive: true });
+  const manifest = '{"dependencies":{"@sessionbus/dsh":"0.1.0-pre.16"}}\n';
+  const patch = "# unchanged\n[]\n";
+  writeFileSync(path.join(profile, "package.json"), manifest);
+  writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
+  const legacy = host("0.1.5-rc.2");
+  assert.throws(() => install(["web"], { home, product: "dsh", installAnchor: legacy.anchor, run: () => assert.fail("no install before refusal") }), error => {
+    assert.equal(error.exitCode, 2);
+    assert.equal(error.message, "installed DSH 0.1.5-rc.2 does not satisfy >=0.2.1-alpha.2; run docs/HOST-INSTALL.md preflight before upgrading");
+    return true;
+  });
+  const result = spawnSync(process.execPath, [path.resolve("bin.mjs"), "--product", "dsh", "web"], { encoding: "utf8", env: { ...process.env, DSH_HOME: home, PATH: `${legacy.bin}${path.delimiter}${process.env.PATH}` } });
+  assert.equal(result.status, 2);
+  assert.equal(result.stderr, "sessionbus-dsh-install: installed DSH 0.1.5-rc.2 does not satisfy >=0.2.1-alpha.2; run docs/HOST-INSTALL.md preflight before upgrading\n");
+  assert.equal(readFileSync(path.join(profile, "package.json"), "utf8"), manifest);
+  assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), patch);
+});
+
+test("installer admits newer prereleases but refuses an earlier prerelease", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-prerelease-"));
+  const profile = path.join(home, "profiles/sessionbus");
+  mkdirSync(profile, { recursive: true });
+  const manifest = `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } })}\n`;
+  const patch = "[]\n";
+  writeFileSync(path.join(profile, "package.json"), manifest);
+  writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
+  assert.throws(() => install([], { home, installAnchor: host("0.2.1-alpha.1").anchor }), /installed DSH 0\.2\.1-alpha\.1 does not satisfy >=0\.2\.1-alpha\.2/u);
+  assert.equal(readFileSync(path.join(profile, "package.json"), "utf8"), manifest);
+  assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), patch);
+  install([], { home, installAnchor: host("0.2.2-alpha.1").anchor, run: () => assert.fail("already installed") });
+  assert.match(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), /personaPrefix:/u);
+  assert.doesNotMatch(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), /\{\{cwd\}\}/u);
+});
 
 test("installer creates only the lane profile and leaves the root patch untouched", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-package-"));
@@ -45,8 +102,8 @@ test("installer creates only the lane profile and leaves the root patch untouche
   assert.equal(first.peer, rootPatch);
   assert.equal(first.profile, `- id: system-prompt # sessionbus-dsh-install owned
   config:
-    persona: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
 - id: session-title-llm # sessionbus-dsh-install owned
   disabled: true
 - id: permission # sessionbus-dsh-install owned

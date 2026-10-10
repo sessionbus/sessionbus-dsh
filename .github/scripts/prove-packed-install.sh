@@ -68,6 +68,15 @@ assert.equal(events.some(event => event.type === "user/message" && event.data?.c
   && event.data.content[0].text.startsWith("<cross-session-message from=")
   && event.data.content[0].text.endsWith("\n</cross-session-message>")), true);
 assert.equal(events.some(event => event.type === "assistant/message" && event.data?.message?.content?.some(part => part.type === "text" && part.text === deliveryInput)), true);
+for (const event of events.filter(event => event.type === "user/message"
+  && (token !== "" && event.data?.content?.[0]?.text === input || event.data?.content?.[0]?.text?.includes(`\n${deliveryInput}\n`)
+    || event.data?.content?.[0]?.text?.includes(`"body":"${traceContent}"`)))) {
+  assert.deepEqual(event.data.source, { kind: "plugin:sessionbus-dsh", form: "relay" });
+}
+if (token === "") {
+  const prompt = events.find(event => event.type === "user/message" && event.data?.content?.[0]?.text === input);
+  assert.equal(prompt.data.source.kind, "user");
+}
 if (token === "") {
   assert.equal(events.filter(event => event.type === "turn/start").length, 2);
   const traceMessage = events.find(event => event.type === "user/message" && event.data?.content?.[0]?.text?.includes('"kind":"sessionbus.trace"'));
@@ -133,12 +142,24 @@ home="$work/home"
 mkdir -p "$home"
 printf '%s\n' '{"private":true}' > "$home/package.json"
 release_cutoff=$(node "$root/.github/scripts/dsh-closure-cutoff.mjs" "$version")
+npm view "@deepseek-ai/dsh@$version" --json > "$work/cli.json"
+node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$version" "$work/cli.json" "$work/.pnpmfile.cjs" > "$work/cli-pins.txt"
+mapfile -t cli_pins < "$work/cli-pins.txt"
 npm install --prefix "$home" --save-exact --before "$release_cutoff" \
   "@deepseek-ai/dsh@$version" \
-  "@deepseek-ai/cordis@4.0.2" \
-  "@deepseek-ai/cordis-plugin-loader@1.0.3"
-npm install --prefix "$home" --save-exact "@antst/dashi-launcher@0.1.0-alpha.20"
+  "@deepseek-ai/dsh-agent@$version" "@deepseek-ai/dsh-agent-loop@$version" \
+  "${cli_pins[@]}"
+node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
+  npm install --prefix "$home" --save-exact "@antst/dashi-launcher@$DASHI_APP_VERSION"
+  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
+fi
 dsh="$home/node_modules/.bin/dsh"
+export PATH="$home/node_modules/.bin:$PATH"
+for profile in sessionbus web dashi; do
+  mkdir -p "$home/profiles/$profile"
+  cp "$work/.pnpmfile.cjs" "$home/profiles/$profile/.pnpmfile.cjs"
+done
 
 DSH_HOME="$home" "$dsh" plugin --profile sessionbus add "$root/.github/fixtures/manifest-keeper-bundle"
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "$root/.github/fixtures/bundle-provides-sessionbus"
@@ -160,19 +181,8 @@ grep -Fx 'sessionbus-dsh-install: profile "dashi" bundle "@sessionbus/w090-bundl
 cmp -s "$work/dashi-manifest-before-refusal.json" "$home/profiles/dashi/package.json"
 cmp -s "$work/dashi-patch-before-refusal.yml" "$home/profiles/dashi/cordis.patch.yml"
 for profile in sessionbus web dashi; do
-  if [[ "$version" = 0.1.6-alpha.1 ]]; then
-  cat > "$home/profiles/$profile/.pnpmfile.cjs" <<EOF
-const DSH_VERSION = '$version'
-const fields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
-module.exports = { hooks: { readPackage(pkg) {
-  for (const field of fields) for (const name of Object.keys(pkg[field] ?? {})) {
-    if (name.startsWith('@deepseek-ai/dsh')) pkg[field][name] = DSH_VERSION
-  }
-  return pkg
-} } }
-EOF
-  fi
-  pnpm --dir "$home/profiles/$profile" add --save-exact "@deepseek-ai/dsh-llm-replay@$version" "$root/.github/fixtures/ask-all-plugin"
+  pnpm --dir "$home/profiles/$profile" add --save-exact "${cli_pins[@]}" "@deepseek-ai/dsh-llm-replay@$version" "$root/.github/fixtures/ask-all-plugin"
+  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/$profile/pnpm-lock.yaml"
 done
 pnpm --dir "$home/profiles/sessionbus" add --save-exact "$root/.github/fixtures/turn-start-error-plugin"
 
@@ -200,7 +210,7 @@ assert.doesNotMatch(dashi, /id: sessionbus/u);
 const dashiManifest = JSON.parse(fs.readFileSync(`${home}/profiles/dashi/package.json`, "utf8"));
 assert.equal(dashiManifest.dsh.profile.bundles.includes("@sessionbus/w090-bundle-row"), true);
 assert.equal(fs.existsSync(`${home}/cordis.patch.yml`), false);
-for (const [name, wanted] of [["@deepseek-ai/dsh", version], ["@deepseek-ai/cordis", "4.0.2"], ["@deepseek-ai/cordis-plugin-loader", "1.0.3"], ["@antst/dashi-launcher", "0.1.0-alpha.20"]]) {
+for (const [name, wanted] of [["@deepseek-ai/dsh", version], ["@deepseek-ai/dsh-agent", version], ["@deepseek-ai/dsh-agent-loop", version]]) {
   assert.equal(require(`${name}/package.json`).version, wanted);
 }
 const plugin = require(`${home}/profiles/sessionbus/node_modules/@sessionbus/dsh/package.json`).version;
@@ -255,6 +265,10 @@ if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capt
 assert_turn_error_proof "$capture" "$work/turn-error-sessions" "$token"
 stop_processes
 
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
+DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-row
+DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
+node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml"
 DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install" --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
@@ -284,15 +298,16 @@ for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$captur
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/dashi.stdout" "$work/dashi.stderr" >&2 2>/dev/null || true; exit 1; fi
 assert_permission_proof "$capture" "$work/dashi-sessions" "$token"
 stop_processes
+else
+  not_run='NOT RUN: dashi packed (DASHI_APP_VERSION unset; dashi 0.2.0-alpha.1 not released, W-114)'
+  printf '%s\n' "$not_run"
+  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then printf '%s\n' "$not_run" >> "$GITHUB_STEP_SUMMARY"; fi
+fi
 
 port=$(node -e 'const net=require("node:net"),server=net.createServer(); server.listen(0,"127.0.0.1",()=>{process.stdout.write(String(server.address().port)); server.close()})')
-socket="$work/peer.sock"
-peer_socket_env=(SESSIONBUS_SOCKET="$socket")
-if [[ "$version" == 0.1.5-rc.2 ]]; then
-  mkdir -p "$work/runtime/sessionbus"
-  socket="$work/runtime/sessionbus/presence.sock"
-  peer_socket_env=(-u SESSIONBUS_SOCKET XDG_RUNTIME_DIR="$work/runtime")
-fi
+mkdir -p "$work/runtime/sessionbus"
+socket="$work/runtime/sessionbus/presence.sock"
+peer_socket_env=(-u SESSIONBUS_SOCKET XDG_RUNTIME_DIR="$work/runtime")
 capture="$work/web-proof.json"
 echo "DSH $version web peer reconnect, permission and trace proof"
 env "${peer_socket_env[@]}" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$peer_fixture" DSH_W081_SESSION_ROOT="$work/web-sessions" SESSIONBUS_GROUPS='["web-proof"]' "$dsh" --profile web --patch "$proof_patch" --no-open --host 127.0.0.1 --port "$port" >"$work/web.stdout" 2>"$work/web.stderr" &
@@ -367,6 +382,15 @@ for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"idleDeliveryReceipt"'
 assert_permission_proof "$capture" "$work/web-sessions" "" "$work/web-session-id"
 stop_processes
 
+echo "DSH $version runbook offline provider overlay proof (no model turn)"
+awk '/cat >.*check-profile-provider.mjs/ { capture=1; next } capture && $0 == "NODE" { exit } capture { print }' "$root/docs/HOST-INSTALL.md" > "$work/check-profile-provider.mjs"
+for profile in sessionbus web; do
+  provider_output=$(env -u SESSIONBUS_LAUNCH_TOKEN -u SESSIONBUS_GROUPS DSH_HOME="$home" \
+    node "$work/check-profile-provider.mjs" "$profile" "$home" deepseek-official "$root")
+  printf '%s\n' "$provider_output"
+  [[ "$provider_output" = "profile=$profile provider=deepseek-official registered" ]]
+done
+
 for profile in sessionbus web dashi; do
   DSH_HOME="$home" "$home/profiles/$profile/node_modules/.bin/sessionbus-dsh-install" --remove "$profile"
 done
@@ -382,4 +406,5 @@ for (const profile of ["sessionbus", "web", "dashi"]) {
   assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u);
 }
 NODE
-echo "DSH $version sessionbus-dsh and dashi launcher lanes, dashi and web peers without approval; packed install and uninstall: PASS"
+echo "DSH $version sessionbus-dsh lane, web active/idle/trace delivery, real-Agent boundary, packed install and uninstall: PASS"
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS"; fi

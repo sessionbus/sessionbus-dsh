@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -10,8 +10,8 @@ import { spawnSync } from "node:child_process";
 const marker = "# sessionbus-dsh-install owned";
 const profilePatch = (product) => `- id: system-prompt ${marker}
   config:
-    persona: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
 - id: session-title-llm ${marker}
   disabled: true
 - id: permission ${marker}
@@ -114,7 +114,7 @@ function packageDir(anchor, name) {
 function installAnchor() {
   for (const directory of String(process.env.PATH || "").split(path.delimiter)) {
     const command = path.resolve(directory, process.platform === "win32" ? "dsh.cmd" : "dsh");
-    const installed = existsSync(command) && packageDir(command, "@deepseek-ai/dsh");
+    const installed = existsSync(command) && packageDir(realpathSync(command), "@deepseek-ai/dsh");
     if (installed) return path.join(installed, "package.json");
   }
 }
@@ -177,6 +177,13 @@ export function install(profileNames = [], options = {}) {
   if (names.includes("sessionbus") && !["sessionbus-dsh", "dashi"].includes(laneProduct)) throw new Error("the sessionbus profile product must be sessionbus-dsh or dashi");
   if (names.some((name) => name !== "sessionbus") && options.product === undefined) throw new Error("--product is required for peer profiles");
   const anchor = options.installAnchor || installAnchor();
+  if (!anchor) throw refusal("cannot resolve installed DSH; run docs/HOST-INSTALL.md preflight before upgrading");
+  const installed = JSON.parse(readFileSync(anchor, "utf8")).version;
+  const required = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).peerDependencies["@deepseek-ai/dsh-agent"];
+  const boot = packageDir(anchor, "@deepseek-ai/dsh-app-boot");
+  if (!boot) throw refusal("cannot resolve installed DSH app-boot; run docs/HOST-INSTALL.md preflight before upgrading");
+  const semver = createRequire(path.join(boot, "package.json"))("semver");
+  if (!semver.satisfies(installed, required, { includePrerelease: true })) throw refusal(`installed DSH ${installed} does not satisfy ${required}; run docs/HOST-INSTALL.md preflight before upgrading`);
   for (const name of names) {
     if (!validProfile(name)) throw new Error(`invalid profile name ${JSON.stringify(name)}`);
     const profile = path.join(home, "profiles", name);
