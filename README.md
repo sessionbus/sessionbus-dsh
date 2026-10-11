@@ -101,12 +101,14 @@ by the daemon; the plugin accepts and does not consume groups in `session.open`.
 
 ## Per-session groups
 
-In the web UI or dashi, `/sessionbus-groups` shows this root's declared groups,
+In the web UI, dashi, or the dsh CLI, `/sessionbus-groups` shows this root's declared groups,
 `/sessionbus-groups a,b` replaces them (including the profile defaults), and
 `/sessionbus-groups -` restores the profile defaults. The native human command
 is not a model tool or skill. Lane mode and non-root agents refuse it; lane
 membership remains daemon-owned. Lists are ordered, unique, nonempty group
-names without NUL/newlines. A fork with a new session id gets defaults.
+names without NUL/newlines. An explicitly empty declared list is not expressible:
+no argument shows the list and `-` means the profile default (which may be empty).
+A fork with a new session id gets defaults.
 
 The override is stored in DSH's `sessionbus_groups` storage domain, table
 `groups`, keyed by the native session id, and is read on restart/resume.
@@ -114,13 +116,30 @@ Changing groups opens the new attachment before retiring the old one, preserving
 owned non-persistent lanes and the daemon-assigned private `session:<id>` group
 (not part of the declared list). Old-group observers can lose visibility;
 new-group observers gain it. In-flight calls on the superseded connection can
-fail, and uncertain sends are never replayed. One bounded `list/self_info`
-check confirms admission because kit 0.5.12's `ready` alone does not.
+fail, and uncertain sends are never replayed. One five-second `list/self_info`
+check confirms admission because kit 0.5.12's `ready` alone does not. Cancellation
+is honored only before `connectPeer` is invoked, the kit's public attempt boundary.
+After that, the change runs to completion even if the command is cancelled.
 
-A failed pre-admission attempt does not save the list. Lost admission
-acknowledgment is reported as uncertain. A saving failure after admission reports
+A terminal candidate rejection keeps the old attachment and stored list, reporting
+the daemon's reason when the kit exposes it. If the identity check fails or times
+out, nothing is detached: the command reports "change in progress;
+`/sessionbus-groups` with no argument shows the result". The serialized operation waits for one of
+two terminal signals: the old peer closes as superseded (-32012), confirming
+admission, or the candidate closes with an error, rejecting the change. Transport
+loss on the candidate uses the kit's existing reconnect, not a plugin retry. If
+neither terminal signal arrives, the operation remains pending under those same
+kit close/reconnect semantics; there is no swap deadline or polling loop. Show
+remains available; later changes and title updates wait. A failure after the
+progress response has one sanitized `sessionbus:` stderr diagnostic.
+
+A saving failure after a live identity change reports
 `live groups changed, saving failed: <native error>; restart will use the prior value`;
 the new live identity remains, and the prior durable value is unchanged.
+Saving a same-list set/reset can fail without changing the identity; that message
+says `live groups unchanged` instead. A narrow known limitation remains: after a
+daemon outage, an old peer's reconnect hello already in flight can race shutdown
+after replacement. No extra recovery/replay mechanism is added.
 Native domain `put` does not validate; this plugin validates before every write.
 Invalid stored values therefore require external damage in this release and
 refuse activation at the next open with the native table/key diagnostic.
@@ -130,7 +149,9 @@ before restarting to use defaults (adjust the root if your storage-json row
 overrides DSH's default). Native storage-json treats malformed or foreign-version
 documents as absent; this is its separate native boundary, not plugin validation.
 
-Pre.19 adds the native commands/storage-domain peers and a Zod peer. Follow the
+Pre.19 requires the native `commands` and `storageDomain` services in every mode;
+lane profiles must carry dsh-base's rows (the shipped profiles do). It adds those
+DSH peers and a Zod peer. Follow the
 runbook to pin Zod to the version resolved by `dsh-storage-domain` in the executing
 CLI closure; the plugin and that producer must resolve the same Zod name/version.
 Separate physical copies are valid: native domain open calls the supplied

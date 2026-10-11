@@ -379,10 +379,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
         stream.once("error", (error) => connectionError(agent, error, record));
         return stream;
       },
-      schedule: previous ? (call, delay) => {
-        // A command gets one attempt; normal kit reconnect resumes only after map ownership.
-        if (peers.get(agent) === record) (dependencies.schedule || setTimeout)(call, delay);
-      } : dependencies.schedule,
+      schedule: dependencies.schedule,
     });
     record.peer = peer;
     void peer.closed?.then(async () => {
@@ -470,18 +467,22 @@ function createRuntime(ctx, config, dependencies, prepared) {
       if (input && !validGroups(choice)) return { kind: "error", text: "groups are invalid" };
       const initial = peers.get(agent);
       if (!initial) return { kind: "error", text: "sessionbus is not connected" };
+      // Show remains available while the serialized replacement waits for the daemon.
+      if (!input) return { kind: "success", text: JSON.stringify(initial.identity.groups) };
+      const progress = deferred();
+      let inProgress = false;
       const changed = initial.rehello.then(async () => {
         if (!live()) throw new Error("DSH root was disposed or replaced");
         signal.throwIfAborted();
         const old = peers.get(agent);
         if (!old) throw new Error("sessionbus is not connected");
-        if (!input) return { kind: "success", text: JSON.stringify(old.identity.groups) };
-        if (JSON.stringify(choice) !== JSON.stringify(old.identity.groups)) {
+        const replacing = JSON.stringify(choice) !== JSON.stringify(old.identity.groups);
+        if (replacing) {
           // Kit delivers only after admission; cover the short interval before our self-info check.
           let previous = old;
+          // Kit has no public hello-sent hook: cancellation ends at this attempt boundary.
           const candidate = connect(agent, identity(ctx, agent, values.product, choice), old.rehello, () => previous);
-          const deadline = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
-          let abort, removePending;
+          let removePending;
           try {
             removePending = ctx.effect(() => {
               const removeDisposed = ctx.on("agent/disposed", ({ agent: disposed }) => {
@@ -492,50 +493,55 @@ function createRuntime(ctx, config, dependencies, prepared) {
                 if (peers.get(agent) !== candidate) candidate.peer.shutdown();
               };
             }, "sessionbus-dsh.pending-groups");
-            const aborted = new Promise((_, reject) => {
-              abort = () => reject(deadline.reason);
-              if (deadline.aborted) return abort();
-              deadline.addEventListener("abort", abort, { once: true });
+            const ended = candidate.peer.closed.then(() => {
+              const error = candidate.peer.error;
+              const reason = error?.data;
+              throw new Error(error ? `${clean(error)}${reason === undefined ? "" : `: ${clean(typeof reason === "string" ? reason : JSON.stringify(reason))}`}` : "DSH root was disposed or replaced");
             });
-            const ended = candidate.peer.closed.then(() => { throw candidate.peer.error || new Error("not connected"); });
-            const ownerEnded = old.peer.closed.then(() => {
-              if (old.peer.error?.code !== -32012) throw new Error("DSH peer was closed");
+            const admitted = old.peer.closed.then(() => {
+              if (old.peer.error?.code === -32012) return;
+              if (!live() || peers.get(agent) !== old) throw new Error("DSH root was disposed or replaced");
               return new Promise(() => {});
             });
-            await Promise.race([candidate.peer.ready, ended, ownerEnded, aborted]);
+            await Promise.race([candidate.peer.ready, ended, admitted]);
             if (!live()) throw new Error("DSH root was disposed or replaced");
             // Interim public admission proof: ready alone can settle after a failed hello in kit 0.5.12.
-            const { self_info: self } = await candidate.peer.caller.list({}, deadline);
-            const expected = self && [...new Set([...choice, `session:${self.session_id}`])];
-            if (!self || nativeName(self.session_id) !== id || self.product !== values.product || JSON.stringify(self.groups) !== JSON.stringify(expected)) throw new Error("sessionbus hello identity was not confirmed");
-            if (!live()) throw new Error("DSH root was disposed or replaced");
+            try {
+              const { self_info: self } = await Promise.race([candidate.peer.caller.list({}, AbortSignal.timeout(5000)), ended]);
+              const expected = self && [...new Set([...choice, `session:${self.session_id}`])];
+              if (!self || nativeName(self.session_id) !== id || self.product !== values.product || JSON.stringify(self.groups) !== JSON.stringify(expected)) throw new Error("sessionbus hello identity was not confirmed");
+            } catch (error) {
+              if (candidate.peer.error) await ended;
+              if (!live() || peers.get(agent) !== old) throw error;
+              // Uncertain admission is not permission to detach. Native terminal signals own completion.
+              inProgress = true;
+              progress.resolve({ kind: "success", text: "change in progress; `/sessionbus-groups` with no argument shows the result" });
+              await Promise.race([admitted, ended]);
+            }
+            if (!live() || peers.get(agent) !== old) throw new Error("DSH root was disposed or replaced");
             candidate.rehello = old.rehello;
             peers.set(agent, candidate);
             previous = undefined;
             old.peer.shutdown();
-          } catch (error) {
-            previous = undefined;
-            candidate.peer.shutdown();
-            if (old.peer.error?.code === -32012) {
-              if (peers.get(agent) === old) peers.delete(agent);
-              throw new Error(`group change admission uncertain: ${clean(error)}; persisted groups unchanged`);
-            }
-            throw error;
           } finally {
-            deadline.removeEventListener("abort", abort);
+            previous = undefined;
             removePending?.();
           }
         }
         try {
           if (input === "-") await groups.delete(id); else await groups.put(id, choice);
         } catch (error) {
-          throw new Error(`live groups changed, saving failed: ${clean(error)}; restart will use the prior value`);
+          throw new Error(`live groups ${replacing ? "changed" : "unchanged"}, saving failed: ${clean(error)}; restart will use the prior value`);
         }
         if (!live()) throw new Error("DSH root was disposed or replaced after saving groups");
         return { kind: "success", text: JSON.stringify(choice) };
       });
       initial.rehello = changed.then(() => {}, () => {});
-      try { return await changed; } catch (error) { return { kind: "error", text: clean(error) }; }
+      const result = changed.catch(error => {
+        if (inProgress && active()) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+        return { kind: "error", text: clean(error) };
+      });
+      return Promise.race([result, progress.promise]);
     },
   });
   const start = () => {
@@ -591,7 +597,12 @@ async function activate(ctx, config = {}, dependencies = {}, prepared) {
     }));
     if (dependencies.active && !dependencies.active()) { await domain.close(); return; }
   }
-  return createRuntime(ctx, config, { ...kit, active: () => true, stderr: (line) => process.stderr.write(line), ...dependencies, domain, createUserMessage, defineTool }, configured);
+  try {
+    return createRuntime(ctx, config, { ...kit, active: () => true, stderr: (line) => process.stderr.write(line), ...dependencies, domain, createUserMessage, defineTool }, configured);
+  } catch (error) {
+    await domain?.close();
+    throw error;
+  }
 }
 
 function apply(ctx, config = {}, dependencies = {}) {

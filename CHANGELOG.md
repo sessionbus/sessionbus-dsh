@@ -2,7 +2,7 @@
 
 ## 0.1.0-pre.19 — 2026-10-11
 
-- Add the native human-only `/sessionbus-groups` command: show, replace with a comma list, or reset with `-`. Overrides persist per native root in DSH storage; forks use defaults and lanes refuse the command. Overlapping attachment replacement preserves non-persistent lane ownership, the private self group, and later delivery. Admission uncertainty and post-admission storage failures are reported without replay or rollback (W-120).
+- Add the native human-only `/sessionbus-groups` command: show, replace with a comma list, or reset with `-` (no explicitly empty override). Overrides persist per native root in DSH storage; forks use defaults and lanes refuse the command. Overlapping attachment replacement preserves non-persistent lane ownership, the private self group, and later delivery. Cancellation ends before the connection attempt; a failed five-second identity check reports change in progress without teardown, awaiting old-peer supersession or candidate terminal rejection. If neither arrives, existing kit close/reconnect semantics apply, with no swap deadline or polling. Post-admission saving failures preserve live groups and the prior stored value; uncertain requests are never replayed. An old reconnect hello already in flight during an outage remains a known shutdown race (W-120).
 - Add commands/storage-domain DSH peers at the existing alpha.2 floor and Zod as a peer at the storage-domain producer's range. Installation checks derive its exact pin from that producer and require matching name/version, reporting separate paths without rewriting unrelated Zod majors. Real installed-host acceptance remains pending the coordinated host-writer slot.
 
 ## 0.1.0-pre.18 — 2026-10-10
