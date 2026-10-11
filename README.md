@@ -99,6 +99,44 @@ refuses a matching unmarked row instead of deleting someone else's config.
 `SESSIONBUS_GROUPS` configures peer identities only. Lane membership is owned
 by the daemon; the plugin accepts and does not consume groups in `session.open`.
 
+## Per-session groups
+
+In the web UI or dashi, `/sessionbus-groups` shows this root's declared groups,
+`/sessionbus-groups a,b` replaces them (including the profile defaults), and
+`/sessionbus-groups -` restores the profile defaults. The native human command
+is not a model tool or skill. Lane mode and non-root agents refuse it; lane
+membership remains daemon-owned. Lists are ordered, unique, nonempty group
+names without NUL/newlines. A fork with a new session id gets defaults.
+
+The override is stored in DSH's `sessionbus_groups` storage domain, table
+`groups`, keyed by the native session id, and is read on restart/resume.
+Changing groups opens the new attachment before retiring the old one, preserving
+owned non-persistent lanes and the daemon-assigned private `session:<id>` group
+(not part of the declared list). Old-group observers can lose visibility;
+new-group observers gain it. In-flight calls on the superseded connection can
+fail, and uncertain sends are never replayed. One bounded `list/self_info`
+check confirms admission because kit 0.5.12's `ready` alone does not.
+
+A failed pre-admission attempt does not save the list. Lost admission
+acknowledgment is reported as uncertain. A saving failure after admission reports
+`live groups changed, saving failed: <native error>; restart will use the prior value`;
+the new live identity remains, and the prior durable value is unchanged.
+Native domain `put` does not validate; this plugin validates before every write.
+Invalid stored values therefore require external damage in this release and
+refuse activation at the next open with the native table/key diagnostic.
+Stop the affected profile, preserve the offending record for diagnosis, and
+delete only `$DSH_HOME/storages/sessionbus_groups/groups/<native-session-id>.json`
+before restarting to use defaults (adjust the root if your storage-json row
+overrides DSH's default). Native storage-json treats malformed or foreign-version
+documents as absent; this is its separate native boundary, not plugin validation.
+
+Pre.19 adds the native commands/storage-domain peers and a Zod peer. Follow the
+runbook to pin Zod to the version resolved by `dsh-storage-domain` in the executing
+CLI closure; the plugin and that producer must resolve the same Zod name/version.
+Separate physical copies are valid: native domain open calls the supplied
+schema's parser rather than checking object identity. Paths and unrelated Zod
+majors are reported, not rewritten.
+
 ## Run results
 
 A DSH error before its input commit returns `failed`, native stop reason `error`, and result `<code>: <message>` verbatim from the durable `turn/end`.

@@ -36,6 +36,15 @@ class Context {
     this.registeredTools = new Map();
     this.registeredSkills = new Map();
     this.titles = new Map();
+    this.effects = new Set();
+    this.dispose = () => Promise.all([...this.effects].reverse().map(dispose => dispose()));
+    this.groupRecords = new Map();
+    this.groupWrites = [];
+    this.groupTable = {
+      get: (key) => this.groupRecords.get(key),
+      put: async (key, value) => { this.groupWrites.push(["put", key, value]); this.groupRecords.set(key, [...value]); },
+      delete: async (key) => { this.groupWrites.push(["delete", key]); return this.groupRecords.delete(key); },
+    };
     this.agents = { roots: () => [...this.roots], get: (id) => this.roots.find((agent) => agent.session?.id === id) };
     this.appReady = { onReady: (call) => { this.ready = call; return () => { this.ready = null; }; } };
     this.appExit = (code) => { this.exits.push(code); };
@@ -76,7 +85,12 @@ class Context {
   }
   emit(name, ...values) { for (const call of this.listeners.get(name) || []) call(...values); }
   emitGlobal(name, ...values) { for (const call of this.listeners.get(name) || []) if (this.globalListeners.has(call)) call(...values); }
-  effect(call) { this.dispose = call(); }
+  effect(call) {
+    const cleanup = call();
+    const dispose = () => { if (this.effects.delete(dispose)) return cleanup(); };
+    this.effects.add(dispose);
+    return dispose;
+  }
 }
 
 test("short print lifecycle disposes before imports without plugin output", async () => {
@@ -135,6 +149,7 @@ function dependencies(ctx) {
   const closed = deferred();
   const serving = deferred();
   const result = {
+    domain: { table: (name) => { assert.equal(name, "groups"); return ctx.groupTable; }, close: async () => {} },
     ambient: {},
     stderr: (line) => { result.errors.push(line); },
     errors: [],
@@ -148,11 +163,15 @@ function dependencies(ctx) {
       return worker;
     },
     connectPeer: (identity, deliver, environment) => {
+      const closed = deferred();
       const peer = {
         caller: { action: (action, request) => ({ action, request }) },
         deliver,
         environment,
         identity,
+        ready: Promise.resolve(),
+        closed: closed.promise,
+        finish: (error) => { peer.error = error; closed.resolve(); },
         rehello: async (signal, name, info) => {
           assert.equal(signal, undefined);
           peer.rehelloed = { name, info };
@@ -160,8 +179,12 @@ function dependencies(ctx) {
           if (name === undefined) delete peer.identity.name; else peer.identity.name = name;
         },
         replace: async (next) => { peer.replaced = next; peer.identity = next; },
-        shutdown: () => { peer.stopped = true; },
+        shutdown: () => { peer.stopped = true; closed.resolve(); },
       };
+      peer.caller.list = async () => ({ self_info: {
+        session_id: `${identity.session_id}@fake`, product: identity.product,
+        groups: [...new Set([...identity.groups, `session:${identity.session_id}@fake`])],
+      } });
       result.peers.push(peer);
       return peer;
     },
@@ -984,6 +1007,255 @@ test("close cancels running work, idles, flushes, and closed exits", async () =>
   assert.deepEqual(ctx.exits, [0]);
 });
 
+test("human groups command swaps only its root after admission and persists the choice", async () => {
+  const ctx = new Context();
+  const one = agent(ctx, "groups-one"), two = agent(ctx, "groups-two");
+  const deps = dependencies(ctx);
+  deps.ambient = { SESSIONBUS_GROUPS: '["default"]' };
+  const runtime = createRuntime(ctx, { product: "dsh" }, deps);
+  ctx.ready();
+  assert.equal(ctx.command.name, "sessionbus-groups");
+  assert.equal(ctx.registeredTools.has("sessionbus-groups"), false);
+  const invoke = (rawInput, target = one) => ctx.command.handler({ agent: target, rawInput, signal: new AbortController().signal });
+  assert.deepEqual(await invoke(""), { kind: "success", text: '["default"]' });
+  const old = runtime.peers.get(one).peer;
+  const admission = deferred();
+  const connect = deps.connectPeer;
+  deps.connectPeer = (...args) => { const peer = connect(...args); peer.ready = admission.promise; return peer; };
+  const changed = invoke("alpha,beta");
+  await new Promise(setImmediate);
+  assert.equal(old.stopped, undefined);
+  assert.deepEqual(ctx.groupWrites, []);
+  admission.resolve();
+  assert.deepEqual(await changed, { kind: "success", text: '["alpha","beta"]' });
+  assert.equal(old.stopped, true);
+  assert.deepEqual(runtime.peers.get(one).identity.groups, ["alpha", "beta"]);
+  assert.deepEqual(runtime.peers.get(two).identity.groups, ["default"]);
+  assert.deepEqual(ctx.groupRecords.get(one.id), ["alpha", "beta"]);
+  ctx.emit("session/event", one.session, { type: "session/title", data: { title: "Renamed" } });
+  await runtime.peers.get(one).rehello;
+  assert.deepEqual(runtime.peers.get(one).identity.groups, ["alpha", "beta"]);
+  const count = deps.peers.length;
+  assert.deepEqual(await invoke("alpha,beta"), { kind: "success", text: '["alpha","beta"]' });
+  assert.equal(deps.peers.length, count);
+  assert.deepEqual(await invoke("-"), { kind: "success", text: '["default"]' });
+  assert.equal(ctx.groupRecords.has(one.id), false);
+  assert.equal(ctx.effects.size, 1, "temporary candidate effects are removed after adoption");
+  await runtime.close();
+  assert.equal(ctx.command, undefined);
+});
+
+test("groups validation and lane/non-root refusals have no connection or storage effect", async () => {
+  const ctx = new Context(), root = agent(ctx);
+  const deps = dependencies(ctx);
+  const runtime = createRuntime(ctx, { product: "dsh" }, deps);
+  ctx.ready();
+  for (const rawInput of ["a,a", "a,,b", "a\nb", "\0"]) {
+    assert.equal((await ctx.command.handler({ agent: root, rawInput, signal: new AbortController().signal })).kind, "error");
+  }
+  assert.equal((await ctx.command.handler({ agent: {}, rawInput: "a", signal: new AbortController().signal })).kind, "error");
+  assert.equal(deps.peers.length, 1);
+  assert.deepEqual(ctx.groupWrites, []);
+  await runtime.close();
+  const laneCtx = new Context(), laneRoot = agent(laneCtx);
+  const running = lane(laneCtx);
+  for (const rawInput of ["", "a", "-"]) assert.match((await laneCtx.command.handler({ agent: laneRoot, rawInput, signal: new AbortController().signal })).text, /lane/u);
+  assert.deepEqual(laneCtx.groupWrites, []);
+  running.runtime.close();
+});
+
+test("rejected or disconnected group candidates never save or replace the old peer", async () => {
+  for (const failure of ["rejected", "disconnected", "wrong-identity"]) {
+    const ctx = new Context(), root = agent(ctx);
+    const deps = dependencies(ctx), runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+    ctx.ready();
+    const old = runtime.peers.get(root), connect = deps.connectPeer;
+    let lists = 0;
+    deps.connectPeer = (...args) => {
+      const peer = connect(...args);
+      if (failure === "rejected") {
+        peer.ready = new Promise(() => {});
+        peer.finish(Object.assign(new Error("invalid_hello"), { code: -32602 }));
+      } else peer.caller.list = async () => {
+        lists++;
+        if (failure === "disconnected") throw Object.assign(new Error("not connected"), { code: -32002 });
+        return { self_info: { session_id: "wrong@fake", product: "dsh", groups: ["after", "session:wrong@fake"] } };
+      };
+      return peer;
+    };
+    const result = await ctx.command.handler({ agent: root, rawInput: "after", signal: new AbortController().signal });
+    assert.equal(result.kind, "error", failure);
+    assert.equal(runtime.peers.get(root), old);
+    assert.equal(old.peer.stopped, undefined);
+    assert.equal(deps.peers[1].stopped, true);
+    assert.deepEqual(await deps.peers[1].deliver(null, delivery("stale failed candidate")), { disposition: "rejected", reason: "native owner closed" });
+    assert.deepEqual(ctx.groupWrites, []);
+    assert.deepEqual(deps.errors, []);
+    assert.equal(lists, failure === "rejected" ? 0 : 1, "one admission check, no polling");
+    assert.equal(ctx.effects.size, 1, "temporary candidate effects are removed on failure");
+    await runtime.close();
+  }
+});
+
+test("successful overlap absorbs supersession, preserves active delivery and serializes titles and groups", async () => {
+  const ctx = new Context(), root = agent(ctx);
+  root.status = "running";
+  root.steer = message => ctx.emit("session/event", root.session, { type: "agent/inbox/spliced", data: { inserted: [message] } });
+  const deps = dependencies(ctx), runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+  ctx.ready();
+  const old = runtime.peers.get(root).peer, admitted = deferred(), connect = deps.connectPeer;
+  deps.connectPeer = (...args) => {
+    const peer = connect(...args), list = peer.caller.list;
+    peer.caller.list = async (...values) => {
+      old.finish(Object.assign(new Error("superseded"), { code: -32012 }));
+      await admitted.promise;
+      return list(...values);
+    };
+    return peer;
+  };
+  const first = ctx.command.handler({ agent: root, rawInput: "one,two", signal: new AbortController().signal });
+  await new Promise(setImmediate);
+  ctx.titles.set(root.session, { title: "During swap" });
+  ctx.emitGlobal("session/event", root.session, { type: "session/title", data: { title: "During swap" } });
+  const second = ctx.command.handler({ agent: root, rawInput: "two,one", signal: new AbortController().signal });
+  admitted.resolve();
+  assert.equal((await first).kind, "success");
+  assert.equal((await second).kind, "success");
+  const current = runtime.peers.get(root);
+  await current.rehello;
+  assert.deepEqual(current.identity.groups, ["two", "one"]);
+  assert.equal(current.identity.name, "During swap");
+  assert.deepEqual(deps.errors, [], "expected supersession is not a publication failure");
+  assert.equal(root.status, "running", "group changes never cancel or idle the turn");
+  assert.deepEqual(await current.peer.deliver(null, delivery("after swap")), { disposition: "injected" });
+  assert.equal(ctx.calls.filter(call => call[0] === "cancel").length, 0);
+  assert.deepEqual(ctx.groupWrites.map(call => call[2]), [["one", "two"], ["two", "one"]]);
+  await runtime.close();
+});
+
+test("lost group admission acknowledgment is uncertain and never persisted or replayed", async () => {
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  const runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+  ctx.ready();
+  const old = runtime.peers.get(root).peer, connect = deps.connectPeer;
+  deps.connectPeer = (...args) => {
+    const peer = connect(...args);
+    peer.caller.list = async () => {
+      old.finish(Object.assign(new Error("superseded"), { code: -32012 }));
+      throw new Error("hello acknowledgment lost");
+    };
+    return peer;
+  };
+  const result = await ctx.command.handler({ agent: root, rawInput: "after", signal: new AbortController().signal });
+  assert.deepEqual(result, { kind: "error", text: "group change admission uncertain: hello acknowledgment lost; persisted groups unchanged" });
+  assert.equal(runtime.peers.has(root), false);
+  assert.deepEqual(ctx.groupWrites, []);
+  assert.equal(deps.peers.length, 2);
+  assert.deepEqual(deps.errors, []);
+  await runtime.close();
+});
+
+test("admitted candidate accepts delivery while its one self-info check is still pending", async () => {
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  let steers = 0;
+  root.steer = message => { steers++; ctx.emit("session/event", root.session, { type: "agent/inbox/spliced", data: { inserted: [message] } }); };
+  const runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+  ctx.ready();
+  const old = runtime.peers.get(root), checking = deferred(), confirm = deferred(), connect = deps.connectPeer;
+  deps.connectPeer = (...args) => {
+    const peer = connect(...args), list = peer.caller.list;
+    peer.caller.list = async () => {
+      old.peer.finish(Object.assign(new Error("superseded"), { code: -32012 }));
+      checking.resolve();
+      await confirm.promise;
+      return list();
+    };
+    return peer;
+  };
+  const change = ctx.command.handler({ agent: root, rawInput: "after", signal: new AbortController().signal });
+  await checking.promise;
+  assert.equal(runtime.peers.get(root), old, "admission proof has not adopted the candidate yet");
+  const receipt = await deps.peers[1].deliver(null, delivery("during admission check"));
+  confirm.resolve();
+  const result = await change;
+  await runtime.close();
+  assert.equal(result.kind, "success");
+  assert.deepEqual(receipt, { disposition: "injected" }, "the already-admitted new attachment must not lose unattempted input");
+  assert.equal(steers, 1, "no replay or second input insertion");
+});
+
+test("saving failure after admission keeps live groups and prior durable choice", async () => {
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  ctx.groupRecords.set(root.id, ["saved"]);
+  const runtime = createRuntime(ctx, { product: "dsh", groups: ["default"] }, deps);
+  ctx.ready();
+  ctx.groupTable.put = async () => { throw new Error("disk full"); };
+  const result = await ctx.command.handler({ agent: root, rawInput: "live", signal: new AbortController().signal });
+  assert.deepEqual(result, { kind: "error", text: "live groups changed, saving failed: disk full; restart will use the prior value" });
+  assert.deepEqual(runtime.peers.get(root).identity.groups, ["live"]);
+  assert.deepEqual(ctx.groupRecords.get(root.id), ["saved"]);
+  await runtime.close();
+  const restarted = createRuntime(ctx, { product: "dsh", groups: ["changed-default"] }, deps);
+  ctx.ready();
+  assert.deepEqual(restarted.peers.get(root).identity.groups, ["saved"]);
+  const fork = agent(ctx, "forked-id");
+  ctx.emitGlobal("agent/created", { agent: fork });
+  assert.deepEqual(restarted.peers.get(fork).identity.groups, ["changed-default"]);
+  await restarted.close();
+});
+
+test("cancelled or disposed pending group commands close candidates without publishing stale roots", async () => {
+  for (const cause of ["cancel", "dispose", "id-change", "close"]) {
+    const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+    const runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+    ctx.ready();
+    const connect = deps.connectPeer, ready = deferred();
+    deps.connectPeer = (...args) => { const peer = connect(...args); peer.ready = ready.promise; return peer; };
+    const cancel = new AbortController();
+    const pending = ctx.command.handler({ agent: root, rawInput: "after", signal: cancel.signal });
+    await new Promise(setImmediate);
+    if (cause === "cancel") cancel.abort(new Error("user cancelled"));
+    else if (cause === "dispose") ctx.emitGlobal("agent/disposed", { agent: root });
+    else if (cause === "close") await runtime.close();
+    else { root.session.id = "other"; ready.resolve(); }
+    assert.equal((await pending).kind, "error", cause);
+    assert.equal(deps.peers[1].stopped, true);
+    assert.deepEqual(ctx.groupWrites, []);
+    assert.equal([...runtime.peers.values()].some(record => record.identity.groups.includes("after")), false);
+    await runtime.close();
+  }
+});
+
+test("disposal after supersession closes a candidate still waiting for admission proof", async () => {
+  for (const cause of ["dispose", "close"]) {
+    const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+    const runtime = createRuntime(ctx, { product: "dsh" }, deps);
+    ctx.ready();
+    const old = runtime.peers.get(root).peer, connect = deps.connectPeer, checking = deferred();
+    deps.connectPeer = (...args) => {
+      const peer = connect(...args);
+      peer.caller.list = async (_args, signal) => {
+        old.finish(Object.assign(new Error("superseded"), { code: -32012 }));
+        checking.resolve();
+        return new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          peer.closed.then(() => reject(new Error("candidate closed")));
+        });
+      };
+      return peer;
+    };
+    const cancel = new AbortController();
+    const pending = ctx.command.handler({ agent: root, rawInput: "after", signal: cancel.signal });
+    await checking.promise;
+    if (cause === "dispose") ctx.emitGlobal("agent/disposed", { agent: root }); else await ctx.dispose();
+    const closed = deps.peers[1].stopped === true;
+    cancel.abort(new Error("test cleanup"));
+    await pending;
+    await runtime.close();
+    assert.equal(closed, true, `${cause}: do not leave the superseding attachment alive until the five-second deadline`);
+  }
+});
+
 test("peer mode tracks roots, re-hellos titles, and binds tools to the executing root", async () => {
   const ctx = new Context();
   const one = agent(ctx, "session-one");
@@ -1008,7 +1280,7 @@ test("peer mode tracks roots, re-hellos titles, and binds tools to the executing
   assert.match(skill.content, /Fresh lanes and interactive sessions wake on an idle message; there is no\s+opt-out/u);
   assert.match(skill.content, /## Trace direct children/u);
   assert.match(skill.content, /copy its `from` attribute exactly as the send `target`/u);
-  assert.equal(ctx.command, undefined);
+  assert.equal(ctx.command.name, "sessionbus-groups");
   assert.deepEqual(deps.peers[0].identity, { product: "dashi", session_id: one.id, name: "Original", groups: ["team"], info: { cwd: "/workspace", model: "provider/default" } });
   assert.deepEqual(await ctx.tool.execute({ action: "start", arguments: { session_id: "target", input: "go" } }, { agent: one }), { action: "start", request: { session_id: "target", input: "go" } });
   ctx.emit("session/event", one.session, { type: "session/title", data: { title: "Renamed" } });

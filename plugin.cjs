@@ -36,8 +36,8 @@ function assertKnownArguments(value, schema, location = "arguments") {
 const name = "sessionbus-dsh";
 const productPattern = /^[a-z0-9][a-z0-9-]{0,31}$/u;
 const inject = [
-  "agents", "appReady", "appExit", "permissionPresets", "sessionController",
-  "sessions", "sessionTitle", "skills", "tools",
+  "agents", "appReady", "appExit", "commands", "permissionPresets", "sessionController",
+  "sessions", "sessionTitle", "skills", "storageDomain", "tools",
 ];
 function deferred() {
   let resolve, reject;
@@ -47,6 +47,10 @@ function deferred() {
 
 function text(value) {
   return typeof value === "string" && value.length > 0 && value.trim() === value && !/[\0\r\n]/u.test(value);
+}
+
+function validGroups(groups) {
+  return Array.isArray(groups) && groups.every(text) && new Set(groups).size === groups.length;
 }
 
 function clean(error) {
@@ -66,7 +70,7 @@ function readConfiguration(ctx, config = {}, ambient = process.env) {
   const mode = token === undefined ? "peer" : "lane";
   if (config.mode !== undefined && config.mode !== mode) throw new Error(`mode ${config.mode} conflicts with launch environment`);
   let groups = mode === "lane" ? [] : Object.hasOwn(config, "groups") ? config.groups : JSON.parse(value("SESSIONBUS_GROUPS") || "[]");
-  if (!Array.isArray(groups) || groups.some((group) => !text(group)) || new Set(groups).size !== groups.length) throw new Error("groups are invalid");
+  if (!validGroups(groups)) throw new Error("groups are invalid");
   const explicitSocket = Object.hasOwn(config, "socket") ? config.socket : value("SESSIONBUS_SOCKET");
   const socket = explicitSocket ? path.resolve(explicitSocket) : value("XDG_RUNTIME_DIR")
     ? path.resolve(value("XDG_RUNTIME_DIR"), "sessionbus/presence.sock")
@@ -335,6 +339,8 @@ function createRuntime(ctx, config, dependencies, prepared) {
   const active = dependencies.active || (() => true);
   let launchToken = configured.token;
   const native = new NativeSession(ctx, dependencies.createUserMessage, dependencies.ProtocolError || kit.ProtocolError);
+  const domain = dependencies.domain;
+  const groups = values.mode === "peer" ? domain.table("groups") : undefined;
   const peers = new Map();
   const publicationErrors = new WeakSet();
   let worker;
@@ -357,7 +363,34 @@ function createRuntime(ctx, config, dependencies, prepared) {
     }
   };
   const connectionError = (agent, error, record) => {
-    if (active() && peers.get(agent) === record) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+    void record.rehello.then(() => {
+      if (active() && peers.get(agent) === record) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+    });
+  };
+  const connect = (agent, current, tail = Promise.resolve(), previous) => {
+    const record = { peer: undefined, identity: current, rehello: tail };
+    const peer = dependencies.connectPeer(current, (cancel, request) =>
+      native.deliver(cancel, request, agent, () => ready && active() && root(agent) && (peers.get(agent) === record
+        || previous && previous() && peers.get(agent) === previous() && agent.session?.id === current.session_id)), connectionEnvironment(values), {
+      connect: (socket) => {
+        trace(`connect id=${current.session_id} socket=${socket}`);
+        const stream = net.createConnection(socket);
+        stream.once("connect", () => trace(`connect id=${current.session_id} state=connected`));
+        stream.once("error", (error) => connectionError(agent, error, record));
+        return stream;
+      },
+      schedule: previous ? (call, delay) => {
+        // A command gets one attempt; normal kit reconnect resumes only after map ownership.
+        if (peers.get(agent) === record) (dependencies.schedule || setTimeout)(call, delay);
+      } : dependencies.schedule,
+    });
+    record.peer = peer;
+    void peer.closed?.then(async () => {
+      await record.rehello;
+      // The accepted replacement is current before the superseded old peer settles.
+      if (peers.get(agent) === record && peer.error) publicationError(agent, peer.error, record);
+    });
+    return record;
   };
   const present = (agent) => {
     const isRoot = root(agent);
@@ -365,23 +398,11 @@ function createRuntime(ctx, config, dependencies, prepared) {
     trace(`present id=${agent?.session?.id || agent?.id || "unknown"} root=${isRoot} reason=${reason}`);
     if (reason !== "publish") return;
     try {
-      const current = identity(ctx, agent, values.product, values.groups);
+      const choice = groups.get(agent?.session?.id) ?? values.groups;
+      if (!validGroups(choice)) throw new Error(`invalid stored groups for ${agent?.session?.id}`);
+      const current = identity(ctx, agent, values.product, choice);
       if (!current) { trace(`present id=${agent?.id || "unknown"} root=${isRoot} reason=no-session-id`); return; }
-      const record = { peer: undefined, identity: current, rehello: Promise.resolve() };
-      const peer = dependencies.connectPeer(current, (cancel, request) =>
-        native.deliver(cancel, request, agent, () => root(agent) && peers.get(agent) === record), connectionEnvironment(values), {
-        connect: (socket) => {
-          trace(`connect id=${current.session_id} socket=${socket}`);
-          const stream = net.createConnection(socket);
-          stream.once("connect", () => trace(`connect id=${current.session_id} state=connected`));
-          stream.once("error", (error) => connectionError(agent, error, record));
-          return stream;
-        },
-        schedule: dependencies.schedule,
-      });
-      record.peer = peer;
-      peers.set(agent, record);
-      void peer.closed?.then(() => { if (peer.error) publicationError(agent, peer.error, record); });
+      peers.set(agent, connect(agent, current));
     } catch (error) { publicationError(agent, error); }
   };
   const forget = (agent) => { peers.get(agent)?.peer.shutdown(); peers.delete(agent); };
@@ -395,12 +416,16 @@ function createRuntime(ctx, config, dependencies, prepared) {
       const record = peers.get(agent);
       if (!agent || agent.session !== session) return;
       if (!record) return present(agent);
-      const next = identity(ctx, agent, values.product, values.groups, event.data.title);
-      if (!next) return;
-      const replace = next.session_id !== record.identity.session_id;
-      record.identity = next;
       // kit rehello is (signal, name, info); a changed durable id needs a full replacement.
-      record.rehello = record.rehello.then(() => replace ? record.peer.replace(next) : record.peer.rehello(undefined, next.name, next.info)).catch(warn);
+      record.rehello = record.rehello.then(() => {
+        const current = peers.get(agent);
+        if (!current || !ready || !root(agent)) return;
+        const next = identity(ctx, agent, values.product, current.identity.groups, event.data.title);
+        if (!next) return;
+        const replace = next.session_id !== current.identity.session_id;
+        current.identity = next;
+        return replace ? current.peer.replace(next) : current.peer.rehello(undefined, next.name, next.info);
+      }).catch(warn);
     }, { global: true });
   }
   const caller = (agent) => worker && native.agent === agent ? worker.caller : peers.get(agent)?.peer.caller;
@@ -432,6 +457,87 @@ function createRuntime(ctx, config, dependencies, prepared) {
     content: skillContent,
     invocation: { modelInvocable: true, userInvocable: true },
   });
+  const removeCommand = ctx.commands.register({
+    name: "sessionbus-groups", description: "Show or replace this session's Sessionbus groups; - restores profile defaults",
+    input: { hint: "[a,b|-]" },
+    handler: async ({ agent, rawInput, signal }) => {
+      if (values.mode === "lane") return { kind: "error", text: "sessionbus-groups is unavailable in lane mode; the daemon owns lane groups" };
+      const id = agent?.session?.id;
+      const live = () => ready && active() && root(agent) && agent.session?.id === id;
+      if (!live()) return { kind: "error", text: "sessionbus-groups requires an exact live DSH root" };
+      const input = rawInput.trim();
+      const choice = input === "-" ? values.groups : input.split(",").map(value => value.trim());
+      if (input && !validGroups(choice)) return { kind: "error", text: "groups are invalid" };
+      const initial = peers.get(agent);
+      if (!initial) return { kind: "error", text: "sessionbus is not connected" };
+      const changed = initial.rehello.then(async () => {
+        if (!live()) throw new Error("DSH root was disposed or replaced");
+        signal.throwIfAborted();
+        const old = peers.get(agent);
+        if (!old) throw new Error("sessionbus is not connected");
+        if (!input) return { kind: "success", text: JSON.stringify(old.identity.groups) };
+        if (JSON.stringify(choice) !== JSON.stringify(old.identity.groups)) {
+          // Kit delivers only after admission; cover the short interval before our self-info check.
+          let previous = old;
+          const candidate = connect(agent, identity(ctx, agent, values.product, choice), old.rehello, () => previous);
+          const deadline = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+          let abort, removePending;
+          try {
+            removePending = ctx.effect(() => {
+              const removeDisposed = ctx.on("agent/disposed", ({ agent: disposed }) => {
+                if (disposed === agent) candidate.peer.shutdown();
+              }, { global: true });
+              return () => {
+                removeDisposed();
+                if (peers.get(agent) !== candidate) candidate.peer.shutdown();
+              };
+            }, "sessionbus-dsh.pending-groups");
+            const aborted = new Promise((_, reject) => {
+              abort = () => reject(deadline.reason);
+              if (deadline.aborted) return abort();
+              deadline.addEventListener("abort", abort, { once: true });
+            });
+            const ended = candidate.peer.closed.then(() => { throw candidate.peer.error || new Error("not connected"); });
+            const ownerEnded = old.peer.closed.then(() => {
+              if (old.peer.error?.code !== -32012) throw new Error("DSH peer was closed");
+              return new Promise(() => {});
+            });
+            await Promise.race([candidate.peer.ready, ended, ownerEnded, aborted]);
+            if (!live()) throw new Error("DSH root was disposed or replaced");
+            // Interim public admission proof: ready alone can settle after a failed hello in kit 0.5.12.
+            const { self_info: self } = await candidate.peer.caller.list({}, deadline);
+            const expected = self && [...new Set([...choice, `session:${self.session_id}`])];
+            if (!self || nativeName(self.session_id) !== id || self.product !== values.product || JSON.stringify(self.groups) !== JSON.stringify(expected)) throw new Error("sessionbus hello identity was not confirmed");
+            if (!live()) throw new Error("DSH root was disposed or replaced");
+            candidate.rehello = old.rehello;
+            peers.set(agent, candidate);
+            previous = undefined;
+            old.peer.shutdown();
+          } catch (error) {
+            previous = undefined;
+            candidate.peer.shutdown();
+            if (old.peer.error?.code === -32012) {
+              if (peers.get(agent) === old) peers.delete(agent);
+              throw new Error(`group change admission uncertain: ${clean(error)}; persisted groups unchanged`);
+            }
+            throw error;
+          } finally {
+            deadline.removeEventListener("abort", abort);
+            removePending?.();
+          }
+        }
+        try {
+          if (input === "-") await groups.delete(id); else await groups.put(id, choice);
+        } catch (error) {
+          throw new Error(`live groups changed, saving failed: ${clean(error)}; restart will use the prior value`);
+        }
+        if (!live()) throw new Error("DSH root was disposed or replaced after saving groups");
+        return { kind: "success", text: JSON.stringify(choice) };
+      });
+      initial.rehello = changed.then(() => {}, () => {});
+      try { return await changed; } catch (error) { return { kind: "error", text: clean(error) }; }
+    },
+  });
   const start = () => {
     ready = true;
     trace(`mode=${values.mode} ready=true`);
@@ -457,10 +563,12 @@ function createRuntime(ctx, config, dependencies, prepared) {
   };
   const removeReady = ctx.appReady.onReady(start);
   const close = () => {
+    ready = false;
     trace(`mode=${values.mode} ready=false reason=close`);
-    removeReady(); removeCreated(); removeDisposed(); removeTitle(); removeSkill(); removeGrant(); removeTool();
+    removeReady(); removeCreated(); removeDisposed(); removeTitle(); removeSkill(); removeGrant(); removeTool(); removeCommand();
     for (const agent of peers.keys()) forget(agent);
     worker?.shutdown(); native.removeEvents();
+    return domain?.close();
   };
   ctx.effect(() => close, "sessionbus-dsh.lifecycle");
   return { close, execute, native, peers, settings: values, start, get worker() { return worker; }, get workerExit() { return workerExit; } };
@@ -473,7 +581,17 @@ async function activate(ctx, config = {}, dependencies = {}, prepared) {
     dependencies.defineTool ? { defineTool: dependencies.defineTool } : (dependencies.importTools || (() => import("@deepseek-ai/dsh-tools")))(),
   ]);
   if (dependencies.active && !dependencies.active()) return;
-  return createRuntime(ctx, config, { ...kit, active: () => true, stderr: (line) => process.stderr.write(line), ...dependencies, createUserMessage, defineTool }, configured);
+  let domain = dependencies.domain;
+  if (!domain && configured.settings.mode === "peer") {
+    const { defineDomain, domainTable } = await import("@deepseek-ai/dsh-storage-domain");
+    const { z } = require("zod");
+    domain = await ctx.storageDomain.open(defineDomain({
+      name: "sessionbus_groups", version: 1, layout: "per-record",
+      tables: { groups: domainTable(z.custom(validGroups, "groups are invalid")) },
+    }));
+    if (dependencies.active && !dependencies.active()) { await domain.close(); return; }
+  }
+  return createRuntime(ctx, config, { ...kit, active: () => true, stderr: (line) => process.stderr.write(line), ...dependencies, domain, createUserMessage, defineTool }, configured);
 }
 
 function apply(ctx, config = {}, dependencies = {}) {

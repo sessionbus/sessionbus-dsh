@@ -64,7 +64,10 @@ for (const name of Object.keys(peers)) if (name.startsWith('@deepseek-ai/dsh-'))
 NODE
 )
 pnpm --dir "$profile" add --save-exact "@deepseek-ai/dsh@$floor" "${floor_peers[@]}" "${cli_pins[@]}"
-node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$floor" "$work/cli.json" "$profile/pnpm-lock.yaml"
+node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$floor" "$work/cli.json" "$profile/.pnpmfile.cjs" "$profile" > "$work/cli-pins.txt"
+mapfile -t cli_pins < "$work/cli-pins.txt"
+pnpm --dir "$profile" add --save-exact "${cli_pins[@]}"
+node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$floor" "$work/cli.json" "$profile/pnpm-lock.yaml" "$profile"
 PATH="$profile/node_modules/.bin:$PATH" DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --product dsh peer-floor
 DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --remove peer-floor
 node - "$profile" <<'NODE'

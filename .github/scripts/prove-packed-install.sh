@@ -132,7 +132,7 @@ NODE
 }
 cleanup() {
   stop_processes
-  rm -rf -- "$work"
+  if [[ ${KEEP_PROOF:-0} = 1 ]]; then printf 'proof evidence retained: %s\n' "$work"; else rm -rf -- "$work"; fi
 }
 trap cleanup EXIT
 
@@ -149,11 +149,14 @@ npm install --prefix "$home" --save-exact --before "$release_cutoff" \
   "@deepseek-ai/dsh@$version" \
   "@deepseek-ai/dsh-agent@$version" "@deepseek-ai/dsh-agent-loop@$version" \
   "${cli_pins[@]}"
-node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
+node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$version" "$work/cli.json" "$work/.pnpmfile.cjs" "$home" > "$work/cli-pins.txt"
+mapfile -t cli_pins < "$work/cli-pins.txt"
+node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json" "$home"
+node "$root/.github/scripts/prove-domain-schema.mjs" "$home"
 node "$root/.github/scripts/prove-runtime-resolution.mjs" "$home"
 if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
   npm install --prefix "$home" --save-exact "@antst/dashi-launcher@$DASHI_APP_VERSION"
-  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json"
+  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json" "$home"
 fi
 dsh="$home/node_modules/.bin/dsh"
 export PATH="$home/node_modules/.bin:$PATH"
@@ -183,7 +186,7 @@ cmp -s "$work/dashi-manifest-before-refusal.json" "$home/profiles/dashi/package.
 cmp -s "$work/dashi-patch-before-refusal.yml" "$home/profiles/dashi/cordis.patch.yml"
 for profile in sessionbus web dashi; do
   pnpm --dir "$home/profiles/$profile" add --save-exact "${cli_pins[@]}" "@deepseek-ai/dsh-llm-replay@$version" "$root/.github/fixtures/ask-all-plugin"
-  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/$profile/pnpm-lock.yaml"
+  node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/$profile/pnpm-lock.yaml" "$home"
 done
 pnpm --dir "$home/profiles/sessionbus" add --save-exact "$root/.github/fixtures/turn-start-error-plugin"
 
@@ -269,7 +272,7 @@ stop_processes
 if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
 DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-row
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
-node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml"
+node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml" "$home"
 DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install" --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
@@ -382,6 +385,16 @@ kill -USR1 "$server_pid"
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"idleDeliveryReceipt"' "$capture" && [[ $(grep -Rh '"type":"turn/end"' "$work/web-sessions" 2>/dev/null | wc -l) -ge 2 ]] && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 assert_permission_proof "$capture" "$work/web-sessions" "" "$work/web-session-id"
 stop_processes
+
+echo "DSH $version per-session groups against released daemon 0.5.12"
+DSH_HOME="$home" "$dsh" plugin --profile web add "$root/.github/fixtures/groups-proof-plugin"
+mkdir -p "$work/daemon-v0.5.12"
+daemon_archive=sessionbus-host-linux-amd64.tar.gz
+curl -fsSL "https://github.com/sessionbus/sessionbus/releases/download/v0.5.12/$daemon_archive" -o "$work/daemon-v0.5.12/$daemon_archive"
+curl -fsSL https://github.com/sessionbus/sessionbus/releases/download/v0.5.12/SHA256SUMS -o "$work/daemon-v0.5.12/SHA256SUMS"
+(cd "$work/daemon-v0.5.12" && sha256sum --check SHA256SUMS --ignore-missing && tar -xzf "$daemon_archive")
+"$work/daemon-v0.5.12/bin/sessionbus" --version
+node "$root/.github/scripts/prove-session-groups.mjs" "$home" "$work" "$work/daemon-v0.5.12/bin/sessionbus" "$root"
 
 echo "DSH $version runbook offline provider overlay proof (no model turn)"
 awk '/cat >.*check-profile-provider.mjs/ { capture=1; next } capture && $0 == "NODE" { exit } capture { print }' "$root/docs/HOST-INSTALL.md" > "$work/check-profile-provider.mjs"

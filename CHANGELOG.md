@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-pre.19 — 2026-10-11
+
+- Add the native human-only `/sessionbus-groups` command: show, replace with a comma list, or reset with `-`. Overrides persist per native root in DSH storage; forks use defaults and lanes refuse the command. Overlapping attachment replacement preserves non-persistent lane ownership, the private self group, and later delivery. Admission uncertainty and post-admission storage failures are reported without replay or rollback (W-120).
+- Add commands/storage-domain DSH peers at the existing alpha.2 floor and Zod as a peer at the storage-domain producer's range. Installation checks derive its exact pin from that producer and require matching name/version, reporting separate paths without rewriting unrelated Zod majors. Real installed-host acceptance remains pending the coordinated host-writer slot.
+
 ## 0.1.0-pre.18 — 2026-10-10
 
 - Widen @antst/dsh-file-uploads-none to `^0.1.0 || ^0.2.0-alpha.1` so profiles pinning 0.2.0-alpha.1 share one provider copy while 0.1.3 remains supported (W-119). Stable 0.2.x is admitted; a prerelease on a different base, such as 0.2.1-alpha.x, is not and needs a later range change. No plugin runtime or wire behavior changes.

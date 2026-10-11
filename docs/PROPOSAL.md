@@ -52,9 +52,12 @@ DSH, and any web profile, which then needs only the plugin row inserted):
 
 The first present source wins per input; sources never merge. Per-root-session
 semantics (one connection per root, identity and title per root, delivery by
-connection) already cover web-profile sessions. Peer groups are fixed for the
-life of a session: a re-hello with a different group set is invalid, and a
-session with different groups is a new session. Lane membership belongs to the
+connection) already cover web-profile sessions. A same-connection re-hello
+with a different group set is invalid. W-120 supersedes the lifetime-fixed
+rule: `/sessionbus-groups` replaces a root's declared groups via an overlapping
+new connection with the same native id, preserving its ownership lifetime.
+The override lives in the native `sessionbus_groups` domain's per-record
+`groups` table; reset removes only that root's override. Lane membership belongs to the
 daemon; the plugin accepts and does not consume groups in `session.open`, and
 the worker hello cannot carry them.
 
@@ -378,11 +381,14 @@ the daemon-owned membership array carried by `session.open`.
 "No argv" does not forbid an interactive command; `commands.register`
 (`dsh:packages/interaction/commands/src/index.ts:274-281`) executes "against
 the receiving agent without sending the command to the model" (`:69-71`).
-*Recommendation:* register one **read-only** `/sessionbus` in every mode —
+*Historical recommendation, superseded by W-099 and W-120:* register one **read-only** `/sessionbus` in every mode —
 mode, connection state, canonical identity, groups. Group mutation is not a
 feature at all: groups are fixed for the life of a session (owner ruling D2),
 so the command reports and refuses; a session with different groups is a new
-session started with different `-g`.
+session started with different `-g`. The shipped `/sessionbus` is a model/user
+skill; `/sessionbus-groups` is now a separate native human-only command. Its
+overlapping replacement changes groups without detaching or losing owned lanes;
+lane mode refuses it. Same-connection title re-hellos still never change groups.
 
 **7.5 Rename flow.**
 *Decided (D2):* peer mode watches `session/title`
