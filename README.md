@@ -6,11 +6,16 @@ Source and issue tracking live in
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
 It depends on the exact `@sessionbus/kit` version `0.5.12`.
+The rows-only installer uses `js-yaml@4.3.2` to read native array patches;
+`!!js` scalars are inert during installation, and user patches are never
+re-serialized. This is the parser version tested here, not a promise to track
+DSH's parser version.
 It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
 `0.2.1-alpha.2`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
 until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
-A DSH profile must install every DSH package at one uniform DSH version; adding
-one prerelease package can otherwise pull newer prereleases through DSH's caret peers.
+The running DSH composition must resolve one compatible DSH version. Profile-local
+peer warnings alone do not describe that runtime: DSH supplies its installation's
+packages when the profile boots.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH
 permission policy. Native messages use the producer-owned V4 kind
@@ -23,32 +28,49 @@ lifetime (trusted host).
 
 ## Installation
 
-See [Installing a DSH lane host](docs/HOST-INSTALL.md) for the complete
-preflight, installation, verification, and rollback procedure for
-`@sessionbus/dsh` `0.1.0-pre.20` with kit `0.5.12` on DSH alpha.2.
-The published dashi-app `0.2.0-alpha.1` still pins plugin pre.18; its packed
-case proves coexistence, not pre.20 inside dashi. Do not run a
-dashi 0.1.x release against the alpha.2 graph. The installer checks the host's
-DSH floor before changing a profile; a manual `pnpm add` bypasses that guard.
-pnpm is required for the prerelease floors; strict npm does not admit them.
-The runbook's provider-parity step must be completed for both the lane and plain
-peer profiles before either one runs a model turn.
-The quick-start commands below assume pnpm's default peer auto-install. With
-`auto-install-peers=false` and `strict-peer-dependencies=true`, first follow the
-runbook's `pin_uploads_provider` step and add the plugin plus that exact provider
-pin together; otherwise the initial add fails before the installer can run.
+Have DSH `0.2.1-alpha.2` or newer on `PATH`. Global npm, global pnpm, npx and
+project installations are supported; choose the intended `dsh` on `PATH` when
+several installs coexist. DSH's own `plugin` command manages the profile's
+packages (and requires pnpm as DSH documents), regardless of how DSH was installed.
+With npx, prefix each command below with the same npx DSH invocation.
+The package manager's global binaries must already be on PATH.
 
-Create the base-only lane profile for the package-owned `sessionbus-dsh`
-product with:
+### DSH installed globally with pnpm 11
+
+The default pnpm 11 global virtual store can prevent DSH's native loader
+from finding its installed platform binding. The error includes:
+
+```text
+No usable native binding found for node-addon-require-builtin-darwin-arm64
+```
+
+The suffix identifies your platform. This DSH/pnpm layout issue is tracked
+in [Discussion 9432](https://github.com/deepseek-ai/deepseek-harness/discussions/9432).
+Disable the global virtual store and reinstall DSH:
+
+<!-- install:pnpm-global-remedy -->
+```sh
+pnpm config set --global --json enableGlobalVirtualStore false
+pnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2
+```
+
+The setting affects subsequent installations; it does not migrate existing
+installations by itself.
+
+### Configure the profile
+
+Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add @sessionbus/dsh && dsh plugin --profile sessionbus exec sessionbus-dsh-install
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.21
+dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add @sessionbus/dsh && dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.21
+dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
 In that form `SESSIONBUS_PRODUCTS` contains `dashi`, not `sessionbus-dsh`,
@@ -57,11 +79,15 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add @sessionbus/dsh && dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.21
+dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
-The installer writes only profile-local rows and leaves an existing
-`sessionbus` row's other fields unchanged while adding or updating its required
+DSH creates fresh profiles with `nodeLinker: hoisted` and
+`autoInstallPeers: false`; these are DSH's defaults, not pnpm's global defaults.
+The installer makes no package operations, registry queries, companion pins or
+DSH boots. It writes only profile-local rows and its base-bundle entry, and leaves an existing
+marked peer `sessionbus` row's other fields unchanged while adding or updating its required
 `product`. With no profile arguments it configures only the `sessionbus` lane
 profile and derives product `sessionbus-dsh`. Use product `dashi` for the dashi
 lane variant, `dsh` for a standalone web or custom peer profile, or another
@@ -70,31 +96,42 @@ The dashi-app bundle owns its dashi-profile row and
 exact plugin dependency; do not run this installer against that profile.
 Non-web profiles also receive the no-upload provider required by DSH's Session
 Controller; ordinary text prompts work while file-upload receipts are rejected.
-Pre.20 declares `@antst/dsh-file-uploads-none` as a required peer at
-`^0.1.0 || ^0.2.0-alpha.1`, not a nested dependency. Every profile managed by
-the installer gets an exact pin: the installed dashi-app's exact provider pin
-when present, otherwise the highest registry release matching that range.
-The app must be installed in that profile's own `node_modules` at a version
-satisfying its manifest spec. All profile guards and pin lookups complete before
-any profile changes; each registry query uses that profile's context and has a
-60 s bound, with native errors propagated and no retry or fallback. A later
-package-operation failure can leave earlier profiles changed. When the plugin
-is missing, the same add saves its dependency exactly, not with a caret.
-The web profile gets the package pin but never a no-upload loader row.
-DSH and the Cordis/Zod companions must still be coherent as the runbook requires.
-With pnpm defaults, auto-install supplies a matching missing peer under pnpm's
-preferences (the `latest` tag when it satisfies, e.g. `0.1.3` today);
-this is acceptable, not the strict-peer proof. The installer explicitly uses
-`maxSatisfying` for its pin. With auto-install disabled and strict peers enabled,
-installing without a provider fails: supply its exact pin in the same add.
-Other-base helper prereleases (such as `0.2.1-alpha.x`) remain outside the range.
+The no-upload row uses this package's separate `@sessionbus/dsh/file-uploads-none`
+entry. There is no dependency or peer on `@antst/dsh-file-uploads-none`; web
+receives no no-upload row, and dashi-app keeps ownership of its own provider.
+Re-running the installer upgrades its marked pre.20 row. Any old provider pin
+is left untouched and reported, not removed. An unmarked plugin or upload row belongs to
+the user: remove it and rerun, or keep that profile outside the installer.
+Removing the marker from a config-only lane default makes it yours: the installer
+keeps that row unchanged, prints `kept as yours, lane default not applied`, and
+does not append a shadowing default. Unrelated owner rows, comments and expressions
+remain byte-identical, including the lane's provider and default-model rows.
+All structural and row-ownership guards complete before any profile changes.
+A later filesystem write failure can still leave earlier profiles changed.
+
+Profile-policy boundary: the plugin is tested with DSH's native profile defaults
+(`nodeLinker: hoisted`, `autoInstallPeers: false`). DSH provides its peers from
+the executing installation; they do not need to be installed into the profile.
+The installer never changes the operator's package-manager policy or adds
+companion packages. DSH owns the version floor, including the native refusal
+`Plugin @sessionbus/dsh@0.1.0-pre.21 is incompatible with dsh 0.2.1-alpha.1`.
+Do not grant a version exemption to bypass it. A model provider must already be
+configured and registered in each profile that will run turns; see the operations
+runbook's provider-parity step when upgrading an existing project.
 
 For the two-product form, register the daemon's `sessionbus-dsh` product as the
 package's `sessionbus-dsh` bin. For the one-product form, register only `dashi`
 as the `dashi` bin. Both launchers select the installed `sessionbus` profile
-when given a launch token. Install the selected launcher alongside `dsh` at the
-host level and put their shared `node_modules/.bin` on the daemon service's
-`PATH`; the `dashi` launcher resolves its child `dsh` by name.
+when given a launch token. Deployment boundary: these two profile commands do
+not deploy the daemon or configure its products. Its service `PATH` must resolve
+the selected launcher and its child `dsh`; they need not share a directory.
+An ephemeral npx cache is not a persistent daemon-product deployment. The
+operator owns that setup, independently of the login shell.
+
+[Upgrading a project DSH install in place](docs/HOST-INSTALL.md) is an operations
+procedure for a long-lived pnpm project, not a prerequisite for ordinary plugin
+installation. Its snapshots, stale-graph repair and optional companion pins
+address that project's upgrade history, not global or fresh installs.
 
 Without an explicit socket, peers use `$XDG_RUNTIME_DIR/sessionbus/presence.sock`
 or `/tmp/sessionbus-<uid>/presence.sock`, matching the daemon's discovery rule.
@@ -107,19 +144,18 @@ by default.
 The lane advertises no native extra arguments. A non-empty `open.arguments`
 request is rejected rather than silently ignored.
 
-Uninstall without invoking DSH by running the installed bin from the profile:
+Remove the rows, then let DSH remove the package:
 
 ```sh
-pnpm --dir "$DSH_HOME/profiles/web" exec sessionbus-dsh-install --remove web
+dsh plugin --profile web exec sessionbus-dsh-install --remove web
+dsh plugin --profile web remove @sessionbus/dsh
 ```
 
-When the DSH CLI works, `dsh plugin --profile web exec
-sessionbus-dsh-install --remove web` is the equivalent convenience form. The
-installer removes the package first, then strips its managed `sessionbus` and
-`file-uploads-none` rows. Managed rows carry an ownership comment; removal
-refuses a matching unmarked row instead of deleting someone else's config.
-Uninstall leaves the profile-owned provider and companion package pins in
-place; they may serve other consumers. It never checks versions or boots DSH.
+If DSH is broken, invoke the already-installed `sessionbus-dsh-install` bin
+directly with `--remove web` to remove the rows without booting or version-checking
+DSH. Managed rows carry an ownership comment; removal refuses an unmarked
+matching row. The installer never removes packages; existing provider and
+companion pins are left for their owners.
 
 `SESSIONBUS_GROUPS` configures peer identities only. Lane membership is owned
 by the daemon; the plugin accepts and does not consume groups in `session.open`.
@@ -182,9 +218,10 @@ documents as absent; this is its separate native boundary, not plugin validation
 
 Pre.19 requires the native `commands` and `storageDomain` services in every mode;
 lane profiles must carry dsh-base's rows (the shipped profiles do). It adds those
-DSH peers and a Zod peer. Follow the
-runbook to pin Zod to the version resolved by `dsh-storage-domain` in the executing
-CLI closure; the plugin and that producer must resolve the same Zod name/version.
+DSH peers and a Zod peer. Native runtime resolution supplies those peers; ordinary
+installation does not require profile-local Cordis or Zod pins. The plugin and
+storage-domain producer must resolve compatible Zod schemas through their own
+native importers.
 Separate physical copies are valid: native domain open calls the supplied
 schema's parser rather than checking object identity. Paths and unrelated Zod
 majors are reported, not rewritten.

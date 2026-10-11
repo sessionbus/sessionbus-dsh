@@ -1,92 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-version=0.1.5-rc.2
-floor=0.2.1-alpha.2
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-dsh-floor.XXXXXX")
-trap 'rm -rf -- "$work"' EXIT
-
-tarball_name=$(npm pack --pack-destination "$work" --ignore-scripts --json --prefix "$root" | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => process.stdout.write(JSON.parse(body)[0].filename))')
-profile="$work/home/profiles/peer-floor"
-mkdir -p "$profile"
-printf '%s\n' '{"name":"dsh-profile-peer-floor","private":true,"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"],"patchReload":"startup"}}}' > "$profile/package.json"
-printf '%s\n' 'node-linker=hoisted' 'auto-install-peers=false' > "$profile/.npmrc"
-printf '%s\n' '# below-floor profile must remain byte-identical' '[]' > "$profile/cordis.patch.yml"
-mapfile -t peers < <(node - "$root/package.json" "$version" <<'NODE'
-const [manifestFile, version] = process.argv.slice(2)
-const peers = JSON.parse(require('node:fs').readFileSync(manifestFile)).peerDependencies
-for (const name of Object.keys(peers)) {
-  if (name.startsWith('@deepseek-ai/dsh-')) console.log(`${name}@${version}`)
-}
-NODE
-)
-PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false pnpm --dir "$profile" add --save-exact --ignore-scripts "$work/$tarball_name" \
-  "@deepseek-ai/dsh@$version" @deepseek-ai/cordis@4.0.2 @deepseek-ai/cordis-plugin-loader@1.0.3 \
-  "${peers[@]}" > "$work/install.log" 2>&1
-PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false pnpm --dir "$profile" peers check --json > "$work/peers.json" 2>&1 || true
-cat "$work/install.log"
-cat "$work/peers.json"
-node - "$root/package.json" "$profile/package.json" "$work/install.log" "$work/peers.json" "$version" <<'NODE'
-const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const [sourceFile, installedFile, logFile, peersFile, version] = process.argv.slice(2)
-const source = JSON.parse(fs.readFileSync(sourceFile))
-const installed = JSON.parse(fs.readFileSync(installedFile))
-const log = fs.readFileSync(logFile, 'utf8')
-let bad
-try { bad = JSON.parse(fs.readFileSync(peersFile, 'utf8'))['.'].bad } catch {}
-assert.ok(installed.dependencies['@sessionbus/dsh'])
-for (const [name, range] of Object.entries(source.peerDependencies)) {
-  if (name.startsWith('@deepseek-ai/dsh-')) {
-    assert.ok(bad?.[name]?.some(peer => peer.wantedRange === range && peer.foundVersion === version) || log.includes(`unmet peer ${name}@${range}: found ${version}`))
-  }
-}
-NODE
-cp "$profile/package.json" "$work/manifest-before-refusal.json"
-cp "$profile/cordis.patch.yml" "$work/patch-before-refusal.yml"
-set +e
-PATH="$profile/node_modules/.bin:$PATH" DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --product dsh peer-floor > "$work/refusal.stdout" 2> "$work/refusal.stderr"
-status=$?
-set -e
-[[ "$status" -eq 2 ]]
-grep -Fx "sessionbus-dsh-install: installed DSH $version does not satisfy >=$floor; run docs/HOST-INSTALL.md preflight before upgrading" "$work/refusal.stderr"
-cmp -s "$work/manifest-before-refusal.json" "$profile/package.json"
-cmp -s "$work/patch-before-refusal.yml" "$profile/cordis.patch.yml"
-echo "DSH $version pnpm below-floor warnings; installer refusal with unchanged profile: PASS"
-
-npm view "@deepseek-ai/dsh@$floor" --json > "$work/cli.json"
-node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$floor" "$work/cli.json" "$profile/.pnpmfile.cjs" > "$work/cli-pins.txt"
-mapfile -t cli_pins < "$work/cli-pins.txt"
-mapfile -t floor_peers < <(node - "$root/package.json" "$floor" <<'NODE'
-const peers = require(process.argv[2]).peerDependencies
-for (const name of Object.keys(peers)) if (name.startsWith('@deepseek-ai/dsh-')) console.log(`${name}@${process.argv[3]}`)
-NODE
-)
-pnpm --dir "$profile" add --save-exact "@deepseek-ai/dsh@$floor" "${floor_peers[@]}" "${cli_pins[@]}"
-node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$floor" "$work/cli.json" "$profile/.pnpmfile.cjs" "$profile" > "$work/cli-pins.txt"
-mapfile -t cli_pins < "$work/cli-pins.txt"
-pnpm --dir "$profile" add --save-exact "${cli_pins[@]}"
-node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$floor" "$work/cli.json" "$profile/pnpm-lock.yaml" "$profile"
-# A required peer is now profile-owned; supply it before this non-booting floor/row fixture.
-uploads_pin=$(pnpm view "@antst/dsh-file-uploads-none@^0.1.0 || ^0.2.0-alpha.1" version --json | node -e '
-const fs=require("node:fs"), {createRequire}=require("node:module");
-const semver=createRequire(fs.realpathSync(`${process.argv[1]}/node_modules/@deepseek-ai/dsh-app-boot/package.json`))("semver");
-let body=""; process.stdin.on("data", chunk=>body+=chunk).on("end", ()=>{
-const versions=JSON.parse(body), pin=semver.maxSatisfying(Array.isArray(versions)?versions:[versions], "^0.1.0 || ^0.2.0-alpha.1");
-if (!pin) throw new Error("no matching upload provider"); process.stdout.write(pin);
-});' "$profile")
-pnpm --dir "$profile" add --save-exact "@antst/dsh-file-uploads-none@$uploads_pin"
-PATH="$profile/node_modules/.bin:$PATH" DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --product dsh peer-floor
-DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --remove peer-floor
-node - "$profile" <<'NODE'
-const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const profile = process.argv[2]
-const manifest = JSON.parse(fs.readFileSync(`${profile}/package.json`))
-const patch = fs.readFileSync(`${profile}/cordis.patch.yml`, 'utf8')
-assert.equal(manifest.dependencies?.['@sessionbus/dsh'], undefined)
-assert.ok(manifest.dependencies['@antst/dsh-file-uploads-none'], 'profile-owned provider retained')
-assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u)
-NODE
-echo "DSH $floor compatible-floor install and uninstall: PASS"
+work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-native-floor.XXXXXXXX")
+mkdir -p "$work/pack"
+npm pack --ignore-scripts --json --pack-destination "$work/pack" --prefix "$root" >"$work/pack.json"
+tarball="$work/pack/$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1]))[0].filename' "$work/pack.json")"
+npm install --prefix "$work/cli" --save-exact @deepseek-ai/dsh@0.2.1-alpha.1 >"$work/cli-install.log" 2>&1
+export PATH="$work/cli/node_modules/.bin:$PATH"
+node "$root/.github/scripts/prove-native-floor.mjs" "$work/proof" '["dsh"]' "$tarball" "$root"
+printf 'native floor evidence: %s\n' "$work"

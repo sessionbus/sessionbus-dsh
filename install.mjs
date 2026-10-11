@@ -4,8 +4,7 @@ import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import yaml from "js-yaml";
 
 const marker = "# sessionbus-dsh-install owned";
 const uploads = "@antst/dsh-file-uploads-none";
@@ -23,260 +22,324 @@ const profilePatch = (product) => `- id: system-prompt ${marker}
       workspace-write-noninteractive: { sandbox: workspace-write, approval: never }
       danger-full-access: { sandbox: danger-full-access, approval: never }
 
-- insert:
+- insert: ${marker}
     - { id: workspace, name: '@deepseek-ai/dsh-workspace' } ${marker}
-    - { id: file-uploads-none, name: '@antst/dsh-file-uploads-none' } ${marker}
+    - { id: file-uploads-none, name: '@sessionbus/dsh/file-uploads-none' } ${marker}
     - { id: session-controller, name: '@deepseek-ai/dsh-api-session-controller' } ${marker}
     - id: sessionbus ${marker}
       name: '@sessionbus/dsh'
       config: { mode: lane, product: ${product} }
 `;
-const peerPatch = (product) => `- insert:
+const peerPatch = (product) => `- insert: ${marker}
     - { id: sessionbus, name: '@sessionbus/dsh', config: { product: ${product} } } ${marker}
 `;
-const noUploadsPatch = `- insert:
-    - { id: file-uploads-none, name: '@antst/dsh-file-uploads-none' } ${marker}
+const noUploadsPatch = `- insert: ${marker}
+    - { id: file-uploads-none, name: '@sessionbus/dsh/file-uploads-none' } ${marker}
 `;
-const rowID = (name) => new RegExp(`(?:^\\s*-\\s*|[{,]\\s*)['"]?id['"]?\\s*:\\s*['"]?${name}['"]?(?=\\s|[,}]|$)`, "mu");
-const sessionbusID = /(?:^\s*-\s*|[{,]\s*)['"]?id['"]?\s*:\s*['"]?sessionbus['"]?(?=\s|[,}]|$)/mu;
-const noUploadsID = /(?:^\s*-\s*|[{,]\s*)['"]?id['"]?\s*:\s*['"]?file-uploads-none['"]?(?=\s|[,}]|$)/mu;
 const productPattern = /^[a-z0-9][a-z0-9-]{0,31}$/u;
-const ownedRows = ["system-prompt", "session-title-llm", "permission", "workspace", "file-uploads-none", "session-controller", "sessionbus"].map(name => [name, rowID(name)]);
-const ownedIDs = ownedRows.map(([, id]) => id);
-const peerRows = (name) => [ownedRows.at(-1), ...(name === "web" ? [] : [ownedRows[4]])];
+const ownedIDs = ["system-prompt", "session-title-llm", "permission", "workspace", "file-uploads-none", "session-controller", "sessionbus"];
+const peerRows = (name) => ["sessionbus", ...(name === "web" ? [] : ["file-uploads-none"])];
 const refusal = (message) => Object.assign(new Error(message), { exitCode: 2 });
 function writeChanged(file, body) {
   if (!existsSync(file) || readFileSync(file, "utf8") !== body) writeFileSync(file, body);
 }
 
-function convergePatch(file, id, patch) {
-  const old = existsSync(file) ? readFileSync(file, "utf8") : "";
-  if (id.test(old)) return writeChanged(file, markOwned(old, id));
-  const empty = /^(?:\s*#.*\n)*\s*\[\]\s*$/u.test(old);
-  writeChanged(file, `${empty ? "" : old.trimEnd() + (old.trim() ? "\n\n" : "")}${patch}`);
-}
-
-function markOwned(body, id) {
-  return body.split("\n").map(line => id.test(line) && !line.includes(marker) ? `${line} ${marker}` : line).join("\n");
-}
-
-function withProduct(body, product) {
-  const lines = body.split("\n");
-  const row = lines.findIndex((line) => sessionbusID.test(line));
-  if (row < 0) return body;
-  const value = /(['"]?product['"]?\s*:\s*)(?:'[^']*'|"[^"]*"|[^,\s}]+)/u;
-  const column = lines[row].search(/['"]?id['"]?\s*:/u);
-  const open = lines[row].lastIndexOf("{", column);
-  if (open >= 0) {
-    if (value.test(lines[row])) lines[row] = lines[row].replace(value, `$1${product}`);
-    else if (/['"]?config['"]?\s*:\s*\{/u.test(lines[row])) lines[row] = lines[row].replace(/(['"]?config['"]?\s*:\s*\{\s*)/u, `$1product: ${product}, `);
-    else {
-      let depth = 0, close = -1;
-      for (let index = open; index < lines[row].length; index++) {
-        if (lines[row][index] === "{") depth++;
-        if (lines[row][index] === "}" && --depth === 0) { close = index; break; }
+// Read the native array dialect without evaluating !!js or serializing user data.
+const patchSchema = yaml.JSON_SCHEMA.extend(new yaml.Type("tag:yaml.org,2002:js", {
+  kind: "scalar", resolve: value => typeof value === "string", construct: value => ({ __jsExpr: value }),
+}));
+function parsePatch(file, body) {
+  const nodes = new Map(), stack = [];
+  let data;
+  try {
+    body ??= readFileSync(file, "utf8");
+    data = yaml.load(body, { schema: patchSchema, listener(event, state) {
+      if (event === "open") { stack.push({ start: state.position, children: [] }); return; }
+      const node = Object.assign(stack.pop(), { end: state.position, kind: state.kind, value: state.result });
+      stack.at(-1)?.children.push(node);
+      if (node.value && typeof node.value === "object" && node.kind !== "scalar") {
+        const prior = nodes.get(node.value);
+        // composeNode can wrap a flow node; keep the inner, exact source span.
+        if (!prior || node.end < prior.end || (node.kind === "mapping" && node.children.length > prior.children.length)) nodes.set(node.value, node);
       }
-      lines[row] = `${lines[row].slice(0, close)}, config: { product: ${product} }${lines[row].slice(close)}`;
+    } });
+  } catch { throw refusal(`cannot parse profile patch ${JSON.stringify(file)}`); }
+  if (!Array.isArray(data)) throw refusal(`profile patch ${JSON.stringify(file)} must be a top-level YAML array`);
+  const rows = [];
+  function visit(entries, parent) {
+    for (const row of entries) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) throw refusal(`profile patch ${JSON.stringify(file)} entries must be mappings`);
+      rows.push({ value: row, node: nodes.get(row), parent });
+      if (Object.hasOwn(row, "insert")) {
+        if (!Array.isArray(row.insert)) throw refusal(`profile patch ${JSON.stringify(file)} insert must be an array`);
+        visit(row.insert, row.insert);
+      }
+      if (row.group && Array.isArray(row.config)) visit(row.config, row.config);
     }
-    return lines.join("\n");
   }
-  const indent = lines[row].match(/^\s*/u)[0].length;
-  let end = row + 1;
-  while (end < lines.length && !new RegExp(`^\\s{0,${indent}}-\\s+`, "u").test(lines[end])) end++;
-  for (let index = row; index < end; index++) {
-    if (value.test(lines[index])) { lines[index] = lines[index].replace(value, `$1${product}`); return lines.join("\n"); }
-  }
-  const config = lines.slice(row, end).findIndex((line) => /^\s*['"]?config['"]?\s*:/u.test(line));
-  if (config >= 0) {
-    const index = row + config;
-    if (lines[index].includes("{")) lines[index] = lines[index].replace(/\{\s*/u, `{ product: ${product}, `);
-    else lines.splice(index + 1, 0, `${lines[index].match(/^\s*/u)[0]}  product: ${product}`);
-  } else {
-    if (end === lines.length && lines.at(-1) === "") end--;
-    lines.splice(end, 0, `${" ".repeat(indent + 2)}config: { product: ${product} }`);
-  }
-  return lines.join("\n");
+  visit(data, data);
+  return { file, body, data, nodes, rows };
 }
-
-function convergeSessionbus(file, product) {
-  const old = existsSync(file) ? readFileSync(file, "utf8") : "";
-  if (sessionbusID.test(old)) return writeChanged(file, withProduct(markOwned(old, sessionbusID), product));
-  convergePatch(file, sessionbusID, peerPatch(product));
+function field(node, key) {
+  for (let index = 0; index + 1 < node.children.length; index += 2) {
+    if (node.children[index].value === key) return node.children[index + 1];
+  }
+}
+function lineEnd(body, index) { const end = body.indexOf("\n", index); return end < 0 ? body.length : end + 1; }
+function tokenStart(patch, node) {
+  const offset = patch.body.slice(node.start, node.end).search(/\S/u);
+  return offset < 0 ? node.end : node.start + offset;
+}
+function tokenEnd(patch, node) {
+  if (node.kind === "mapping" && patch.body[tokenStart(patch, node)] !== "{") return Math.max(...node.children.map(child => tokenEnd(patch, child)));
+  return node.start + patch.body.slice(node.start, node.end).trimEnd().length;
+}
+function comment(line) {
+  let quote;
+  for (let index = 0; index < line.length; index++) {
+    const char = line[index];
+    if (quote === '"' && char === "\\") { index++; continue; }
+    if (quote === "'" && char === "'" && line[index + 1] === "'") { index++; continue; }
+    if (quote) { if (char === quote) quote = undefined; }
+    else if (char === "'" || char === '"') quote = char;
+    else if (char === "#" && (index === 0 || /\s/u.test(line[index - 1]))) return line.slice(index);
+  }
+  return "";
+}
+function marked(patch, row, key = "id") {
+  const id = field(row.node, key);
+  if (!id) return false;
+  const begin = patch.body.lastIndexOf("\n", id.start - 1) + 1;
+  return comment(patch.body.slice(begin, lineEnd(patch.body, id.start))).includes(marker);
+}
+function edit(body, edits) {
+  for (const [start, end, replacement] of edits.sort((a, b) => b[0] - a[0])) body = body.slice(0, start) + replacement + body.slice(end);
+  return body;
+}
+function setField(patch, node, key, value) {
+  const existing = field(node, key);
+  if (existing) {
+    if (!patch.body.slice(existing.start, existing.end).trim()) return edit(patch.body, [[existing.start, existing.start, ` ${value}`]]);
+    return edit(patch.body, [[tokenStart(patch, existing), tokenEnd(patch, existing), value]]);
+  }
+  const start = tokenStart(patch, node), end = tokenEnd(patch, node);
+  if (patch.body[start] === "{") return edit(patch.body, [[end - 1, end - 1, `${node.children.length ? ", " : ""}${key}: ${value}`]]);
+  const indent = start - (patch.body.lastIndexOf("\n", start - 1) + 1);
+  const position = lineEnd(patch.body, end - 1);
+  return edit(patch.body, [[position, position, `${patch.body[position - 1] === "\n" ? "" : "\n"}${" ".repeat(indent)}${key}: ${value}\n`]]);
+}
+function appendPatch(patch, generated) {
+  const root = patch.nodes.get(patch.data);
+  if (patch.data.length === 0) {
+    const begin = tokenStart(patch, root), end = tokenEnd(patch, root);
+    return edit(patch.body, [[begin, end, generated.trimEnd()]]);
+  }
+  if (patch.body[tokenStart(patch, root)] === "[") {
+    // Only NEW installer-owned rows are serialized. Existing flow/JSON bytes stay intact.
+    const rows = yaml.load(generated, { schema: patchSchema });
+    const end = tokenEnd(patch, root) - 1;
+    const added = rows.map(row => `${JSON.stringify(row)} ${marker}`).join("\n,\n");
+    // A newline precedes the comma/closing bracket so the ownership comment cannot consume it.
+    return edit(patch.body, [[end, end, `,\n${added}\n`]]);
+  }
+  return patch.body + (patch.body.endsWith("\n") ? "" : "\n") + generated;
+}
+function convergeMount(patch, id, product) {
+  const row = patch.rows.find(row => row.value.id === id);
+  if (!row) return appendPatch(patch, id === "sessionbus" ? peerPatch(product) : noUploadsPatch);
+  if (id === "file-uploads-none") return setField(patch, row.node, "name", "'@sessionbus/dsh/file-uploads-none'");
+  const config = field(row.node, "config");
+  if (!config || config.value === null) return setField(patch, row.node, "config", `{ product: ${product} }`);
+  if (config.kind !== "mapping") throw refusal(`profile patch ${JSON.stringify(patch.file)} sessionbus config must be a mapping`);
+  return setField(patch, patch.nodes.get(row.value.config), "product", product);
 }
 
 function packageDir(anchor, name) {
   if (!anchor) return;
-  for (const search of createRequire(anchor).resolve.paths(name) ?? []) {
+  for (const search of createRequire(realpathSync(anchor)).resolve.paths(name) ?? []) {
     const candidate = path.join(search, name);
     if (existsSync(path.join(candidate, "package.json"))) return candidate;
   }
 }
 
-function installAnchor() {
-  for (const directory of String(process.env.PATH || "").split(path.delimiter)) {
-    const command = path.resolve(directory, process.platform === "win32" ? "dsh.cmd" : "dsh");
-    const installed = existsSync(command) && packageDir(realpathSync(command), "@deepseek-ai/dsh");
-    if (installed) return realpathSync(path.join(installed, "package.json"));
-  }
-}
-
-function bundleConflict(manifest, manifestFile, wanted, anchor) {
-  // Match dsh-app-boot profile.ts:751-798: installation anchor, profile anchor, then dsh.bundle.patch.
+function bundleConflict(manifest, manifestFile, wanted) {
+  // Inspect only profile-root-resolvable bundles, never infer the executing CLI's installation.
   for (const bundle of manifest?.dsh?.profile?.bundles ?? []) {
-    const directory = packageDir(anchor, bundle) || packageDir(manifestFile, bundle);
+    const directory = packageDir(manifestFile, bundle);
     if (!directory) continue;
     const declared = JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8")).dsh?.bundle?.patch;
-    if (typeof declared !== "string") continue;
-    const body = readFileSync(path.join(directory, declared), "utf8").split("\n").filter(line => !line.trimStart().startsWith("#")).join("\n");
-    const row = wanted.find(([, id]) => id.test(body));
-    if (row) return { bundle, row: row[0] };
+    // Same string / ordered string-list forms as app-boot bundlePatchFiles; no runtime is booted here.
+    const files = typeof declared === "string" ? [declared] : declared;
+    if (!Array.isArray(files) || files.some(file => typeof file !== "string")) throw refusal(`profile bundle ${JSON.stringify(bundle)} must declare a patch file or an ordered list of patch files`);
+    for (const file of files) {
+      const patch = parsePatch(path.join(directory, file));
+      const id = wanted.find(id => patch.rows.some(row => row.value.id === id));
+      if (id) return { bundle, row: id };
+    }
   }
 }
 
-function withoutOwnedRows(body) {
-  const lines = body.split(/(?<=\n)/u);
-  for (let row = lines.length - 1; row >= 0; row--) {
-    const text = lines[row].replace(/\r?\n$/u, "");
-    if (!text.includes(marker) || !ownedIDs.some((id) => id.test(text))) continue;
-    const indent = text.match(/^\s*/u)[0].length;
-    let end = row + 1;
-    if (!text.includes("{")) {
-      while (end < lines.length) {
-        const next = lines[end].replace(/\r?\n$/u, "");
-        const nextIndent = next.match(/^\s*/u)[0].length;
-        if ((/^\s*-\s+/u.test(next) || /^\s*#/u.test(next)) && nextIndent <= indent) break;
-        end++;
+function rowSpan(patch, row) {
+  const begin = tokenStart(patch, row.node), end = tokenEnd(patch, row.node);
+  if (patch.body[tokenStart(patch, patch.nodes.get(row.parent))] === "[") return [begin, end];
+  return [patch.body.lastIndexOf("\n", begin - 1) + 1, lineEnd(patch.body, end - 1)];
+}
+function commaAfter(body, index) {
+  while (index < body.length) {
+    if (/\s/u.test(body[index])) { index++; continue; }
+    if (body[index] === "#") { index = lineEnd(body, index); continue; }
+    return body[index] === "," ? index : undefined;
+  }
+}
+function withoutOwnedRows(patch, wanted) {
+  const edits = [], groups = new Map();
+  const removedRows = new Set(patch.rows.filter(row => wanted.includes(row.value.id) && marked(patch, row)));
+  for (const row of [...patch.rows].reverse()) {
+    const children = patch.rows.filter(child => child.parent === row.value.insert);
+    if (!children.length || !marked(patch, row, "insert") || !children.every(child => removedRows.has(child))) continue;
+    children.forEach(child => removedRows.delete(child));
+    removedRows.add(row);
+  }
+  for (const row of removedRows) {
+    if (!groups.has(row.parent)) groups.set(row.parent, []);
+    groups.get(row.parent).push(row);
+  }
+  for (const [parent, removed] of groups) {
+    const all = patch.rows.filter(row => row.parent === parent);
+    const root = patch.nodes.get(parent), flow = patch.body[tokenStart(patch, root)] === "[";
+    for (const row of removed) edits.push([...rowSpan(patch, row), ""]);
+    if (flow) {
+      const kept = all.filter(row => !removed.includes(row));
+      const separatorsToKeep = new Set(kept.slice(1).map(row => all.indexOf(row) - 1));
+      for (let index = 0; index + 1 < all.length; index++) {
+        if (separatorsToKeep.has(index)) continue;
+        const comma = commaAfter(patch.body, tokenEnd(patch, all[index].node));
+        if (comma !== undefined) edits.push([comma, comma + 1, ""]);
       }
-    }
-    lines.splice(row, end - row);
-  }
-  for (let row = lines.length - 1; row >= 0; row--) {
-    const match = /^(\s*)-\s+insert:\s*(?:#.*)?(?:\r?\n)?$/u.exec(lines[row]);
-    if (!match) continue;
-    let child = row + 1;
-    while (child < lines.length && /^\s*(?:#.*)?(?:\r?\n)?$/u.test(lines[child])) child++;
-    if (child === lines.length || lines[child].match(/^\s*/u)[0].length <= match[1].length) {
-      if (row > 0 && /^\s*(?:\r?\n)?$/u.test(lines[row - 1])) lines.splice(row - 1, 2);
-      else lines.splice(row, 1);
+    } else if (removed.length === all.length) {
+      const [begin] = rowSpan(patch, removed[0]);
+      const indentation = /^ */u.exec(patch.body.slice(begin))[0];
+      edits.find(change => change[0] === begin)[2] = `${indentation}[]\n`;
     }
   }
-  const result = lines.join("");
-  return result.trim() ? result : "[]\n";
+  return edit(patch.body, edits);
+}
+function lanePatch(patch, product, messages) {
+  const canonical = parsePatch("installer lane defaults", profilePatch(product));
+  const replacements = [], existing = new Set();
+  for (const row of patch.rows) {
+    if (!ownedIDs.includes(row.value.id)) continue;
+    existing.add(row.value.id);
+    if (!marked(patch, row)) {
+      messages.push(`row ${JSON.stringify(row.value.id)} kept as yours, lane default not applied`);
+      continue;
+    }
+    const source = canonical.rows.find(candidate => candidate.value.id === row.value.id);
+    const [begin, end] = rowSpan(patch, row);
+    let replacement;
+    if (patch.body[tokenStart(patch, patch.nodes.get(row.parent))] === "[") replacement = JSON.stringify(source.value);
+    else {
+      const [from, to] = rowSpan(canonical, source);
+      const indent = /^ */u.exec(patch.body.slice(begin))[0].length;
+      const sourceIndent = /^ */u.exec(canonical.body.slice(from))[0].length;
+      replacement = canonical.body.slice(from, to).split(/(?<=\n)/u).map(line => " ".repeat(indent) + line.slice(sourceIndent)).join("");
+    }
+    replacements.push([begin, end, replacement]);
+  }
+  let generated = "";
+  for (const row of canonical.data) {
+    const source = canonical.rows.find(candidate => candidate.value === row);
+    if (row.insert) {
+      const children = canonical.rows.filter(candidate => candidate.parent === row.insert && !existing.has(candidate.value.id));
+      if (children.length) generated += `- insert: ${marker}\n` + children.map(child => {
+        const [begin, end] = rowSpan(canonical, child); return canonical.body.slice(begin, end);
+      }).join("");
+    } else if (!existing.has(row.id)) {
+      const [begin, end] = rowSpan(canonical, source); generated += canonical.body.slice(begin, end);
+    }
+  }
+  const body = edit(patch.body, replacements);
+  return generated ? appendPatch(parsePatch(patch.file, body), generated) : body;
 }
 
 function validProfile(name) {
   return name && !name.includes("/") && !name.includes("\\") && name !== "." && name !== ".." && name !== "node_modules";
 }
 
-/** Select a profile-owned exact pin without writing or falling back from a broken app owner. */
-function providerPin(manifest, manifestFile, range, semver, query) {
-  if (manifest?.dependencies?.["@antst/dashi-app"]) {
-    const appFile = path.join(path.dirname(manifestFile), "node_modules/@antst/dashi-app/package.json");
-    if (!existsSync(appFile)) throw refusal(`cannot resolve dashi-app in profile ${path.dirname(manifestFile)}`);
-    const app = JSON.parse(readFileSync(appFile, "utf8"));
-    if (!semver.satisfies(app.version, manifest.dependencies["@antst/dashi-app"])) throw refusal(`dashi-app ${app.version} does not satisfy profile spec ${manifest.dependencies["@antst/dashi-app"]}`);
-    const pin = app.dependencies?.[uploads];
-    if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw refusal(`dashi-app must declare an exact matching provider ${uploads}`);
-    return pin;
-  }
-  const result = query(["view", `${uploads}@${range}`, "version", "--json"], path.dirname(manifestFile));
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(String(result.stderr || "provider registry lookup failed").trim());
-  const versions = result.stdout.trim() ? JSON.parse(result.stdout) : [];
-  const pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range);
-  if (!pin) throw refusal(`no matching registry provider for ${uploads}@${range}`);
-  return pin;
-}
-
 export function install(profileNames = [], options = {}) {
   const home = options.home || process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
-  const root = options.root || path.dirname(fileURLToPath(import.meta.url));
-  const run = options.run || ((args) => spawnSync("dsh", args, { cwd: root, encoding: "utf8" }));
-  const query = options.query || ((args, profile) => spawnSync("pnpm", args, { cwd: existsSync(profile) ? profile : root, encoding: "utf8", timeout: 60_000 }));
   const names = [...new Set(profileNames.length ? profileNames : ["sessionbus"])];
   const laneProduct = options.product ?? "sessionbus-dsh";
   if (options.product !== undefined && (typeof options.product !== "string" || !productPattern.test(options.product))) throw new Error(`invalid product ${JSON.stringify(options.product)}; expected ^[a-z0-9][a-z0-9-]{0,31}$`);
   if (names.includes("sessionbus") && !["sessionbus-dsh", "dashi"].includes(laneProduct)) throw new Error("the sessionbus profile product must be sessionbus-dsh or dashi");
   if (names.some((name) => name !== "sessionbus") && options.product === undefined) throw new Error("--product is required for peer profiles");
-  const anchor = options.installAnchor || installAnchor();
-  if (!anchor) throw refusal("cannot resolve installed DSH; run docs/HOST-INSTALL.md preflight before upgrading");
-  const installed = JSON.parse(readFileSync(anchor, "utf8")).version;
-  const peers = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).peerDependencies;
-  const required = peers["@deepseek-ai/dsh-agent"];
-  const boot = packageDir(anchor, "@deepseek-ai/dsh-app-boot");
-  if (!boot) throw refusal("cannot resolve installed DSH app-boot; run docs/HOST-INSTALL.md preflight before upgrading");
-  const semver = createRequire(path.join(boot, "package.json"))("semver");
-  if (!semver.satisfies(installed, required, { includePrerelease: true })) throw refusal(`installed DSH ${installed} does not satisfy ${required}; run docs/HOST-INSTALL.md preflight before upgrading`);
+  const plans = [];
   for (const name of names) {
     if (!validProfile(name)) throw new Error(`invalid profile name ${JSON.stringify(name)}`);
     const profile = path.join(home, "profiles", name);
     const manifestFile = path.join(profile, "package.json");
-    if (!existsSync(manifestFile)) continue;
-    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+    if (!existsSync(manifestFile)) throw refusal(`profile ${JSON.stringify(name)} is not installed; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh`);
+    let manifest;
+    try { manifest = JSON.parse(readFileSync(manifestFile, "utf8")); }
+    catch { throw refusal(`profile ${JSON.stringify(name)} cannot read package manifest ${JSON.stringify(manifestFile)}`); }
+    const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+    if (!object(manifest) || manifest.dsh != null && !object(manifest.dsh) || manifest.dsh?.profile != null && !object(manifest.dsh.profile)) {
+      throw refusal(`profile ${JSON.stringify(name)} package manifest ${JSON.stringify(manifestFile)} requires object containers for the manifest, dsh and dsh.profile`);
+    }
+    if (!manifest.dependencies?.["@sessionbus/dsh"]) throw refusal(`profile ${JSON.stringify(name)} does not declare @sessionbus/dsh; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh`);
     const bundles = manifest.dsh?.profile?.bundles;
-    if (name === "sessionbus" && bundles != null && !Array.isArray(bundles)) throw refusal("sessionbus profile bundles must be an array");
-    const conflict = bundleConflict(manifest, manifestFile, peerRows(name), anchor);
-    if (conflict) throw refusal(`profile ${JSON.stringify(name)} bundle ${JSON.stringify(conflict.bundle)} already provides row ${JSON.stringify(conflict.row)}`);
-  }
-  const pins = new Map(names.map(name => {
-    const manifestFile = path.join(home, "profiles", name, "package.json");
-    const manifest = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, "utf8")) : null;
-    return [name, providerPin(manifest, manifestFile, peers[uploads], semver, query)];
-  }));
-  for (const name of names) {
-    const profile = path.join(home, "profiles", name);
-    const manifestFile = path.join(profile, "package.json");
-    const existed = existsSync(manifestFile);
-    let manifest = existed ? JSON.parse(readFileSync(manifestFile, "utf8")) : null;
-    const pin = pins.get(name);
-    const missingPlugin = !manifest?.dependencies?.["@sessionbus/dsh"];
-    if (missingPlugin || manifest.dependencies[uploads] !== pin) {
-      const result = run(["plugin", "--profile", name, "add", "--save-exact", ...(missingPlugin ? ["@sessionbus/dsh"] : []), `${uploads}@${pin}`]);
-      if (result.status !== 0) throw new Error(String(result.stderr || "dsh plugin add failed").trim());
-      manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
-    }
-    if (name !== "sessionbus") {
-      const patch = path.join(profile, "cordis.patch.yml");
-      convergeSessionbus(patch, options.product);
-      if (name !== "web") convergePatch(patch, noUploadsID, noUploadsPatch);
-      continue;
-    }
-    if (!existed) manifest = {
-      name: "dsh-profile-sessionbus", private: true,
-      dependencies: { "@sessionbus/dsh": manifest.dependencies["@sessionbus/dsh"], [uploads]: manifest.dependencies[uploads] },
-      dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"], patchReload: "startup" } },
-    };
+    if (bundles != null && !Array.isArray(bundles)) throw refusal(`profile ${JSON.stringify(name)} package manifest ${JSON.stringify(manifestFile)} bundles must be an array`);
+    const conflict = bundleConflict(manifest, manifestFile, peerRows(name));
+    if (conflict) throw refusal(`profile ${JSON.stringify(name)} app ${JSON.stringify(conflict.bundle)} already provides ${conflict.row === "sessionbus" ? "Sessionbus" : "the upload provider"}; there is nothing to install`);
+    const patchFile = path.join(profile, "cordis.patch.yml");
+    const patch = parsePatch(patchFile, existsSync(patchFile) ? undefined : "[]\n");
+    const unowned = patch.rows.find(row => peerRows(name).includes(row.value.id) && !marked(patch, row));
+    if (unowned) throw refusal(`profile ${JSON.stringify(name)} row ${JSON.stringify(unowned.value.id)} has no sessionbus-dsh-install ownership marker; remove that row and rerun, or keep this profile outside the installer`);
+    const messages = [];
+    let body;
+    if (name === "sessionbus") body = lanePatch(patch, laneProduct, messages);
     else {
+      body = convergeMount(patch, "sessionbus", options.product);
+      if (name !== "web") body = convergeMount(parsePatch(patch.file, body), "file-uploads-none", options.product);
+    }
+    parsePatch(patch.file, body); // Every parse/ownership check completes before the first write.
+    let manifestBody;
+    if (name === "sessionbus" && !manifest.dsh?.profile?.bundles?.includes("@deepseek-ai/dsh-base")) {
       manifest.dsh ??= {};
       manifest.dsh.profile ??= {};
       manifest.dsh.profile.bundles ??= [];
-      if (!Array.isArray(manifest.dsh.profile.bundles)) throw new Error("sessionbus profile bundles must be an array");
-      if (!manifest.dsh.profile.bundles.includes("@deepseek-ai/dsh-base")) manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-base");
+      manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-base");
+      manifestBody = `${JSON.stringify(manifest, null, 2)}\n`;
     }
-    writeChanged(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
-    writeChanged(path.join(profile, "cordis.patch.yml"), profilePatch(laneProduct));
+    plans.push({ name, manifest, manifestFile, manifestBody, patch: patch.file, body, messages });
+  }
+  for (const [index, { name, manifest, manifestFile, manifestBody, patch, body, messages }] of plans.entries()) {
+    try {
+      if (manifestBody !== undefined) writeChanged(manifestFile, manifestBody);
+      writeChanged(patch, body);
+    } catch (error) {
+      throw new Error(`failed writing profile ${JSON.stringify(name)}: ${error.message}; completed profiles: ${plans.slice(0, index).map(plan => plan.name).join(", ") || "none"}; this profile may be partially written; profiles not attempted: ${plans.slice(index + 1).map(plan => plan.name).join(", ") || "none"}`, { cause: error });
+    }
+    for (const message of messages) process.stderr.write(`sessionbus-dsh-install: profile ${JSON.stringify(name)} ${message}\n`);
+    if (name === "sessionbus" && manifest.dependencies[uploads]) process.stderr.write(`sessionbus-dsh-install: profile ${JSON.stringify(name)} retains its existing ${uploads} pin; the installer no longer uses it\n`);
   }
 }
 
 export function remove(profileNames = [], options = {}) {
   if (profileNames.length === 0) throw new Error("--remove requires at least one profile");
   const home = options.home || process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
-  const run = options.run || ((args, cwd) => spawnSync("pnpm", args, { cwd, encoding: "utf8" }));
   const names = [...new Set(profileNames)];
+  const plans = [];
   for (const name of names) {
     if (!validProfile(name)) throw new Error(`invalid profile name ${JSON.stringify(name)}`);
     const patch = path.join(home, "profiles", name, "cordis.patch.yml");
     if (!existsSync(patch)) continue;
-    const lines = readFileSync(patch, "utf8").split("\n");
-    const rows = name === "sessionbus" ? ownedRows : peerRows(name);
-    const unowned = rows.find(([, id]) => lines.some(line => id.test(line) && !line.includes(marker)));
-    if (unowned) throw refusal(`profile ${JSON.stringify(name)} row ${JSON.stringify(unowned[0])} has no sessionbus-dsh-install ownership marker`);
+    const parsed = parsePatch(patch), rows = name === "sessionbus" ? ownedIDs : peerRows(name);
+    const unowned = parsed.rows.find(row => rows.includes(row.value.id) && !marked(parsed, row));
+    if (unowned) throw refusal(`profile ${JSON.stringify(name)} row ${JSON.stringify(unowned.value.id)} has no sessionbus-dsh-install ownership marker`);
+    const body = withoutOwnedRows(parsed, rows);
+    parsePatch(patch, body);
+    plans.push({ patch, body });
   }
-  for (const name of names) {
-    const profile = path.join(home, "profiles", name);
-    const result = run(["remove", "@sessionbus/dsh"], profile);
-    if (result.status !== 0) throw new Error(String(result.stderr || result.error?.message || "pnpm remove failed").trim());
-    const patch = path.join(profile, "cordis.patch.yml");
-    if (existsSync(patch)) writeChanged(patch, withoutOwnedRows(readFileSync(patch, "utf8")));
-  }
+  for (const { patch, body } of plans) writeChanged(patch, body);
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-pre.21 — 2026-10-11
+
+- Make installation two native DSH commands on any supported DSH install. DSH owns packages and compatibility; the installer owns rows, never queries a registry, nests a package-manager lock or boots DSH. Removal is rows-only too; package removal is a separate DSH command. Existing package pins and manifest fields are preserved (W-125).
+- Ship the separate `@sessionbus/dsh/file-uploads-none` entry instead of a dependency or peer on the external upload-provider package. Its 308-byte service implementation is copied unchanged from our helper's 0.1.3 / 0.2.0-alpha.1 entry; service order and native upload refusal are unchanged. Marked lane/custom rows upgrade to the subpath; old exact provider pins remain unused by the installer and are reported, never deleted. Web has no no-upload row; dashi-app retains ownership of its provider.
+- Retain the profile-root app-row conflict guard: alpha.2 otherwise silently lets later rows replace the app's Sessionbus identity or upload provider. Unmarked plugin/upload mounts refuse before any profile changes; unmarked config-only lane defaults remain the owner's without shadow rows. Read patches with the exact declared js-yaml 4.3.2 dependency, with inert !!js scalars and source-position edits of marked rows only; every other byte stays intact. This adds js-yaml and argparse (about 1.13 MB unpacked), not a process or service. Plugin runtime, launcher and bin bytes are unchanged. Universal hosted and real installed-host acceptance are required before the tag.
+
 ## 0.1.0-pre.20 — 2026-10-11
 
 - Move `@antst/dsh-file-uploads-none` from a dependency to a required peer at the unchanged `^0.1.0 || ^0.2.0-alpha.1` range. The installer exact-pins the profile-owned provider in lane, web and custom profiles, using an installed dashi-app's exact dependency when present or the highest matching registry release otherwise. Web never gains a no-upload row; uninstall leaves provider/companion pins intact. Other-base helper prereleases remain excluded. Plugin runtime, launchers and wire behavior are unchanged (W-122).

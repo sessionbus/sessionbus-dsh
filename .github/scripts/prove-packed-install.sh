@@ -2,6 +2,7 @@
 set -euo pipefail
 
 version=${1:?pass the DSH version}
+echo 'Prepared project upgrade/companion operations regression; generic installation is proved by prove-universal-install.sh'
 [[ $# -eq 1 ]] || { echo "usage: prove-packed-install.sh DSH_VERSION" >&2; exit 2; }
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 DASHI_APP_VERSION=${DASHI_APP_VERSION-$(<"$root/.github/dashi-app-version")}
@@ -162,36 +163,26 @@ if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
 fi
 dsh="$home/node_modules/.bin/dsh"
 export PATH="$home/node_modules/.bin:$PATH"
-uploads_pin=$(pnpm view "@antst/dsh-file-uploads-none@^0.1.0 || ^0.2.0-alpha.1" version --json | node --input-type=module -e '
-import fs from "node:fs"; import {createRequire} from "node:module";
-const native = createRequire(fs.realpathSync(process.argv[1]));
-const semver = createRequire(fs.realpathSync(native.resolve("@deepseek-ai/dsh-app-boot")))("semver");
-let body=""; for await (const chunk of process.stdin) body += chunk;
-const versions=JSON.parse(body), pin=semver.maxSatisfying(Array.isArray(versions)?versions:[versions], "^0.1.0 || ^0.2.0-alpha.1");
-if (!pin) throw new Error("no matching upload provider"); process.stdout.write(pin);
-' "$home/package.json")
 for profile in sessionbus web dashi; do
   mkdir -p "$home/profiles/$profile"
   cp "$work/.pnpmfile.cjs" "$home/profiles/$profile/.pnpmfile.cjs"
 done
 
 DSH_HOME="$home" "$dsh" plugin --profile sessionbus add "$root/.github/fixtures/manifest-keeper-bundle"
-DSH_HOME="$home" "$dsh" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.19
-echo "W-122 in-place pre.19 lane baseline (before ordinary add; no cleanup)"
-node --input-type=module - "$root" "$home" <<'NODE'
-import {pathToFileURL} from 'node:url';
-const {providerInventory} = await import(pathToFileURL(`${process.argv[2]}/.github/scripts/prove-upload-provider.mjs`));
-console.log(JSON.stringify(providerInventory(`${process.argv[3]}/profiles/sessionbus`)));
-NODE
+for profile in sessionbus web; do
+  DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact @sessionbus/dsh@0.1.0-pre.20 @antst/dsh-file-uploads-none@0.2.0-alpha.2
+done
+DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install
+DSH_HOME="$home" "$dsh" plugin --profile web exec sessionbus-dsh-install --product dsh web
+echo 'W-125 in-place pre.20 lane/web baseline; ordinary add follows, no cleanup; unused old provider pin remains'
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "$root/.github/fixtures/bundle-provides-sessionbus"
 for profile in sessionbus web dashi; do
-  DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact "$tarball" "@antst/dsh-file-uploads-none@$uploads_pin"
+  DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact "$tarball"
 done
-for profile in sessionbus web; do node "$root/.github/scripts/prove-upload-provider.mjs" "$home" "$profile"; done
 cp "$home/profiles/sessionbus/package.json" "$work/lane-manifest-before-install.json"
-DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install"
+DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install
 cmp -s "$work/lane-manifest-before-install.json" "$home/profiles/sessionbus/package.json"
-DSH_HOME="$home" "$home/profiles/web/node_modules/.bin/sessionbus-dsh-install" --product dsh web
+DSH_HOME="$home" "$dsh" plugin --profile web exec sessionbus-dsh-install --product dsh web
 cp "$home/profiles/dashi/package.json" "$work/dashi-manifest-before-refusal.json"
 cp "$home/profiles/dashi/cordis.patch.yml" "$work/dashi-patch-before-refusal.yml"
 set +e
@@ -199,7 +190,7 @@ PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" "$home/profiles/dashi/node
 dashi_install_status=$?
 set -e
 [[ "$dashi_install_status" -eq 2 ]]
-grep -Fx 'sessionbus-dsh-install: profile "dashi" bundle "@sessionbus/w090-bundle-row" already provides row "sessionbus"' "$work/dashi-install.stderr"
+grep -F 'nothing to install' "$work/dashi-install.stderr"
 cmp -s "$work/dashi-manifest-before-refusal.json" "$home/profiles/dashi/package.json"
 cmp -s "$work/dashi-patch-before-refusal.yml" "$home/profiles/dashi/cordis.patch.yml"
 for profile in sessionbus web dashi; do
@@ -221,7 +212,7 @@ const web = readPatch("web");
 const dashi = readPatch("dashi");
 assert.match(lane, /mode: lane/u);
 assert.match(lane, /product: sessionbus-dsh/u);
-assert.match(lane, /dsh-file-uploads-none/u);
+assert.match(lane, /@sessionbus\/dsh\/file-uploads-none/u);
 const laneManifest = JSON.parse(fs.readFileSync(`${home}/profiles/sessionbus/package.json`, "utf8"));
 assert.equal(Object.hasOwn(laneManifest.dependencies, "@sessionbus/w088-manifest-keeper"), true);
 assert.deepEqual(laneManifest.dsh.profile.bundles, ["@deepseek-ai/dsh-base", "@sessionbus/w088-manifest-keeper"]);
@@ -292,7 +283,7 @@ DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-ro
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml" "$home"
 node "$root/.github/scripts/prove-dashi-resolution.mjs" "$home" "$DASHI_APP_VERSION" "$(node -p 'require(process.argv[1]).version' "$root/package.json")" | tee "$work/dashi-resolution.log"
-DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install" --product dashi
+DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
 capture="$work/dashi-lane-proof.json"
@@ -402,6 +393,10 @@ curl -fsSL https://github.com/sessionbus/sessionbus/releases/download/v0.5.12/SH
 node "$root/.github/scripts/prove-session-groups.mjs" "$home" "$work" "$work/daemon-v0.5.12/bin/sessionbus" "$root"
 
 echo "DSH $version runbook offline provider overlay proof (no model turn)"
+mkdir -p "$work/native-conflicts"
+node "$root/.github/scripts/prove-native-row-conflicts.mjs" "$work/native-conflicts" "[\"$dsh\"]" "$tarball"
+mkdir -p "$work/native-peer-policy"
+node "$root/.github/scripts/prove-native-peer-policy.mjs" "$work/native-peer-policy" "[\"$dsh\"]" "$tarball"
 awk '/cat >.*check-profile-provider.mjs/ { capture=1; next } capture && $0 == "NODE" { exit } capture { print }' "$root/docs/HOST-INSTALL.md" > "$work/check-profile-provider.mjs"
 for profile in sessionbus web; do
   provider_output=$(env -u SESSIONBUS_LAUNCH_TOKEN -u SESSIONBUS_GROUPS DSH_HOME="$home" \
@@ -410,21 +405,22 @@ for profile in sessionbus web; do
   [[ "$provider_output" = "profile=$profile provider=deepseek-official registered" ]]
 done
 
-for profile in sessionbus web dashi; do
-  DSH_HOME="$home" "$home/profiles/$profile/node_modules/.bin/sessionbus-dsh-install" --remove "$profile"
+for profile in sessionbus web; do
+  DSH_HOME="$home" "$dsh" plugin --profile "$profile" exec sessionbus-dsh-install --remove "$profile"
+  DSH_HOME="$home" "$dsh" plugin --profile "$profile" remove @sessionbus/dsh
 done
 node --input-type=module - "$home" <<'NODE'
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const home = process.argv[2];
-for (const profile of ["sessionbus", "web", "dashi"]) {
+for (const profile of ["sessionbus", "web"]) {
   const manifest = JSON.parse(fs.readFileSync(`${home}/profiles/${profile}/package.json`, "utf8"));
   const patch = fs.readFileSync(`${home}/profiles/${profile}/cordis.patch.yml`, "utf8");
   assert.equal(manifest.dependencies?.["@sessionbus/dsh"], undefined);
-  assert.ok(manifest.dependencies["@antst/dsh-file-uploads-none"], 'uninstall preserves the profile-owned exact provider');
+  assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], '0.2.0-alpha.2', 'uninstall preserves the existing profile-owned pin');
   assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u);
 }
 NODE
 echo "DSH $version sessionbus-dsh lane, web active/idle/trace delivery, real-Agent boundary, packed install and uninstall: PASS"
-if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS (published launcher lane + version-derived installed-app resolution; ONE provider; not a TUI boot)"; fi
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS (published launcher lane + version-derived installed-app resolution; no physical-copy oracle; not a TUI boot)"; fi

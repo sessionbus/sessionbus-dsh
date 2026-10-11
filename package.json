@@ -1,25 +1,25 @@
 {
   "name": "@sessionbus/dsh",
-  "version": "0.1.0-pre.20",
+  "version": "0.1.0-pre.21",
   "type": "commonjs",
   "main": "plugin.cjs",
-  "exports": "./plugin.cjs",
+  "exports": { ".": "./plugin.cjs", "./file-uploads-none": "./file-uploads-none.mjs" },
   "bin": {
     "sessionbus-dsh": "launcher.mjs",
     "sessionbus-dsh-install": "bin.mjs"
   },
-  "files": ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs"],
+  "files": ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"],
   "scripts": {
-    "test": "node --test plugin.test.cjs install.test.mjs launcher.test.mjs package.test.cjs rename.test.mjs"
+    "test": "node --test plugin.test.cjs install.test.mjs universal-install.test.mjs launcher.test.mjs package.test.cjs rename.test.mjs"
   },
   "dependencies": {
-    "@sessionbus/kit": "0.5.12"
+    "@sessionbus/kit": "0.5.12",
+    "js-yaml": "4.3.2"
   },
   "devDependencies": {
     "zod": "4.5.4"
   },
   "peerDependencies": {
-    "@antst/dsh-file-uploads-none": "^0.1.0 || ^0.2.0-alpha.1",
     "@deepseek-ai/cordis": ">=4.0.5-alpha.1",
     "@deepseek-ai/cordis-plugin-include": ">=1.0.10-alpha.1",
     "@deepseek-ai/cordis-plugin-loader": ">=1.0.6-alpha.1",

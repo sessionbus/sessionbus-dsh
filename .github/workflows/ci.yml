@@ -52,16 +52,36 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts --config.auto-install-peers=false
       - run: .github/scripts/prove-peer-floor.sh
 
+  universal:
+    name: Universal ${{ matrix.os }} / ${{ matrix.mode }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+        mode: [npm-global, pnpm10-global, pnpm11-global, pnpm12-global, npx, project, mixed]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.28.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.os == 'macos-15' && matrix.mode == 'pnpm11-global' && '26.7.0' || '22' }}
+      - run: bash .github/scripts/prove-universal-install.sh "${{ matrix.mode }}"
+
   gate:
     if: ${{ always() }}
-    needs: [compatibility, peer-floor]
+    needs: [compatibility, peer-floor, universal]
     runs-on: ubuntu-latest
     steps:
       - name: Require compatibility matrix
         env:
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           PEER_FLOOR_RESULT: ${{ needs.peer-floor.result }}
-        run: test "$COMPATIBILITY_RESULT" = success && test "$PEER_FLOOR_RESULT" = success
+          UNIVERSAL_RESULT: ${{ needs.universal.result }}
+        run: test "$COMPATIBILITY_RESULT" = success && test "$PEER_FLOOR_RESULT" = success && test "$UNIVERSAL_RESULT" = success
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:

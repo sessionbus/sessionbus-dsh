@@ -24,27 +24,32 @@ try {
   writeFileSync(checker, matches[0][1]);
   for (const version of [expected.version, negativeVersion]) {
     const home = join(fixture, version);
-    const profile = join(home, 'profiles/headless');
+    const profile = join(home, 'profiles/web');
     const candidate = join(profile, 'node_modules/@deepseek-ai/cordis');
     mkdirSync(candidate, { recursive: true });
     writeFileSync(join(profile, 'package.json'), JSON.stringify({
-      private: true, dependencies: { '@deepseek-ai/cordis': version },
-      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } },
+      private: true, dependencies: { '@deepseek-ai/cordis': version, '@sessionbus/dsh': '0.1.0-pre.21' },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
     }));
+    const plugin = join(profile, 'node_modules/@sessionbus/dsh');
+    mkdirSync(plugin, { recursive: true });
+    writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', version: '0.1.0-pre.21',
+      main: './plugin.cjs', peerDependencies: { '@deepseek-ai/cordis': '>=4.0.5-alpha.1' } }));
+    writeFileSync(join(plugin, 'plugin.cjs'), 'exports.apply = () => {};\n');
     writeFileSync(join(candidate, 'package.json'), JSON.stringify({ ...expected, version }));
     const path = realpathSync(candidate);
-    const checked = spawnSync(process.execPath, [checker, 'headless', installDir], {
+    const checked = spawnSync(process.execPath, [checker, 'web', installDir], {
       env: { ...process.env, DSH_HOME: home }, encoding: 'utf8', timeout: 30_000,
     });
     assert.equal(checked.error, undefined, checked.error?.message);
     assert.equal(checked.signal, null, 'a signal is not oracle rejection');
     if (version === expected.version) {
       assert.equal(checked.status, 0, checked.stderr);
-      assert.ok(checked.stdout.includes(`runtime @deepseek-ai/cordis@${version} -> ${path}: PASS`), checked.stdout);
+      assert.ok(checked.stdout.includes(`runtime plugin peer @deepseek-ai/cordis@${version} -> ${path}: PASS`), checked.stdout);
     } else {
       assert.equal(checked.status, 1, checked.stderr);
-      assert.ok(checked.stderr.includes(`runtime selection mismatch @deepseek-ai/cordis: ${version} at ${path}`), checked.stderr);
+      assert.ok(checked.stderr.includes(`unresolved or incompatible plugin peer @deepseek-ai/cordis@${version}: >=4.0.5-alpha.1`), checked.stderr);
     }
-    console.log(`native profile-local @deepseek-ai/cordis@${version}: ${version === expected.version ? 'accepted at local path' : 'precise mismatch rejected'}: PASS`);
+    console.log(`native plugin importer @deepseek-ai/cordis@${version}: ${version === expected.version ? 'compatible local peer accepted' : 'below-range peer rejected'}: PASS`);
   }
 } finally { rmSync(fixture, { recursive: true, force: true }); }
