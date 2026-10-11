@@ -1311,6 +1311,16 @@ never move the file back for another import. Existing keys can make the diff
 empty even when values changed; the keys check does not replace the private
 value comparison, and no log receipt is claimed.
 
+A concrete partial-import case: `settings.update` delegates to the write path
+(`dsh-settings/lib/index.js:470-472`), which requires the mapped target to be
+an active configurable row (`:501-506`). Legacy `ui-onboarding` maps to
+`ui-settings-general` (`:302-308`), declared only by the web-app bundle
+(`dsh-web-app/cordis.patch.yml:304-305`). A dashi-owned import without that web
+row rejects the section and leaves it in `.imported`; restore it by hand only
+in a profile that actually has the target row, not by inventing one in dashi.
+Valid `agent-default-model` and `llm-pi-ai` sections do land in the normal dashi
+composition: both are base-bundle rows (`dsh-base/cordis.patch.yml:85,130`).
+
 For each other profile that previously relied on the global file and lacks its
 own provider/model rows, privately copy **only the needed selection section**
 from `settings.yaml.imported` (or the private backup) into that profile's
