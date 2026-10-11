@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** Metadata-only coexistence oracle; the mounted row/service is asserted by runtime-oracle.cjs. */
+/** Metadata-only coexistence oracle; dashi's own matrix proves its mounted provider. */
 export function inspectDashiResolution(ctx, profile, appVersion, candidateVersion) {
   const importer = pathToFileURL(path.join(profile.dir, 'cordis.yml')).href;
   const app = ctx.pluginPackages.packageOf('@antst/dashi-app', importer);
@@ -50,6 +50,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(report.expectedPluginCopies === 1
       ? `dashi shared plugin: candidate ${candidateVersion} equals app pin ${report.dashiAppImporter.version}; ONE canonical copy: PASS (metadata, not TUI boot)`
       : `dashi coexistence: direct ${candidateVersion} beside app pin ${report.dashiAppImporter.version}; TWO resolved copies: PASS; candidate-inside-dashi not claimed`);
-    console.log('candidate contributes no external provider package; active composition provider is a separate native runtime assertion');
+    console.log('candidate contributes no external provider package; dashi provider mounting is owned by the dashi matrix, not this metadata proof');
   } finally { await ctx.fiber.dispose(); }
 }

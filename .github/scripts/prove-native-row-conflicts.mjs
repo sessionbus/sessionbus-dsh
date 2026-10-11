@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { assertNativeInGroup, assertEmptyGroup, signalOwnedGroup } from './proof-process-group.mjs';
+import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild } from './proof-process-group.mjs';
 
 const [work, commandJSON, candidate] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate);
@@ -12,19 +12,21 @@ fs.mkdirSync(home, { recursive: true });
 const env = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(env)) if (key.startsWith('SESSIONBUS_')) delete env[key];
 const children = new Set();
+let primary;
 async function run(args, label, observedFile) {
   const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child); let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
-  child.ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
-  const bound = setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
-  const hard = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
+  child.ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }); });
+  const acquisition = args[0] === 'plugin' && args.includes('add');
+  const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
+  const hard = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
   try {
     if (observedFile) {
       for (let count = 0; count < 300 && !fs.existsSync(observedFile); count++) await delay(100);
       assert.ok(fs.existsSync(observedFile), output);
       const { nativePid } = JSON.parse(fs.readFileSync(observedFile));
-      assertNativeInGroup(child, nativePid); process.kill(nativePid, 'SIGTERM');
+      await stopOwnedChild(child, nativePid);
     }
     const result = await child.ended; assert.equal(result.signal, null, output); assertEmptyGroup(child); children.delete(child); return { ...result, output };
   }
@@ -39,14 +41,15 @@ exports.apply=(ctx,config)=>ctx.appReady.onReady(()=>{
  const provider=rows.find(row=>row.fiber===implementations[0]?.fiber);
  if(implementations.length!==1||!provider)throw Error('expected sole native upload service');
  const owner=ctx.pluginPackages.packageOf(provider.options.name,provider.parent.tree.ctx.baseUrl);
- fs.writeFileSync(config.destination,JSON.stringify({nativePid:process.pid,product:bus?.options.config?.product,provider:provider.options.name,owner:{name:owner.name,version:owner.version,path:owner.manifestPath},services:implementations.length}));
+ fs.writeFileSync(config.destination+'.tmp',JSON.stringify({nativePid:process.pid,product:bus?.options.config?.product,provider:provider.options.name,owner:{name:owner.name,version:owner.version,path:owner.manifestPath},services:implementations.length}));
+ fs.renameSync(config.destination+'.tmp',config.destination);
 });\n`);
 try {
   for (const kind of ['sessionbus', 'file-uploads-none']) {
     const name = `overlap-${kind}`, bundle = path.join(work, `${kind}-bundle`);
     fs.mkdirSync(bundle, { recursive: true });
     fs.writeFileSync(path.join(bundle, 'package.json'), JSON.stringify({ name: `@sessionbus/w125-${kind}-app`, version: '1.0.0',
-      dsh: { bundle: { patch: ['provider.yml', 'plugin.yml'] } } }));
+      dsh: { bundle: { patch: kind === 'sessionbus' ? ['plugin.yml', 'provider.yml'] : ['provider.yml', 'plugin.yml'] } } }));
     fs.writeFileSync(path.join(bundle, 'provider.yml'), JSON.stringify([{ insert: [
       { id: 'file-uploads-none', name: '@antst/dsh-file-uploads-none' },
       { id: 'workspace', name: '@deepseek-ai/dsh-workspace' },
@@ -73,7 +76,7 @@ try {
     if (kind === 'sessionbus') assert.equal(original.product, 'app-peer');
     const refused = await run(['plugin', '--profile', name, 'exec', 'sessionbus-dsh-install', '--product', 'dsh', name], `${kind}-guard`);
     assert.notEqual(refused.code, 0, refused.output);
-    assert.match(refused.output, /already provides (Sessionbus|the upload provider); there is nothing to install/u);
+    assert.ok(refused.output.includes(`profile "${name}" app "@sessionbus/w125-${kind}-app" already provides ${kind === 'sessionbus' ? 'Sessionbus' : 'the upload provider'}; there is nothing to install`), refused.output);
     files.forEach((file, index) => assert.deepEqual(fs.readFileSync(file), before[index], 'guard refusal is byte-identical'));
     // Failing-first control: put the would-be profile rows after the bundle,
     // bypassing only our guard, to observe DSH's designed collapse-by-id.
@@ -90,11 +93,11 @@ try {
     fs.writeFileSync(path.join(work, `${kind}-result.json`), JSON.stringify({ original, shadowed, guardRefused: true, profileByteIdentical: true }, null, 2));
     console.log(`native ${kind} overlap: without guard silent replacement; with guard refusal and unchanged native-array profile: PASS`);
   }
-} finally {
+} catch (error) { primary = error; throw error; }
+finally {
   const cleanup = await Promise.allSettled([...children].map(async child => {
-    signalOwnedGroup(child, 'SIGTERM'); const bound = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 5000);
-    try { await child.ended; assertEmptyGroup(child); } finally { clearTimeout(bound); }
+    await stopOwnedChild(child, child.pid, true);
   }));
   const failures = cleanup.filter(result => result.status === 'rejected').map(result => result.reason);
-  if (failures.length) throw new AggregateError(failures, 'owned conflict-proof cleanup failed');
+  if (failures.length) throw new AggregateError(primary ? [primary, ...failures] : failures, 'owned conflict-proof cleanup failed');
 }

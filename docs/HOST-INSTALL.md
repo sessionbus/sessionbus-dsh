@@ -377,7 +377,7 @@ import step after the profile upgrades, every repair/check boot finds no legacy
 file and imports nothing. Never put `.imported` back at `settings.yaml`, even
 after partial failure.
 
-Upgrade the existing home project and verify the explicit binary:
+Upgrade the explicitly named project and verify its selected binary:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
@@ -391,7 +391,10 @@ Expected final line:
 0.2.1-alpha.2
 ```
 
-Define one bounded repair for the host and every profile graph. It inspects the
+The following repair is operations-only for this project's in-place upgrade,
+not a plugin-install prerequisite. Its target-version lock checks catch retained
+old peer-only DSH packages; the running composition is still checked separately.
+Define one bounded repair for the project and every profile graph. It inspects the
 lock records, promotes every stale DSH peer provider and stale, missing or
 duplicate CLI companion to an exact direct dependency in one command,
 installs that frozen graph, boots the real DSH, and checks its native runtime
@@ -766,6 +769,9 @@ NODE
 
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
+# OPERATIONS ONLY: verify this named project owns DSH records before accepting
+# its in-place repair. Uniform target records catch retained old peer-only DSH
+# packages; counts are not a universal installation/runtime oracle.
 DSH_RECORD_COUNT=$(awk "/^snapshots:/ {exit} /^  '?@deepseek-ai\/dsh[^@']*@/ {count++} END {print count+0}" "$DSH_INSTALL_DIR/pnpm-lock.yaml") || exit 1
 if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
   printf '%s\n' 'host DSH graph has no package records' >&2
@@ -959,7 +965,6 @@ if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
 fi
 printf '%s\n' 'dashi profile DSH graph nonzero'
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @antst/dashi-app @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
 Expected output contains `dashi profile DSH graph nonzero`,
@@ -992,7 +997,6 @@ pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.21
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
-test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
 Expected output reports `@sessionbus/dsh 0.1.0-pre.21`,
@@ -1032,19 +1036,16 @@ test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
 pnpm --dir "$DSH_HOME/profiles/sessionbus" list --depth 0 @sessionbus/dsh
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/sessionbus/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/sessionbus/cordis.patch.yml"
-grep -F 'config: { product: dashi }' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/cordis.patch.yml"
 ```
 
 Expected output contains `@sessionbus/dsh 0.1.0-pre.21` for the sessionbus
 profile and the exact version pinned by dashi-app for the dashi profile, no DSH
 version other than alpha.2 in the lane graph (which may have zero DSH records),
-and these exact rows:
+and this lane profile entry:
 
 ```text
 config: { mode: lane, product: sessionbus-dsh }
-config: { product: dashi }
 ```
 
 Upgrade the existing plain, non-dashi web profile, or create it if it was absent
@@ -1059,7 +1060,6 @@ fi
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 report web
 test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 grep -F 'config: { product: dsh }' "$DSH_HOME/profiles/web/cordis.patch.yml"
 if grep -Eq '(^|[[:space:]{,])groups:' "$DSH_HOME/profiles/web/cordis.patch.yml"; then
   printf '%s\n' 'unexpected configured groups in web profile' >&2

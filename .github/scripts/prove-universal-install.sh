@@ -5,11 +5,12 @@ mode=${1:?pass npm-global, pnpm10-global, pnpm11-global, pnpm12-global, npx, pro
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-universal.XXXXXXXX")
 version=0.2.1-alpha.2
+export W125_INSTALL_MODE="$mode"
 began=$(date +%s)
 export npm_config_cache="$work/npm-cache"
 export npm_config_store_dir="$work/pnpm-store"
 mkdir -p "$work/pack" "$work/install" "$work/inventory-home"
-npm pack --ignore-scripts --json --pack-destination "$work/pack" >"$work/pack.json"
+npm pack "$root" --ignore-scripts --json --pack-destination "$work/pack" >"$work/pack.json"
 candidate="$work/pack/$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1]))[0].filename' "$work/pack.json")"
 
 # These are the package managers' ordinary install operands, not CLI discovery
@@ -39,8 +40,9 @@ case "$mode" in
     export PATH="$global_bin:$work/manager/node_modules/.bin:$PATH"
     test "$(pnpm --version)" = "$manager"
     pnpm config set global-bin-dir "$global_bin"
+    pnpm config set global-dir "$work/install"
     test "$(pnpm bin --global)" = "$global_bin"
-    pnpm --global-dir "$work/install" add --global --save-exact "@deepseek-ai/dsh@$version" >"$work/install.log" 2>&1
+    pnpm add --global --save-exact "@deepseek-ai/dsh@$version" >"$work/install.log" 2>&1
     if [ "$mode" = pnpm11-global ]; then
       # Upstream #9432: retain the actual default failure before the ordinary
       # remove/add remedy. This is a DSH distribution control, not our guard.
@@ -52,9 +54,16 @@ case "$mode" in
       native_platform=linux-x64-gnu
       if [ "$(uname -s)" = Darwin ]; then native_platform=darwin-arm64; fi
       grep -F "No usable native binding found for node-addon-require-builtin-$native_platform (auto)" "$work/pnpm11-default.log" >/dev/null
-      pnpm config set --global --json enableGlobalVirtualStore false
-      pnpm --global-dir "$work/install" remove --global @deepseek-ai/dsh >"$work/pnpm11-remove.log" 2>&1
-      pnpm --global-dir "$work/install" add --global --save-exact "@deepseek-ai/dsh@$version" >"$work/pnpm11-remedy.log" 2>&1
+      node --input-type=module - "$root/README.md" "$work/pnpm11-remedy.sh" <<'NODE'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const [source, destination] = process.argv.slice(2);
+const text = fs.readFileSync(source, 'utf8').split('<!-- install:pnpm-global-remedy -->')[1];
+const commands = text?.match(/^\s*```sh\n([\s\S]*?)\n```/u)?.[1];
+assert.equal(commands, 'pnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2');
+fs.writeFileSync(destination, `set -eu\n${commands}\n`);
+NODE
+      bash "$work/pnpm11-remedy.sh" >"$work/pnpm11-remedy.log" 2>&1
       printf '%s\n' 'pnpm11: default native-binding failure observed; documented config/remove/add remedy applied'
     fi
     argv='["dsh"]'

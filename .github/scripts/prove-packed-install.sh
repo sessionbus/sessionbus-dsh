@@ -9,10 +9,28 @@ DASHI_APP_VERSION=${DASHI_APP_VERSION-$(<"$root/.github/dashi-app-version")}
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-dsh-proof.XXXXXX")
 server_pid=
 dsh_pid=
+server_wrapper=
+dsh_wrapper=
+group_sequence=0
+
+start_process() {
+  local role=$1
+  shift
+  group_sequence=$((group_sequence + 1))
+  local record="$work/group-$group_sequence.json"
+  node "$root/.github/scripts/proof-process-group-runner.mjs" run "$record" "$role" "$@" &
+  local wrapper=$!
+  for _ in $(seq 1 50); do [[ -f "$record" ]] && break; kill -0 "$wrapper" 2>/dev/null || break; sleep 0.1; done
+  [[ -f "$record" ]]
+  local pid
+  pid=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).pid' "$record")
+  if [[ "$role" = native ]]; then dsh_pid=$pid; dsh_wrapper=$wrapper; dsh_record=$record
+  else server_pid=$pid; server_wrapper=$wrapper; server_record=$record; fi
+}
 
 stop_processes() {
-  if [[ -n "$dsh_pid" ]]; then kill -TERM "$dsh_pid" 2>/dev/null || true; wait "$dsh_pid" 2>/dev/null || true; fi
-  if [[ -n "$server_pid" ]]; then kill -TERM "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; fi
+  if [[ -n "$dsh_pid" ]]; then node "$root/.github/scripts/proof-process-group-runner.mjs" stop "$dsh_record"; wait "$dsh_wrapper"; fi
+  if [[ -n "$server_pid" ]]; then node "$root/.github/scripts/proof-process-group-runner.mjs" stop "$server_record"; wait "$server_wrapper"; fi
   dsh_pid=
   server_pid=
 }
@@ -134,12 +152,23 @@ assert.equal(events.some(event => event.type === "turn/end" && event.data?.reaso
 NODE
 }
 cleanup() {
-  stop_processes
+  local original_status=$?
+  local cleanup_status=0
+  if [[ -n "$dsh_pid" ]]; then
+    node "$root/.github/scripts/proof-process-group-runner.mjs" cleanup "$dsh_record" || cleanup_status=1
+    wait "$dsh_wrapper" || cleanup_status=1
+  fi
+  if [[ -n "$server_pid" ]]; then
+    node "$root/.github/scripts/proof-process-group-runner.mjs" cleanup "$server_record" || cleanup_status=1
+    wait "$server_wrapper" || cleanup_status=1
+  fi
   if [[ ${KEEP_PROOF:-0} = 1 ]]; then printf 'proof evidence retained: %s\n' "$work"; else rm -rf -- "$work"; fi
+  if [[ "$original_status" -ne 0 ]]; then exit "$original_status"; fi
+  exit "$cleanup_status"
 }
 trap cleanup EXIT
 
-tarball_name=$(npm pack --pack-destination "$work" --ignore-scripts --json --prefix "$root" | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => process.stdout.write(JSON.parse(body)[0].filename))')
+tarball_name=$(npm pack "$root" --pack-destination "$work" --ignore-scripts --json | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => process.stdout.write(JSON.parse(body)[0].filename))')
 tarball="$work/$tarball_name"
 home="$work/home"
 mkdir -p "$home"
@@ -172,9 +201,23 @@ DSH_HOME="$home" "$dsh" plugin --profile sessionbus add "$root/.github/fixtures/
 for profile in sessionbus web; do
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact @sessionbus/dsh@0.1.0-pre.20 @antst/dsh-file-uploads-none@0.2.0-alpha.2
 done
-DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install
-DSH_HOME="$home" "$dsh" plugin --profile web exec sessionbus-dsh-install --product dsh web
-echo 'W-125 in-place pre.20 lane/web baseline; ordinary add follows, no cleanup; unused old provider pin remains'
+# OPERATIONS-ONLY pre.20 baseline: outside exec, so a registry-driven add
+# cannot nest under DSH's profile lock. Record the exact resulting pin rather
+# than assuming today's registry maximum (published exec failure: 121 s).
+DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install"
+DSH_HOME="$home" "$home/profiles/web/node_modules/.bin/sessionbus-dsh-install" --product dsh web
+node --input-type=module - "$home" "$work/pre20-provider-pins.json" <<'NODE'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const [home, file] = process.argv.slice(2), pins = {};
+for (const profile of ['sessionbus', 'web']) {
+  const spec = JSON.parse(fs.readFileSync(`${home}/profiles/${profile}/package.json`)).dependencies['@antst/dsh-file-uploads-none'];
+  assert.match(spec, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/u);
+  pins[profile] = spec;
+}
+fs.writeFileSync(file, JSON.stringify(pins));
+NODE
+echo 'OPERATIONS-ONLY Linux prepared in-place pre.20 baseline; ordinary upgrade add follows, no cleanup; exact unused provider pin remains'
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "$root/.github/fixtures/bundle-provides-sessionbus"
 for profile in sessionbus web dashi; do
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact "$tarball"
@@ -190,7 +233,7 @@ PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" "$home/profiles/dashi/node
 dashi_install_status=$?
 set -e
 [[ "$dashi_install_status" -eq 2 ]]
-grep -F 'nothing to install' "$work/dashi-install.stderr"
+grep -F 'profile "dashi" app "@sessionbus/w090-bundle-row" already provides Sessionbus; there is nothing to install' "$work/dashi-install.stderr"
 cmp -s "$work/dashi-manifest-before-refusal.json" "$home/profiles/dashi/package.json"
 cmp -s "$work/dashi-patch-before-refusal.yml" "$home/profiles/dashi/cordis.patch.yml"
 for profile in sessionbus web dashi; do
@@ -241,11 +284,9 @@ socket="$work/open-arguments.sock"
 capture="$work/open-arguments-proof.json"
 token="w102-open-arguments-$version"
 echo "DSH $version unsupported open.arguments proof"
-node "$root/.github/scripts/fake-open-arguments-sessionbus.mjs" "$socket" "$capture" &
-server_pid=$!
+start_process fixture node "$root/.github/scripts/fake-open-arguments-sessionbus.mjs" "$socket" "$capture"
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
-PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" >"$work/open-arguments.stdout" 2>"$work/open-arguments.stderr" &
-dsh_pid=$!
+start_process native env PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" >"$work/open-arguments.stdout" 2>"$work/open-arguments.stderr"
 for _ in $(seq 1 100); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/open-arguments.stdout" "$work/open-arguments.stderr" >&2 2>/dev/null || true; exit 1; fi
 stop_processes
@@ -254,11 +295,9 @@ socket="$work/lane.sock"
 capture="$work/lane-proof.json"
 token="w075-fake-$version"
 echo "DSH $version sessionbus lane permission proof"
-node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" sessionbus-dsh worker &
-server_pid=$!
+start_process fixture node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" sessionbus-dsh worker
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
-PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W081_SESSION_ROOT="$work/lane-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" SESSIONBUS_GROUPS='not-json' "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" --patch "$proof_patch" >"$work/lane.stdout" 2>"$work/lane.stderr" &
-dsh_pid=$!
+start_process native env PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W081_SESSION_ROOT="$work/lane-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" SESSIONBUS_GROUPS='not-json' "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" --patch "$proof_patch" >"$work/lane.stdout" 2>"$work/lane.stderr"
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/lane.stdout" "$work/lane.stderr" >&2 2>/dev/null || true; exit 1; fi
 assert_permission_proof "$capture" "$work/lane-sessions" "$token"
@@ -268,11 +307,9 @@ socket="$work/turn-error.sock"
 capture="$work/turn-error-proof.json"
 token="w086-turn-error-$version"
 echo "DSH $version pre-commit turn error proof"
-node "$root/.github/scripts/fake-turn-error-sessionbus.mjs" "$socket" "$capture" sessionbus-dsh &
-server_pid=$!
+start_process fixture node "$root/.github/scripts/fake-turn-error-sessionbus.mjs" "$socket" "$capture" sessionbus-dsh
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
-PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W086_SESSION_ROOT="$work/turn-error-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" --patch "$root/.github/fixtures/turn-start-error.patch.yml" >"$work/turn-error.stdout" 2>"$work/turn-error.stderr" &
-dsh_pid=$!
+start_process native env PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W086_SESSION_ROOT="$work/turn-error-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh" --patch "$root/.github/fixtures/turn-start-error.patch.yml" >"$work/turn-error.stdout" 2>"$work/turn-error.stderr"
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/turn-error.stdout" "$work/turn-error.stderr" >&2 2>/dev/null || true; exit 1; fi
 assert_turn_error_proof "$capture" "$work/turn-error-sessions" "$token"
@@ -289,11 +326,9 @@ socket="$work/dashi-lane.sock"
 capture="$work/dashi-lane-proof.json"
 token="w084-dashi-lane-$version"
 echo "DSH $version published dashi launcher lane permission proof with dashi-app installed"
-node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dashi worker &
-server_pid=$!
+start_process fixture node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dashi worker
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
-PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W081_SESSION_ROOT="$work/dashi-lane-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" SESSIONBUS_GROUPS='not-json' "$home/node_modules/.bin/dashi" --patch "$proof_patch" >"$work/dashi-lane.stdout" 2>"$work/dashi-lane.stderr" &
-dsh_pid=$!
+start_process native env PATH="$home/node_modules/.bin:$PATH" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W081_SESSION_ROOT="$work/dashi-lane-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" SESSIONBUS_GROUPS='not-json' "$home/node_modules/.bin/dashi" --patch "$proof_patch" >"$work/dashi-lane.stdout" 2>"$work/dashi-lane.stderr"
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/dashi-lane.stdout" "$work/dashi-lane.stderr" >&2 2>/dev/null || true; exit 1; fi
 assert_permission_proof "$capture" "$work/dashi-lane-sessions" "$token"
@@ -310,8 +345,7 @@ socket="$work/runtime/sessionbus/presence.sock"
 peer_socket_env=(-u SESSIONBUS_SOCKET XDG_RUNTIME_DIR="$work/runtime")
 capture="$work/web-proof.json"
 echo "DSH $version web peer reconnect, permission and trace proof"
-env "${peer_socket_env[@]}" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$peer_fixture" DSH_W081_SESSION_ROOT="$work/web-sessions" SESSIONBUS_GROUPS='["web-proof"]' "$dsh" --profile web --patch "$proof_patch" --no-open --host 127.0.0.1 --port "$port" >"$work/web.stdout" 2>"$work/web.stderr" &
-dsh_pid=$!
+start_process native env "${peer_socket_env[@]}" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$peer_fixture" DSH_W081_SESSION_ROOT="$work/web-sessions" SESSIONBUS_GROUPS='["web-proof"]' "$dsh" --profile web --patch "$proof_patch" --no-open --host 127.0.0.1 --port "$port" >"$work/web.stdout" 2>"$work/web.stderr"
 ready=false
 for _ in $(seq 1 200); do
   if curl -s -o /dev/null "http://127.0.0.1:$port/"; then ready=true; break; fi
@@ -347,8 +381,7 @@ await rpc("session/selectModel", { request: { sessionId: created.sessionId, prov
 NODE
 for _ in $(seq 1 100); do grep -q '^sessionbus: connect ' "$work/web.stderr" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 [[ $(grep -c '^sessionbus: connect ' "$work/web.stderr") -eq 1 ]]
-node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dsh peer &
-server_pid=$!
+start_process fixture node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dsh peer
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
 for _ in $(seq 1 100); do [[ -s "$capture" ]] && grep -q '"hello":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 [[ -s "$capture" ]] && grep -q '"hello":true' "$capture"
@@ -377,7 +410,7 @@ NODE
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"peerDeliveryReceipt"' "$capture" && [[ $(grep -Rh '"type":"turn/end"' "$work/web-sessions" 2>/dev/null | wc -l) -ge 1 ]] && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 grep -q '"peerDeliveryReceipt"' "$capture"
 [[ $(grep -Rh '"type":"turn/end"' "$work/web-sessions" 2>/dev/null | wc -l) -ge 1 ]]
-kill -USR1 "$server_pid"
+node "$root/.github/scripts/proof-process-group-runner.mjs" signal "$server_record" SIGUSR1
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"idleDeliveryReceipt"' "$capture" && [[ $(grep -Rh '"type":"turn/end"' "$work/web-sessions" 2>/dev/null | wc -l) -ge 2 ]] && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 assert_permission_proof "$capture" "$work/web-sessions" "" "$work/web-session-id"
 stop_processes
@@ -409,16 +442,17 @@ for profile in sessionbus web; do
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" exec sessionbus-dsh-install --remove "$profile"
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" remove @sessionbus/dsh
 done
-node --input-type=module - "$home" <<'NODE'
+node --input-type=module - "$home" "$work/pre20-provider-pins.json" <<'NODE'
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const home = process.argv[2];
+const pins = JSON.parse(fs.readFileSync(process.argv[3]));
 for (const profile of ["sessionbus", "web"]) {
   const manifest = JSON.parse(fs.readFileSync(`${home}/profiles/${profile}/package.json`, "utf8"));
   const patch = fs.readFileSync(`${home}/profiles/${profile}/cordis.patch.yml`, "utf8");
   assert.equal(manifest.dependencies?.["@sessionbus/dsh"], undefined);
-  assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], '0.2.0-alpha.2', 'uninstall preserves the existing profile-owned pin');
+  assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], pins[profile], 'uninstall preserves the exact existing profile-owned pin');
   assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u);
 }
 NODE

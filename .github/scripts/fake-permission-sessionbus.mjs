@@ -12,7 +12,10 @@ const idleInput = JSON.stringify({
 });
 const state = { hello: false, hellos: [], listed: false, ...(mode === "worker" ? { ready: false } : {}) };
 const openRequest = { jsonrpc: "2.0", id: 100, method: "session.open", params: { name: "permission-proof", groups: ["lane-primary", "lane-secondary"], policy: { persistent: false, auto_close_ms: 60000, notify: false }, open: { model: "deepseek-official/deepseek-v4-flash" } } };
-const save = () => fs.writeFileSync(capture, `${JSON.stringify(state)}\n`);
+const save = () => {
+  fs.writeFileSync(`${capture}.tmp`, `${JSON.stringify(state)}\n`);
+  fs.renameSync(`${capture}.tmp`, capture);
+};
 let deliverIdle = () => {};
 
 const server = net.createServer((stream) => {

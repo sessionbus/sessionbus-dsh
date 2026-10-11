@@ -59,10 +59,6 @@ function inspectRuntime(ctx, { version, mode }) {
   } else if (mode === "web") {
     assert.equal(provider.name, "@deepseek-ai/dsh-client-file-upload");
     assert.equal(entries.some(entry => entry.options.name === "@sessionbus/dsh/file-uploads-none"), false);
-  } else if (mode === "dashi") {
-    const app = ctx.pluginPackages.packageOf("@antst/dashi-app", importer);
-    assert.equal(provider.name, "@antst/dsh-file-uploads-none");
-    assert.equal(provider.version, app.manifest.dependencies[provider.name]);
   } else throw new Error(`unsupported runtime proof mode ${mode}`);
   assert.equal(plugin.manifest.dependencies?.["@antst/dsh-file-uploads-none"], undefined);
   assert.equal(plugin.manifest.peerDependencies?.["@antst/dsh-file-uploads-none"], undefined);

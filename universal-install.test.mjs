@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import fs from 'node:fs';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import yaml from 'js-yaml';
-import { assertNativeInGroup, assertEmptyGroup, signalOwnedGroup } from './.github/scripts/proof-process-group.mjs';
+import { assertNativeInGroup, assertEmptyGroup, emptyGroup, signalOwnedGroup, stopOwnedChild } from './.github/scripts/proof-process-group.mjs';
 const { install, remove } = await import(process.env.W125_BASELINE_INSTALLER ?? './install.mjs');
 
 const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url))).version;
@@ -143,16 +143,105 @@ test('all manifest containers and serialized outputs are checked before the firs
 test('a write-loop I/O failure names completed, possibly partial and untouched profiles', t => {
   const f = fixture(t, ['web', 'sessionbus', 'custom']);
   const before = readFileSync(f.file('custom'));
-  const write = fs.writeFileSync;
-  t.mock.method(fs, 'writeFileSync', (file, ...args) => {
-    if (file === f.file('sessionbus')) throw Object.assign(new Error('controlled EACCES'), { code: 'EACCES' });
-    return write(file, ...args);
+  const laneBefore = readFileSync(f.file('sessionbus'));
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === f.file('sessionbus')) throw Object.assign(new Error('controlled EACCES'), { code: 'EACCES' });
+    return rename(from, to);
   });
   syncBuiltinESMExports();
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
   assert.throws(() => install(['web', 'sessionbus', 'custom'], { ...f, product: 'dashi' }), /failed writing profile "sessionbus".*completed profiles: web; this profile may be partially written; profiles not attempted: custom/u);
   assert.match(readFileSync(f.file('web'), 'utf8'), /id: sessionbus/u);
+  assert.deepEqual(readFileSync(f.file('sessionbus')), laneBefore);
+  assert.equal(readdirSync(path.dirname(f.file('sessionbus'))).some(file => file.endsWith('.tmp')), false);
   assert.deepEqual(readFileSync(f.file('custom')), before);
+});
+
+test('atomic profile writes retain 0600 and symlinks and leave originals intact on a rename failure', t => {
+  const f = fixture(t, ['web', 'custom']);
+  const target = path.join(f.home, 'owner-shared.yml');
+  writeFileSync(target, '[]\n'); chmodSync(target, 0o600);
+  fs.unlinkSync(f.file('web')); symlinkSync(target, f.file('web'));
+  install(['web'], { ...f, product: 'dsh' });
+  assert.equal(lstatSync(f.file('web')).isSymbolicLink(), true);
+  assert.equal(statSync(target).mode & 0o777, 0o600);
+  assert.match(readFileSync(target, 'utf8'), /id: sessionbus/u);
+  chmodSync(target, 0o640);
+  const priorUmask = process.umask(0o077);
+  try { install(['web'], { ...f, product: 'changed' }); }
+  finally { process.umask(priorUmask); }
+  assert.equal(statSync(target).mode & 0o777, 0o640);
+  assert.equal(lstatSync(f.file('web')).isSymbolicLink(), true);
+  chmodSync(f.file('custom'), 0o600);
+  const before = readFileSync(f.file('custom'));
+  const rename = fs.renameSync;
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (to === f.file('custom')) throw new Error('controlled full disk before rename');
+    return rename(from, to);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  assert.throws(() => install(['custom'], { ...f, product: 'dsh' }), /controlled full disk before rename/u);
+  assert.deepEqual(readFileSync(f.file('custom')), before);
+  assert.equal(statSync(f.file('custom')).mode & 0o777, 0o600);
+  assert.equal(readdirSync(path.dirname(f.file('custom'))).some(file => file.endsWith('.tmp')), false);
+  t.mock.restoreAll(); syncBuiltinESMExports();
+  fs.unlinkSync(f.file('custom'));
+  const absentTarget = path.join(f.home, 'absent-owner-patch.yml');
+  symlinkSync(absentTarget, f.file('custom'));
+  assert.throws(() => install(['custom'], { ...f, product: 'dsh' }), /ENOENT/u);
+  assert.equal(lstatSync(f.file('custom')).isSymbolicLink(), true);
+  assert.equal(existsSync(absentTarget), false);
+});
+
+test('sampled JSON evidence is published atomically by the actual fake producer and malformed input still fails', t => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-snapshot-control-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const capture = path.join(directory, 'snapshot.json');
+  const old = { generation: 1 }, current = { generation: 2, body: 'x'.repeat(65536) };
+  writeFileSync(capture, JSON.stringify(old));
+  const source = readFileSync(new URL('./.github/scripts/fake-permission-sessionbus.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('const save ='), end = source.indexOf('\nlet deliverIdle', start);
+  assert.ok(start >= 0 && end > start);
+  const sampled = [];
+  const controlledFs = { ...fs, writeFileSync(file, bytes, ...args) {
+    // Deterministic reader in the real producer's truncate/write window.
+    writeFileSync(file, ''); sampled.push(JSON.parse(readFileSync(capture, 'utf8')));
+    writeFileSync(file, bytes, ...args);
+  } };
+  const save = new Function('fs', 'capture', 'state', `${source.slice(start, end)}; return save`)(controlledFs, capture, current);
+  assert.doesNotThrow(save);
+  assert.deepEqual(sampled, [old]);
+  assert.deepEqual(JSON.parse(readFileSync(capture, 'utf8')), current);
+  const reader = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8').match(/^const state = .*$/mu)?.[0];
+  assert.ok(reader);
+  const read = new Function('fs', `${reader}; return state`)(fs);
+  writeFileSync(capture, '{broken'); assert.throws(() => read(capture), SyntaxError);
+});
+
+test('cleanup aggregation retains the primary error at every real proof throw site', () => {
+  for (const file of ['prove-native-floor.mjs', 'prove-native-row-conflicts.mjs', 'prove-universal-profile.mjs']) {
+    const source = readFileSync(new URL(`./.github/scripts/${file}`, import.meta.url), 'utf8');
+    const line = source.split('\n').find(line => line.includes('throw new AggregateError('));
+    assert.ok(line, file);
+    const primary = new Error('primary assertion'), cleanup = new Error('cleanup assertion');
+    const run = new Function('primary', 'failures', line);
+    assert.throws(() => run(primary, [cleanup]), error => error instanceof AggregateError && error.errors[0] === primary && error.errors[1] === cleanup);
+  }
+});
+
+test('the exact universal pack command always packs this repository from an unrelated cwd', t => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-pack-root-control-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(path.join(directory, 'pack'));
+  const source = readFileSync(new URL('./.github/scripts/prove-universal-install.sh', import.meta.url), 'utf8');
+  const command = source.split('\n').find(line => line.startsWith('npm pack ')); assert.ok(command);
+  const env = { ...process.env, root: path.dirname(new URL(import.meta.url).pathname), work: directory };
+  const run = childProcess.spawnSync('bash', ['-c', command], { cwd: directory, env, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  const packed = JSON.parse(readFileSync(path.join(directory, 'pack.json')))[0];
+  assert.equal(packed.name, '@sessionbus/dsh'); assert.equal(packed.version, version);
 });
 
 test('pre.20 marked no-upload row upgrades to the own entry without touching dependency pins', t => {
@@ -239,7 +328,7 @@ test('the native stock comment header and bare empty array survive row installat
   install(['web'], { ...f, product: 'dsh' });
   const after = readFileSync(f.file('web'), 'utf8');
   assert.ok(after.startsWith(header));
-  assert.ok(after.endsWith('\n# owner footer\n'));
+  assert.ok(after.includes('\n# owner footer\n'));
   assert.match(after, /id: sessionbus/u);
 });
 
@@ -257,10 +346,10 @@ test('owner comments, inert expressions and id-looking persona text stay byte-id
   }
 });
 
-test('flow/JSON rows and name-before-id use semantic row ownership, not persona matches', t => {
+test('inline rows and name-before-id use semantic row ownership, not persona matches', t => {
   for (const body of [
     '- insert:\n    - name: keeper\n      id: keeper\n      config: {persona: "{id: file-uploads-none}"}\n',
-    '[{"insert":[{"name":"keeper","id":"keeper","config":{"persona":"- id: sessionbus"}}]}]\n',
+    '- insert:\n    - { name: keeper, id: keeper, config: { persona: "- id: sessionbus" } }\n',
   ]) {
     const f = fixture(t, ['custom']);
     writeFileSync(f.file('custom'), body);
@@ -338,6 +427,8 @@ test('lane owner overrides are not shadowed, and only marked spans converge', t 
   assert.equal(rows.find(row => row.id === 'file-uploads-none').name, ownEntry);
   install(['sessionbus'], f);
   assert.equal(readFileSync(f.file('sessionbus'), 'utf8'), after);
+  remove(['sessionbus'], f);
+  assert.equal(readFileSync(f.file('sessionbus'), 'utf8'), header + beforeRows + ownerOverrides + between + afterRows);
 });
 
 test('an unmarked sessionbus mount is never adopted or repaired', t => {
@@ -362,18 +453,127 @@ test('marked peer repair preserves unrelated fields and surrounding comments', t
   }
 });
 
-test('flow arrays remain valid through install and rows-only removal', t => {
-  const f = fixture(t, ['web']);
-  const body = '# header\n[{"id":"keeper","config":{"text":"commas, # are data"}}] # footer\n';
-  writeFileSync(f.file('web'), body);
-  install(['web'], { ...f, product: 'dsh' });
-  const installed = readFileSync(f.file('web'), 'utf8');
-  assert.equal(yaml.load(installed).length, 2);
-  remove(['web'], f);
-  const removed = readFileSync(f.file('web'), 'utf8');
-  assert.deepEqual(yaml.load(removed), yaml.load(body));
-  assert.ok(removed.startsWith('# header\n[{"id":"keeper","config":{"text":"commas, # are data"}}'));
-  assert.ok(removed.endsWith('] # footer\n'));
+test('nonempty top-level flow and JSON patches refuse install and removal before any write', t => {
+  for (const body of ['[{id: keeper}]\n', '[{"id":"keeper"}]\n']) {
+    const f = fixture(t, ['web', 'custom']); writeFileSync(f.file('custom'), body);
+    const files = ['web', 'custom'].flatMap(name => ['package.json', 'cordis.patch.yml', 'pnpm-lock.yaml'].map(file => f.file(name, file)));
+    const before = files.map(file => readFileSync(file));
+    const refused = error => error.exitCode === 2 && error.message.includes(f.file('custom'))
+      && error.message.includes('convert it to block form or keep this profile outside the installer');
+    assert.throws(() => install(['web', 'custom'], { ...f, product: 'dsh' }), refused);
+    assert.throws(() => remove(['web', 'custom'], f), refused);
+    files.forEach((file, index) => assert.deepEqual(readFileSync(file), before[index]));
+  }
+});
+
+test('BOM and CRLF block patches preserve owner bytes across install, rerun and removal', t => {
+  for (const prefix of ['', '\uFEFF']) for (const eol of ['\n', '\r\n']) {
+    const f = fixture(t, ['web']);
+    const owner = '# owner header\n- id: keeper\n  config: { keep: yes }\n';
+    const mount = `- insert: ${marker}\n    - id: sessionbus ${marker}\n      name: '@sessionbus/dsh'\n      config: { product: "old" }\n`;
+    const footer = '# owner footer\n- id: tail\n  config: { keep: yes }\n';
+    const original = prefix + (owner + mount + footer).replaceAll('\n', eol);
+    writeFileSync(f.file('web'), original); install(['web'], { ...f, product: 'dsh' });
+    const installed = readFileSync(f.file('web'), 'utf8');
+    assert.equal(installed, original.replace('"old"', 'dsh'));
+    install(['web'], { ...f, product: 'dsh' }); assert.equal(readFileSync(f.file('web'), 'utf8'), installed);
+    remove(['web'], f); assert.equal(readFileSync(f.file('web'), 'utf8'), prefix + (owner + footer).replaceAll('\n', eol));
+    // Fresh rows must use the existing file's line ending, too.
+    install(['web'], { ...f, product: 'dsh' });
+    const fresh = readFileSync(f.file('web'), 'utf8');
+    if (eol === '\r\n') assert.equal(/(?<!\r)\n/u.test(fresh), false);
+    install(['web'], { ...f, product: 'dsh' }); assert.equal(readFileSync(f.file('web'), 'utf8'), fresh);
+    remove(['web'], f); assert.equal(readFileSync(f.file('web'), 'utf8'), prefix + (owner + footer).replaceAll('\n', eol));
+  }
+});
+
+test('empty native array templates keep comments in every position across rerun and removal', t => {
+  for (const body of ['# before\n[] # after\n# footer\n', '[ # inside\n] # after\n', '[\n# inside\n]\n']) {
+    const f = fixture(t, ['web']); writeFileSync(f.file('web'), body);
+    install(['web'], { ...f, product: 'dsh' }); const installed = readFileSync(f.file('web'), 'utf8');
+    const comments = text => text.match(/#[^\n]*/gu)?.filter(line => !line.includes('sessionbus-dsh-install'));
+    assert.deepEqual(comments(installed), comments(body));
+    install(['web'], { ...f, product: 'dsh' }); assert.equal(readFileSync(f.file('web'), 'utf8'), installed);
+    remove(['web'], f); assert.deepEqual(yaml.load(readFileSync(f.file('web'), 'utf8')), []);
+    assert.deepEqual(comments(readFileSync(f.file('web'), 'utf8')), comments(body));
+  }
+});
+
+test('missing-package hints name this installer exact version and every leftover pin is reported', t => {
+  for (const name of ['sessionbus', 'web', 'custom']) {
+    const f = fixture(t, [name]); const output = [];
+    t.mock.method(process.stderr, 'write', line => { output.push(String(line)); return true; });
+    install([name], { ...f, ...(name === 'sessionbus' ? {} : { product: 'dsh' }) });
+    assert.ok(output.some(line => line === `sessionbus-dsh-install: profile "${name}" retains its existing ${helper} pin; the installer no longer uses it\n`));
+    const manifest = JSON.parse(readFileSync(f.file(name, 'package.json'))); delete manifest.dependencies['@sessionbus/dsh'];
+    writeFileSync(f.file(name, 'package.json'), JSON.stringify(manifest));
+    assert.throws(() => install([name], { ...f, ...(name === 'sessionbus' ? {} : { product: 'dsh' }) }), error => error.exitCode === 2
+      && error.message.endsWith(`add --save-exact @sessionbus/dsh@${version}`));
+    t.mock.restoreAll();
+  }
+});
+
+test('dashi metadata proof uses the actual CLI owner when app-boot is not hoisted', t => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-cli-owner-regression-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const actual = path.join(directory, 'actual'), alias = path.join(directory, 'alias');
+  mkdirSync(actual); symlinkSync(actual, alias, 'dir');
+  const home = path.join(alias, 'host'), modules = path.join(home, 'node_modules');
+  const virtual = path.join(modules, '.pnpm/cli/node_modules/@deepseek-ai');
+  const cli = path.join(virtual, 'dsh'), boot = path.join(virtual, 'dsh-app-boot'), cordis = path.join(virtual, 'cordis');
+  for (const folder of [cli, boot, cordis, path.join(modules, '@deepseek-ai'), path.join(modules, '.bin')]) mkdirSync(folder, { recursive: true });
+  writeFileSync(path.join(home, 'package.json'), '{"private":true}');
+  writeFileSync(path.join(cli, 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.2.1-alpha.2"}');
+  for (const [folder, code] of [[boot, 'export class PluginPackages {}; export function createRuntimeResolution() {}; export function loadProfileDirectory() {}'], [cordis, 'export class Context {}']]) {
+    writeFileSync(path.join(folder, 'package.json'), '{"type":"module","main":"index.js"}');
+    writeFileSync(path.join(folder, 'index.js'), code); // Resolution-only fixture, never a fake native boot.
+  }
+  symlinkSync(cli, path.join(modules, '@deepseek-ai/dsh'));
+  writeFileSync(path.join(modules, '.bin/dsh'), '#!/bin/sh\n# real wrapper, not a module anchor\n');
+  assert.equal(existsSync(path.join(modules, '@deepseek-ai/dsh-app-boot')), false);
+  const source = readFileSync(new URL('./.github/scripts/prove-dashi-resolution.mjs', import.meta.url), 'utf8');
+  const prefix = source.match(/const discovery = createRequire\(fs\.realpathSync\(path\.join\(home, 'package.json'\)\)\);[\s\S]*?await import\(native\.resolve\('@deepseek-ai\/dsh-app-boot'\)\);/u)?.[0];
+  assert.ok(prefix, 'exercise the actual proof lookup, not a substitute');
+  const run = lookup => childProcess.spawnSync(process.execPath, ['--input-type=module', '-'], { encoding: 'utf8', input:
+    `import fs from 'node:fs'; import path from 'node:path'; import {createRequire} from 'node:module'; const home=${JSON.stringify(home)};\n${lookup}\nconsole.log(anchor);` });
+  const negative = prefix.replace("createRequire(fs.realpathSync(path.join(home, 'package.json')))", "createRequire(path.join(home, 'node_modules/.bin/dsh-anchor.cjs'))")
+    .replace('const native = createRequire(anchor);', 'const native = discovery;');
+  assert.notEqual(run(negative).status, 0, 'synthetic bin anchor must not find the unhoisted producer');
+  const positive = run(prefix); assert.equal(positive.status, 0, positive.stderr);
+  assert.equal(positive.stdout.trim(), fs.realpathSync(path.join(cli, 'package.json')));
+});
+
+test('pnpm 11 remedy is the actual README fenced text and exec has its own short bound', t => {
+  const source = readFileSync(new URL('./.github/scripts/prove-universal-install.sh', import.meta.url), 'utf8');
+  const block = source.match(/node --input-type=module - "\$root\/README.md" "\$work\/pnpm11-remedy.sh" <<'NODE'\n([\s\S]*?)\nNODE/u)?.[1];
+  assert.ok(block, 'the actual harness consumes the documented block');
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-remedy-fence-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const output = path.join(directory, 'remedy.sh');
+  const run = childProcess.spawnSync(process.execPath, ['--input-type=module', '-', new URL('./README.md', import.meta.url).pathname, output], { input: block, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(readFileSync(output, 'utf8'), 'set -eu\npnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2\n');
+  const driver = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  const line = driver.split('\n').find(line => line.includes('const milliseconds = args.includes(\'exec\')'));
+  assert.ok(line); const bound = new Function('args', `${line}; return milliseconds`);
+  assert.equal(bound(['plugin', 'exec']), 10_000); assert.equal(bound(['plugin', 'remove']), 60_000);
+});
+
+test('native removal plugin-absence assertion accepts no map or empty map but rejects a remaining plugin', t => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-empty-manifest-control-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const source = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  const line = source.split('\n').find(line => line.includes("dependencies?.['@sessionbus/dsh'], undefined"));
+  assert.ok(line, 'exercise the actual final native removal assertion');
+  const run = new Function('assert', 'fs', 'path', 'directory', line);
+  for (const manifest of [{}, { dependencies: {} }]) {
+    writeFileSync(path.join(directory, 'package.json'), JSON.stringify(manifest));
+    assert.doesNotThrow(() => run(assert, fs, path, directory));
+  }
+  writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ dependencies: { '@sessionbus/dsh': version } }));
+  assert.throws(() => run(assert, fs, path, directory), assert.AssertionError);
+  writeFileSync(path.join(directory, 'package.json'), '{broken');
+  assert.throws(() => run(assert, fs, path, directory), SyntaxError);
 });
 
 test('marked row repair fills missing and null fields without consuming an EOF comment', t => {
@@ -434,5 +634,33 @@ test('owned groups close wrapped native children and refuse a pid in another gro
       const bound = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 5000);
       try { await child.closed; await delay(50); assertEmptyGroup(child); } finally { clearTimeout(bound); }
     }
+  }
+});
+
+test('the actual normal stop rejects a surviving descendant before any cleanup kill', async () => {
+  const program = `const {spawn}=require('node:child_process');
+    const descendant=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"],{stdio:'ignore'});
+    process.on('SIGTERM',()=>process.exit(0));
+    process.stdout.write(JSON.stringify({descendant:descendant.pid})+'\\n');setInterval(()=>{},1000);`;
+  const child = childProcess.spawn(process.execPath, ['-e', program], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.ended = new Promise(resolve => child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }));
+  let output = ''; child.stdout.on('data', data => { output += data; });
+  const children = new Set([child]);
+  const source = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  const actual = source.slice(source.indexOf('async function stop('), source.indexOf('\nconst state ='));
+  const wait = async (read, label, milliseconds) => {
+    const end = Date.now() + milliseconds;
+    while (Date.now() < end) { if (read()) return; await delay(10); }
+    throw new Error(label);
+  };
+  const stop = new Function('assertNativeInGroup', 'signalOwnedGroup', 'emptyGroup', 'assertEmptyGroup', 'wait', 'children', 'stopOwnedChild', `${actual}; return stop`)
+    (assertNativeInGroup, signalOwnedGroup, emptyGroup, assertEmptyGroup, wait, children, stopOwnedChild);
+  try {
+    await wait(() => output.includes('\n'), 'fixture ready', 1000);
+    await assert.rejects(stop(child), /owned proof group/u);
+    assert.equal(emptyGroup(child), false, 'the assertion must fail before killing the leaked descendant');
+  } finally {
+    signalOwnedGroup(child, 'SIGKILL'); await child.ended;
+    await wait(() => emptyGroup(child), 'fixture cleanup empty', 2000); assertEmptyGroup(child);
   }
 });

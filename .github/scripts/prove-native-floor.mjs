@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { assertNativeInGroup, assertEmptyGroup, signalOwnedGroup } from './proof-process-group.mjs';
+import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild } from './proof-process-group.mjs';
 
 const [work, commandJSON, candidate, repo] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate && repo);
@@ -12,16 +12,18 @@ fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: tr
 const env = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(env)) if (key.startsWith('SESSIONBUS_')) delete env[key];
 const children = new Set();
+let primary;
 function start(argv, label) {
   const child = spawn(argv[0], argv.slice(1), { cwd: workspace, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child); child.output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { child.output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
-  child.ended = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => resolve({ code, signal })); });
+  child.ended = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }); });
   return child;
 }
 async function run(argv, label) {
-  const child = start(argv, label), bound = setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 120_000);
-  const hardBound = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 125_000);
+  const child = start(argv, label), acquisition = argv.includes('add');
+  const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 120_000);
+  const hardBound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 125_000);
   try { const result = await child.ended; assertEmptyGroup(child); children.delete(child); return { ...result, output: child.output }; }
   finally { clearTimeout(bound); clearTimeout(hardBound); }
 }
@@ -49,21 +51,17 @@ try {
     await delay(100);
   }
   assert.equal(observed, true, boot.output);
-  assertNativeInGroup(boot, boot.pid); process.kill(boot.pid, 'SIGTERM');
-  const bound = setTimeout(() => signalOwnedGroup(boot, 'SIGKILL'), 5000);
-  let stopped;
-  try { stopped = await boot.ended; assertEmptyGroup(boot); children.delete(boot); } finally { clearTimeout(bound); }
+  const stopped = await stopOwnedChild(boot); children.delete(boot);
   assert.deepEqual(fs.readFileSync(path.join(profile, 'package.json')), manifest);
   assert.deepEqual(fs.readFileSync(path.join(profile, 'cordis.patch.yml')), patch);
   fs.writeFileSync(path.join(work, 'result.json'), JSON.stringify({ nativeAddRefused: true, forcedBootDisabledRows: true,
     stop: stopped, profileBytesUnchanged: true, version: '0.2.1-alpha.1', candidate: version }, null, 2));
   console.log('native alpha.1 add refuses the declared floor; forced boot disables rows readably; no installer CLI inference: PASS');
-} finally {
+} catch (error) { primary = error; throw error; }
+finally {
   const outcomes = await Promise.allSettled([...children].map(async child => {
-    signalOwnedGroup(child, 'SIGTERM');
-    const bound = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 5000);
-    try { await child.ended; assertEmptyGroup(child); } finally { clearTimeout(bound); }
+    await stopOwnedChild(child, child.pid, true);
   }));
   const failures = outcomes.filter(result => result.status === 'rejected').map(result => result.reason);
-  if (failures.length) throw new AggregateError(failures, 'owned floor-proof cleanup failed');
+  if (failures.length) throw new AggregateError(primary ? [primary, ...failures] : failures, 'owned floor-proof cleanup failed');
 }

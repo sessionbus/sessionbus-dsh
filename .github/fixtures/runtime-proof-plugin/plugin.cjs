@@ -6,11 +6,15 @@ module.exports = {
   name: "w125-runtime-proof",
   inject: ["loader", "pluginPackages", "profileContext", "appReady"],
   apply(ctx, { destination, version, mode }) {
+    const save = value => {
+      fs.writeFileSync(`${destination}.tmp`, JSON.stringify(value, null, 2));
+      fs.renameSync(`${destination}.tmp`, destination);
+    };
     ctx.appReady.onReady(() => {
       try {
-        fs.writeFileSync(destination, JSON.stringify({ ok: true, nativePid: process.pid, ...inspectRuntime(ctx, { version, mode }) }, null, 2));
+        save({ ok: true, nativePid: process.pid, ...inspectRuntime(ctx, { version, mode }) });
       } catch (error) {
-        fs.writeFileSync(destination, JSON.stringify({ ok: false, nativePid: process.pid, error: String(error), stack: error.stack }, null, 2));
+        save({ ok: false, nativePid: process.pid, error: String(error), stack: error.stack });
         throw error;
       }
     });

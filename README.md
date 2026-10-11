@@ -6,16 +6,11 @@ Source and issue tracking live in
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
 It depends on the exact `@sessionbus/kit` version `0.5.12`.
-The rows-only installer uses `js-yaml@4.3.2` to read native array patches;
-`!!js` scalars are inert during installation, and user patches are never
-re-serialized. This is the parser version tested here, not a promise to track
-DSH's parser version.
+The installer reads configuration with `js-yaml@4.3.2`; it never executes
+`!!js` expressions or rewrites unrelated configuration.
 It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
 `0.2.1-alpha.2`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
 until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
-The running DSH composition must resolve one compatible DSH version. Profile-local
-peer warnings alone do not describe that runtime: DSH supplies its installation's
-packages when the profile boots.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH
 permission policy. Native messages use the producer-owned V4 kind
@@ -34,6 +29,7 @@ several installs coexist. DSH's own `plugin` command manages the profile's
 packages (and requires pnpm as DSH documents), regardless of how DSH was installed.
 With npx, prefix each command below with the same npx DSH invocation.
 The package manager's global binaries must already be on PATH.
+Install DSH itself according to DSH's documentation; this section installs the plugin.
 
 ### DSH installed globally with pnpm 11
 
@@ -85,8 +81,8 @@ dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 
 DSH creates fresh profiles with `nodeLinker: hoisted` and
 `autoInstallPeers: false`; these are DSH's defaults, not pnpm's global defaults.
-The installer makes no package operations, registry queries, companion pins or
-DSH boots. It writes only profile-local rows and its base-bundle entry, and leaves an existing
+The installer does not add or remove packages or start DSH. It changes only
+its profile entries and the lane's base-bundle declaration, and leaves an existing
 marked peer `sessionbus` row's other fields unchanged while adding or updating its required
 `product`. With no profile arguments it configures only the `sessionbus` lane
 profile and derives product `sessionbus-dsh`. Use product `dashi` for the dashi
@@ -99,7 +95,8 @@ Controller; ordinary text prompts work while file-upload receipts are rejected.
 The no-upload row uses this package's separate `@sessionbus/dsh/file-uploads-none`
 entry. There is no dependency or peer on `@antst/dsh-file-uploads-none`; web
 receives no no-upload row, and dashi-app keeps ownership of its own provider.
-Re-running the installer upgrades its marked pre.20 row. Any old provider pin
+For a lane or web profile upgraded in place in a Linux project, re-running
+the installer upgrades its marked pre.20 entries. Any old provider pin
 is left untouched and reported, not removed. An unmarked plugin or upload row belongs to
 the user: remove it and rerun, or keep that profile outside the installer.
 Removing the marker from a config-only lane default makes it yours: the installer
@@ -107,13 +104,22 @@ keeps that row unchanged, prints `kept as yours, lane default not applied`, and
 does not append a shadowing default. Unrelated owner rows, comments and expressions
 remain byte-identical, including the lane's provider and default-model rows.
 All structural and row-ownership guards complete before any profile changes.
-A later filesystem write failure can still leave earlier profiles changed.
+The installer supports block-form YAML lists and DSH's empty `[]` template,
+including comments, a UTF-8 BOM and CRLF line endings. Convert a nonempty
+flow/JSON top-level list to block form, or keep that profile outside the installer.
+Each changed file is replaced atomically, preserving its existing mode exactly
+and replacing a symlink's referent without replacing the link. Unlike DSH's
+native settings writer, this does not force 0600 or replace symlinks themselves.
+Ownership by another user, hard links, extended attributes and ACLs are not
+preserved. A later filesystem write failure can still leave earlier files or
+profiles changed; it cannot leave a half-written file. Removal strips only
+marked rows and also keeps the owner's unmarked config-only rows unchanged.
 
-Profile-policy boundary: the plugin is tested with DSH's native profile defaults
-(`nodeLinker: hoisted`, `autoInstallPeers: false`). DSH provides its peers from
-the executing installation; they do not need to be installed into the profile.
-The installer never changes the operator's package-manager policy or adds
-companion packages. DSH owns the version floor, including the native refusal
+The plugin is tested with DSH's profile defaults (`nodeLinker: hoisted`,
+`autoInstallPeers: false`); its DSH peers come from the DSH installation,
+not packages added to the profile.
+
+DSH enforces the supported version, including the refusal
 `Plugin @sessionbus/dsh@0.1.0-pre.21 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
@@ -122,7 +128,7 @@ runbook's provider-parity step when upgrading an existing project.
 For the two-product form, register the daemon's `sessionbus-dsh` product as the
 package's `sessionbus-dsh` bin. For the one-product form, register only `dashi`
 as the `dashi` bin. Both launchers select the installed `sessionbus` profile
-when given a launch token. Deployment boundary: these two profile commands do
+when given a launch token. These two profile commands do
 not deploy the daemon or configure its products. Its service `PATH` must resolve
 the selected launcher and its child `dsh`; they need not share a directory.
 An ephemeral npx cache is not a persistent daemon-product deployment. The
@@ -130,8 +136,9 @@ operator owns that setup, independently of the login shell.
 
 [Upgrading a project DSH install in place](docs/HOST-INSTALL.md) is an operations
 procedure for a long-lived pnpm project, not a prerequisite for ordinary plugin
-installation. Its snapshots, stale-graph repair and optional companion pins
-address that project's upgrade history, not global or fresh installs.
+installation. It addresses that project's upgrade history, not global or fresh
+installs. The in-place regression is Linux-only; release acceptance also requires
+the real project's lane and web upgrade proof.
 
 Without an explicit socket, peers use `$XDG_RUNTIME_DIR/sessionbus/presence.sock`
 or `/tmp/sessionbus-<uid>/presence.sock`, matching the daemon's discovery rule.
@@ -154,8 +161,8 @@ dsh plugin --profile web remove @sessionbus/dsh
 If DSH is broken, invoke the already-installed `sessionbus-dsh-install` bin
 directly with `--remove web` to remove the rows without booting or version-checking
 DSH. Managed rows carry an ownership comment; removal refuses an unmarked
-matching row. The installer never removes packages; existing provider and
-companion pins are left for their owners.
+matching mounting row. The installer never removes packages; existing package
+pins are left for their owners.
 
 `SESSIONBUS_GROUPS` configures peer identities only. Lane membership is owned
 by the daemon; the plugin accepts and does not consume groups in `session.open`.
@@ -221,7 +228,7 @@ lane profiles must carry dsh-base's rows (the shipped profiles do). It adds thos
 DSH peers and a Zod peer. Native runtime resolution supplies those peers; ordinary
 installation does not require profile-local Cordis or Zod pins. The plugin and
 storage-domain producer must resolve compatible Zod schemas through their own
-native importers.
+package resolution.
 Separate physical copies are valid: native domain open calls the supplied
 schema's parser rather than checking object identity. Paths and unrelated Zod
 majors are reported, not rewritten.

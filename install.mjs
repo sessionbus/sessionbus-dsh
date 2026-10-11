@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import yaml from "js-yaml";
 
 const marker = "# sessionbus-dsh-install owned";
 const uploads = "@antst/dsh-file-uploads-none";
+const packageVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 const profilePatch = (product) => `- id: system-prompt ${marker}
   config:
     personaPrefix: >-
@@ -41,7 +43,27 @@ const ownedIDs = ["system-prompt", "session-title-llm", "permission", "workspace
 const peerRows = (name) => ["sessionbus", ...(name === "web" ? [] : ["file-uploads-none"])];
 const refusal = (message) => Object.assign(new Error(message), { exitCode: 2 });
 function writeChanged(file, body) {
-  if (!existsSync(file) || readFileSync(file, "utf8") !== body) writeFileSync(file, body);
+  if (existsSync(file) && readFileSync(file, "utf8") === body) return;
+  let target = file, mode, existing;
+  try { existing = lstatSync(file); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  if (existing) {
+    target = realpathSync(file); // A broken symlink is an error, not a new file.
+    mode = (existing.isSymbolicLink() ? lstatSync(target) : existing).mode & 0o7777;
+  }
+  // Atomic like DSH's writer (dsh-atomic-write:66-75), but preserve symlink
+  // referents and exact modes where native writes replace links / force 0600.
+  // Other-user ownership, hard links, extended attributes and ACLs are not preserved.
+  const temporary = `${target}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary, body, { flag: "wx", ...(mode === undefined ? {} : { mode }) });
+    if (mode !== undefined) chmodSync(temporary, mode); // Keep existing bits even under a narrower umask.
+    renameSync(temporary, target);
+  } catch (error) {
+    try { rmSync(temporary, { force: true }); }
+    catch (cleanup) { throw new AggregateError([error, cleanup], `atomic write and cleanup failed for ${file}: ${error.message}; ${cleanup.message}`); }
+    throw error;
+  }
 }
 
 // Read the native array dialect without evaluating !!js or serializing user data.
@@ -53,9 +75,10 @@ function parsePatch(file, body) {
   let data;
   try {
     body ??= readFileSync(file, "utf8");
-    data = yaml.load(body, { schema: patchSchema, listener(event, state) {
-      if (event === "open") { stack.push({ start: state.position, children: [] }); return; }
-      const node = Object.assign(stack.pop(), { end: state.position, kind: state.kind, value: state.result });
+    const offset = body.startsWith("\uFEFF") ? 1 : 0;
+    data = yaml.load(body.slice(offset), { schema: patchSchema, listener(event, state) {
+      if (event === "open") { stack.push({ start: state.position + offset, children: [] }); return; }
+      const node = Object.assign(stack.pop(), { end: state.position + offset, kind: state.kind, value: state.result });
       stack.at(-1)?.children.push(node);
       if (node.value && typeof node.value === "object" && node.kind !== "scalar") {
         const prior = nodes.get(node.value);
@@ -78,7 +101,14 @@ function parsePatch(file, body) {
     }
   }
   visit(data, data);
-  return { file, body, data, nodes, rows };
+  return { file, body, data, nodes, rows, offset: body.startsWith("\uFEFF") ? 1 : 0, eol: body.includes("\r\n") ? "\r\n" : "\n" };
+}
+function writablePatch(file, body) {
+  const patch = parsePatch(file, body), root = patch.nodes.get(patch.data);
+  if (patch.data.length && patch.body[tokenStart(patch, root)] === "[") {
+    throw refusal(`profile patch ${JSON.stringify(file)} uses a nonempty flow or JSON array; convert it to block form or keep this profile outside the installer`);
+  }
+  return patch;
 }
 function field(node, key) {
   for (let index = 0; index + 1 < node.children.length; index += 2) {
@@ -91,7 +121,8 @@ function tokenStart(patch, node) {
   return offset < 0 ? node.end : node.start + offset;
 }
 function tokenEnd(patch, node) {
-  if (node.kind === "mapping" && patch.body[tokenStart(patch, node)] !== "{") return Math.max(...node.children.map(child => tokenEnd(patch, child)));
+  const start = patch.body[tokenStart(patch, node)];
+  if (node.children.length && (node.kind === "mapping" && start !== "{" || node.kind === "sequence" && start !== "[")) return Math.max(...node.children.map(child => tokenEnd(patch, child)));
   return node.start + patch.body.slice(node.start, node.end).trimEnd().length;
 }
 function comment(line) {
@@ -124,25 +155,20 @@ function setField(patch, node, key, value) {
   }
   const start = tokenStart(patch, node), end = tokenEnd(patch, node);
   if (patch.body[start] === "{") return edit(patch.body, [[end - 1, end - 1, `${node.children.length ? ", " : ""}${key}: ${value}`]]);
-  const indent = start - (patch.body.lastIndexOf("\n", start - 1) + 1);
+  const indent = start - Math.max(patch.offset, patch.body.lastIndexOf("\n", start - 1) + 1);
   const position = lineEnd(patch.body, end - 1);
-  return edit(patch.body, [[position, position, `${patch.body[position - 1] === "\n" ? "" : "\n"}${" ".repeat(indent)}${key}: ${value}\n`]]);
+  return edit(patch.body, [[position, position, `${patch.body[position - 1] === "\n" ? "" : patch.eol}${" ".repeat(indent)}${key}: ${value}${patch.eol}`]]);
 }
 function appendPatch(patch, generated) {
+  generated = generated.replaceAll("\n", patch.eol);
   const root = patch.nodes.get(patch.data);
   if (patch.data.length === 0) {
     const begin = tokenStart(patch, root), end = tokenEnd(patch, root);
-    return edit(patch.body, [[begin, end, generated.trimEnd()]]);
+    // Remove only the empty-array delimiters; all owner comments stay in place.
+    const body = edit(patch.body, [[begin, begin + 1, ""], [end - 1, end, ""]]);
+    return body + (body.endsWith("\n") ? "" : patch.eol) + generated;
   }
-  if (patch.body[tokenStart(patch, root)] === "[") {
-    // Only NEW installer-owned rows are serialized. Existing flow/JSON bytes stay intact.
-    const rows = yaml.load(generated, { schema: patchSchema });
-    const end = tokenEnd(patch, root) - 1;
-    const added = rows.map(row => `${JSON.stringify(row)} ${marker}`).join("\n,\n");
-    // A newline precedes the comma/closing bracket so the ownership comment cannot consume it.
-    return edit(patch.body, [[end, end, `,\n${added}\n`]]);
-  }
-  return patch.body + (patch.body.endsWith("\n") ? "" : "\n") + generated;
+  return patch.body + (patch.body.endsWith("\n") ? "" : patch.eol) + generated;
 }
 function convergeMount(patch, id, product) {
   const row = patch.rows.find(row => row.value.id === id);
@@ -182,7 +208,7 @@ function bundleConflict(manifest, manifestFile, wanted) {
 function rowSpan(patch, row) {
   const begin = tokenStart(patch, row.node), end = tokenEnd(patch, row.node);
   if (patch.body[tokenStart(patch, patch.nodes.get(row.parent))] === "[") return [begin, end];
-  return [patch.body.lastIndexOf("\n", begin - 1) + 1, lineEnd(patch.body, end - 1)];
+  return [Math.max(patch.offset, patch.body.lastIndexOf("\n", begin - 1) + 1), lineEnd(patch.body, end - 1)];
 }
 function commaAfter(body, index) {
   while (index < body.length) {
@@ -219,7 +245,7 @@ function withoutOwnedRows(patch, wanted) {
     } else if (removed.length === all.length) {
       const [begin] = rowSpan(patch, removed[0]);
       const indentation = /^ */u.exec(patch.body.slice(begin))[0];
-      edits.find(change => change[0] === begin)[2] = `${indentation}[]\n`;
+      edits.find(change => change[0] === begin)[2] = `${indentation}[]${patch.eol}`;
     }
   }
   return edit(patch.body, edits);
@@ -244,7 +270,7 @@ function lanePatch(patch, product, messages) {
       const sourceIndent = /^ */u.exec(canonical.body.slice(from))[0].length;
       replacement = canonical.body.slice(from, to).split(/(?<=\n)/u).map(line => " ".repeat(indent) + line.slice(sourceIndent)).join("");
     }
-    replacements.push([begin, end, replacement]);
+    replacements.push([begin, end, replacement.replaceAll("\n", patch.eol)]);
   }
   let generated = "";
   for (const row of canonical.data) {
@@ -278,7 +304,7 @@ export function install(profileNames = [], options = {}) {
     if (!validProfile(name)) throw new Error(`invalid profile name ${JSON.stringify(name)}`);
     const profile = path.join(home, "profiles", name);
     const manifestFile = path.join(profile, "package.json");
-    if (!existsSync(manifestFile)) throw refusal(`profile ${JSON.stringify(name)} is not installed; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh`);
+    if (!existsSync(manifestFile)) throw refusal(`profile ${JSON.stringify(name)} is not installed; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh@${packageVersion}`);
     let manifest;
     try { manifest = JSON.parse(readFileSync(manifestFile, "utf8")); }
     catch { throw refusal(`profile ${JSON.stringify(name)} cannot read package manifest ${JSON.stringify(manifestFile)}`); }
@@ -286,13 +312,13 @@ export function install(profileNames = [], options = {}) {
     if (!object(manifest) || manifest.dsh != null && !object(manifest.dsh) || manifest.dsh?.profile != null && !object(manifest.dsh.profile)) {
       throw refusal(`profile ${JSON.stringify(name)} package manifest ${JSON.stringify(manifestFile)} requires object containers for the manifest, dsh and dsh.profile`);
     }
-    if (!manifest.dependencies?.["@sessionbus/dsh"]) throw refusal(`profile ${JSON.stringify(name)} does not declare @sessionbus/dsh; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh`);
+    if (!manifest.dependencies?.["@sessionbus/dsh"]) throw refusal(`profile ${JSON.stringify(name)} does not declare @sessionbus/dsh; first run dsh plugin --profile ${name} add --save-exact @sessionbus/dsh@${packageVersion}`);
     const bundles = manifest.dsh?.profile?.bundles;
     if (bundles != null && !Array.isArray(bundles)) throw refusal(`profile ${JSON.stringify(name)} package manifest ${JSON.stringify(manifestFile)} bundles must be an array`);
     const conflict = bundleConflict(manifest, manifestFile, peerRows(name));
     if (conflict) throw refusal(`profile ${JSON.stringify(name)} app ${JSON.stringify(conflict.bundle)} already provides ${conflict.row === "sessionbus" ? "Sessionbus" : "the upload provider"}; there is nothing to install`);
     const patchFile = path.join(profile, "cordis.patch.yml");
-    const patch = parsePatch(patchFile, existsSync(patchFile) ? undefined : "[]\n");
+    const patch = writablePatch(patchFile, existsSync(patchFile) ? undefined : "[]\n");
     const unowned = patch.rows.find(row => peerRows(name).includes(row.value.id) && !marked(patch, row));
     if (unowned) throw refusal(`profile ${JSON.stringify(name)} row ${JSON.stringify(unowned.value.id)} has no sessionbus-dsh-install ownership marker; remove that row and rerun, or keep this profile outside the installer`);
     const messages = [];
@@ -321,7 +347,7 @@ export function install(profileNames = [], options = {}) {
       throw new Error(`failed writing profile ${JSON.stringify(name)}: ${error.message}; completed profiles: ${plans.slice(0, index).map(plan => plan.name).join(", ") || "none"}; this profile may be partially written; profiles not attempted: ${plans.slice(index + 1).map(plan => plan.name).join(", ") || "none"}`, { cause: error });
     }
     for (const message of messages) process.stderr.write(`sessionbus-dsh-install: profile ${JSON.stringify(name)} ${message}\n`);
-    if (name === "sessionbus" && manifest.dependencies[uploads]) process.stderr.write(`sessionbus-dsh-install: profile ${JSON.stringify(name)} retains its existing ${uploads} pin; the installer no longer uses it\n`);
+    if (manifest.dependencies[uploads]) process.stderr.write(`sessionbus-dsh-install: profile ${JSON.stringify(name)} retains its existing ${uploads} pin; the installer no longer uses it\n`);
   }
 }
 
@@ -334,8 +360,8 @@ export function remove(profileNames = [], options = {}) {
     if (!validProfile(name)) throw new Error(`invalid profile name ${JSON.stringify(name)}`);
     const patch = path.join(home, "profiles", name, "cordis.patch.yml");
     if (!existsSync(patch)) continue;
-    const parsed = parsePatch(patch), rows = name === "sessionbus" ? ownedIDs : peerRows(name);
-    const unowned = parsed.rows.find(row => rows.includes(row.value.id) && !marked(parsed, row));
+    const parsed = writablePatch(patch), rows = name === "sessionbus" ? ownedIDs : peerRows(name);
+    const unowned = parsed.rows.find(row => peerRows(name).includes(row.value.id) && !marked(parsed, row));
     if (unowned) throw refusal(`profile ${JSON.stringify(name)} row ${JSON.stringify(unowned.value.id)} has no sessionbus-dsh-install ownership marker`);
     const body = withoutOwnedRows(parsed, rows);
     parsePatch(patch, body);

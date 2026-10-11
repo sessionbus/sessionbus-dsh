@@ -38,7 +38,7 @@ jobs:
       - run: .github/scripts/prove-packed-install.sh "${{ matrix.dsh }}"
 
   peer-floor:
-    name: DSH 0.2.1-alpha.2 peer floor
+    name: Native DSH alpha.1 refusal below alpha.2 floor
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -68,7 +68,7 @@ jobs:
           version: 10.28.1
       - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.os == 'macos-15' && matrix.mode == 'pnpm11-global' && '26.7.0' || '22' }}
+          node-version: 22
       - run: bash .github/scripts/prove-universal-install.sh "${{ matrix.mode }}"
 
   gate:
