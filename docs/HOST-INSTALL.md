@@ -285,6 +285,11 @@ sessionbus and web profile manifests, lockfiles, and patch files are preserved:
 ROLLBACK_ROOT="$HOME/.local/state/umka-dev1-dsh-upgrade/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$ROLLBACK_ROOT/host" "$ROLLBACK_ROOT/profiles/dashi" "$ROLLBACK_ROOT/profiles/sessionbus" "$ROLLBACK_ROOT/profiles/web" "$ROLLBACK_ROOT/service"
 chmod 700 "$ROLLBACK_ROOT"
+if [ -f "$DSH_HOME/settings.yaml" ]; then
+  cp --preserve=mode "$DSH_HOME/settings.yaml" "$ROLLBACK_ROOT/settings.yaml"
+  chmod 600 "$ROLLBACK_ROOT/settings.yaml"
+  cmp -s "$DSH_HOME/settings.yaml" "$ROLLBACK_ROOT/settings.yaml"
+fi
 cp --preserve=mode "$DSH_INSTALL_DIR/package.json" "$ROLLBACK_ROOT/host/package.json"
 cp --preserve=mode "$DSH_INSTALL_DIR/pnpm-lock.yaml" "$ROLLBACK_ROOT/host/pnpm-lock.yaml"
 for profile_name in dashi sessionbus web; do
@@ -331,9 +336,45 @@ printf '%s\n' 'ROLLBACK_ROOT created'
 
 Expected output is `ROLLBACK_ROOT created`. The directory contains only
 package metadata, lock graphs, profile patches, the filtered PATH value, the
-unit, and the private service-environment backup. No credential is printed.
+unit, and private legacy-settings and service-environment backups. No
+credential or settings value is printed.
 
 ## 2. Upgrade the host DSH graph in place
+
+### Stage the one-shot legacy settings import
+
+Before the home upgrade or any 0.2 boot, including help and diagnostic boots,
+coordinate an exclusive upgrade/boot window. Do not stop another owner's
+process or let another launcher race this migration. Alpha.2's settings service
+imports `$DSH_HOME/settings.yaml` after the Loader settles
+(`@deepseek-ai/dsh-settings/lib/index.js:339,347-362`). It renames the file to
+`settings.yaml.imported` **before** writing sections into the active profile's
+`cordis.patch.yml`, the configEditor's document path
+(`dsh-config-editor/lib/index.js:24-25`). The import lands in one profile only;
+[reported upstream](https://github.com/deepseek-ai/deepseek-harness/discussions/9419).
+Other profiles do not inherit those writes.
+
+Hide the already-backed-up legacy file during graph repair. Stop on an existing
+staging file or on both a legacy file and an import marker; do not overwrite or
+replay an earlier import. If only `.imported` exists, the import has already run:
+leave it there and use the explicit per-profile restoration below instead.
+
+```sh
+test ! -e "$DSH_HOME/settings.yaml.pre-0.2"
+if [ -f "$DSH_HOME/settings.yaml" ]; then
+  test ! -e "$DSH_HOME/settings.yaml.imported"
+  cmp -s "$ROLLBACK_ROOT/settings.yaml" "$DSH_HOME/settings.yaml"
+  mv "$DSH_HOME/settings.yaml" "$DSH_HOME/settings.yaml.pre-0.2"
+  printf '%s\n' 'legacy settings backed up and staged; import deferred'
+else
+  printf '%s\n' 'no legacy settings to stage; existing import marker left untouched'
+fi
+```
+
+Expected output is exactly one of those two status lines. Until the intentional
+import step after the profile upgrades, every repair/check boot finds no legacy
+file and imports nothing. Never put `.imported` back at `settings.yaml`, even
+after partial failure.
 
 Upgrade the existing home project and verify the explicit binary:
 
@@ -376,6 +417,12 @@ passing it to `createRequire`: that API does not resolve its anchor's symlinks.
 A pnpm alias can otherwise walk up to unrelated hoisted Zod 3 even though the
 producer's real file context resolves Zod 4. Keep synthetic profile importers logical;
 they are native resolution keys, not necessarily files on disk.
+Uploads-peer assertions belong only to profiles whose own manifest depends on
+`@sessionbus/dsh` or `@antst/dashi-app`. Other profiles can resolve the plugin
+through legacy `profiles/node_modules` (present on both measured hosts) without
+owning a plugin or lockfile; report that name/version/path as an observation,
+not as a profile-owned provider assertion. Lane/web/dashi owner checks remain
+mandatory.
 
 ```sh
 cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
@@ -528,11 +575,13 @@ try {
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
   const uploads = '@antst/dsh-file-uploads-none'
-  if (pluginManifest?.peerDependencies?.[uploads]) {
+  const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
+  const profileManifestFile = join(directory, 'package.json')
+  const profileManifest = existsSync(profileManifestFile) ? JSON.parse(readFileSync(profileManifestFile, 'utf8')) : {}
+  const ownsPlugin = ['@sessionbus/dsh', '@antst/dashi-app'].some(name => Object.hasOwn(profileManifest.dependencies ?? {}, name))
+  if (ownsPlugin && pluginManifest?.peerDependencies?.[uploads]) {
     const selected = packages.packageOf(uploads, importer)
     const peer = packages.packageOf(uploads, pathToFileURL(realpathSync(join(plugin.dir, 'plugin.cjs'))).href)
-    const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
-    const profileManifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
     const pin = profileManifest.dependencies?.['@antst/dashi-app']
       ? packages.packageOf('@antst/dashi-app', importer)?.manifest.dependencies?.[uploads] : profileManifest.dependencies?.[uploads]
     const physical = [...new Set(readdirSync(modules, { recursive: true })
@@ -548,6 +597,8 @@ try {
       throw new Error('profile/plugin upload provider must resolve one exact profile-owned copy')
     }
     console.log(`runtime profile/plugin upload provider@${pin}: one copy: PASS`)
+  } else if (!ownsPlugin && plugin) {
+    console.log(`fallback ${plugin.name}@${plugin.version} -> ${realpathSync(plugin.dir)}: REPORTED ONLY (profile does not own the plugin)`)
   }
   console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
   const entries = packages.current.entries
@@ -584,6 +635,10 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
 const [root, target, physicalMode] = process.argv.slice(2)
 const lock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
 const records = [...lock.matchAll(/^  '?(@deepseek-ai\/dsh[^@']*)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
+if (records.some(record => record.name === '@deepseek-ai/dsh-invariants')) {
+  console.error('removed @deepseek-ai/dsh-invariants must have no lock record')
+  process.exitCode = 1
+}
 const counts = new Map()
 for (const { version } of records) counts.set(version, (counts.get(version) ?? 0) + 1)
 console.log(`DSH packages: ${records.length}`)
@@ -770,6 +825,7 @@ remove_untracked_nested_packages() {
   printf 'untracked nested packages removed: %s\n' "$removed"
 }
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 if ! sed '/^snapshots:/,$d' "$DSH_INSTALL_DIR/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
   printf '%s\n' 'host DSH graph has no package records' >&2
   exit 1
@@ -932,6 +988,7 @@ cd "$DSH_INSTALL_DIR"
 pnpm add --save-exact @antst/dashi-launcher@0.2.0-alpha.1
 test -x "$DASHI_BIN"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 ```
 
 Expected output reports launcher `0.2.0-alpha.1`, then a nonzero host DSH
@@ -972,6 +1029,7 @@ if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.1; then
 fi
 remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
 repair_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 required dashi
+test "$?" -eq 0 || exit 1
 if ! sed '/^snapshots:/,$d' "$DSH_HOME/profiles/dashi/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
   printf '%s\n' 'dashi profile DSH graph has no package records' >&2
   exit 1
@@ -1062,6 +1120,7 @@ UPLOADS_PIN=$(pin_uploads_provider "$DSH_INSTALL_DIR")
 pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
@@ -1094,6 +1153,7 @@ pins, until dashi-app publishes a newer pin.
 UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/sessionbus")
 "$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 optional sessionbus
+test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
 remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
 pnpm --dir "$DSH_HOME/profiles/sessionbus" list --depth 0 @sessionbus/dsh
@@ -1124,6 +1184,7 @@ fi
 UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/web")
 "$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 optional web
+test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
 remove_untracked_nested_packages "$DSH_HOME/profiles/web"
 test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.12
@@ -1142,6 +1203,186 @@ valid), the exact peer row below, and the no-groups confirmation:
 config: { product: dsh }
 web profile has no configured groups
 ```
+
+### Import into the chosen profile, then restore only missing profile selections
+
+After the host and touched profile graphs pass, choose which prepared profile
+should own the legacy sections. The example below chooses `web`; deliberately
+change that choice and its normal app arguments if another profile should own
+them. Inspect the private pre-upgrade patches and legacy backup locally: record
+which profiles relied on the global provider/model and have **no provider/model
+rows of their own**. Do not change any existing per-profile choice. Keep the
+staged file hidden until all preparation is complete, then restore it and make
+the very next boot the chosen profile, not another check or help command.
+
+Define a keys-only projection for the before/after evidence. It does not evaluate
+`!!js` expressions or print any config values; row ids and config key paths are
+the only output. The YAML parser is the executing CLI's existing dependency,
+resolved from its real manifest, not from a synthetic `.bin` anchor:
+
+```sh
+profile_patch_keys() {
+  node --input-type=module - "$DSH_INSTALL_DIR/node_modules/@deepseek-ai/dsh/package.json" "$1" "${2:-patch}" <<'NODE'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+const [cliManifest, patchFile, format] = process.argv.slice(2)
+const require = createRequire(realpathSync(cliManifest))
+const yaml = require('js-yaml')
+const schema = yaml.DEFAULT_SCHEMA.extend([new yaml.Type('tag:yaml.org,2002:js', {
+  kind: 'scalar', construct: text => text,
+})])
+let rows
+try { rows = existsSync(patchFile) ? yaml.load(readFileSync(patchFile, 'utf8'), { schema }) : [] }
+catch { throw new Error('profile patch cannot be projected; inspect it privately') }
+if (format === 'legacy') {
+  if (rows && (typeof rows !== 'object' || Array.isArray(rows))) throw new Error('legacy settings must be a section map')
+  const ids = { 'ui-developer-tools': 'ui-settings', 'ui-onboarding': 'ui-settings-general', shell: process.platform === 'win32' ? 'pwsh-sandbox' : 'bash-sandbox' }
+  rows = Object.entries(rows ?? {}).map(([id, config]) => ({ id: ids[id] ?? id, config }))
+}
+rows ??= []
+if (!Array.isArray(rows)) throw new Error('profile patch must be an entry list')
+const keys = new Set()
+function fields(value, path) {
+  if (Array.isArray(value)) for (const item of value) fields(item, `${path}[]`)
+  else if (value && typeof value === 'object') for (const key of Object.keys(value)) {
+    keys.add(`${path}.${key}`)
+    fields(value[key], `${path}.${key}`)
+  }
+}
+function entries(list) {
+  for (const row of list) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('invalid patch row; inspect it privately')
+    if (Object.prototype.hasOwnProperty.call(row, 'insert') && !Array.isArray(row.insert)) {
+      throw new Error('invalid patch row; inspect it privately')
+    }
+    if (Object.prototype.hasOwnProperty.call(row, 'config') && typeof row.id !== 'string') {
+      throw new Error('invalid patch row; inspect it privately')
+    }
+    if (typeof row.id === 'string') {
+      keys.add(row.id)
+      fields(row.config, `${row.id}.config`)
+    }
+    if (Array.isArray(row.insert)) entries(row.insert)
+  }
+}
+entries(rows)
+for (const key of [...keys].sort()) console.log(key)
+NODE
+}
+printf '%s\n' 'keys-only patch projection ready'
+```
+
+Expected output is `keys-only patch projection ready`. An invalid patch stops
+the projection without printing the parser's potentially value-bearing error.
+This read-only inventory treats absent, blank, comments-only, and `null` patch
+content as zero keys; it does not certify native validity. DSH rejects existing
+non-array patches (`dsh-app-boot/lib/index.js:3714-3723`); use `[]` for a valid
+empty patch. Scalars, maps, and malformed YAML still stop the inventory.
+Config-bearing rows need explicit string ids for this keys-only evidence;
+anonymous rows require private inspection, not silent omission or a claim of
+native invalidity (the Loader can generate ids for inserted entries).
+
+For a staged import, run the chosen profile normally in your own terminal/PTY,
+with diagnostics redirected into the private rollback directory. This web
+example binds a free loopback port and runs no model turn. In a second terminal,
+wait for the `.imported` marker **and** the expected sections/keys in the owning
+patch; inspect the restored selection privately before stopping your own
+instance with SIGINT (Ctrl-C, expected exit 130). Do not use EOF or a help-only
+boot as an import-success oracle, print the whole private log, or touch an
+owner's process. The stock CLI prints no `settings: imported` line to the
+terminal: cordis loggers go to exporters (`cordis/lib/index.js:473-484,598-604`);
+see the [upstream follow-up](https://github.com/deepseek-ai/deepseek-harness/discussions/9419#discussioncomment-18860327).
+
+```sh
+if [ -f "$DSH_HOME/settings.yaml.pre-0.2" ]; then
+  SETTINGS_OWNER_PROFILE=web
+  SETTINGS_BOOT_ARGS=(--no-open --host 127.0.0.1 --port 0)
+  SETTINGS_PATCH="$DSH_HOME/profiles/$SETTINGS_OWNER_PROFILE/cordis.patch.yml"
+  test -f "$DSH_HOME/profiles/$SETTINGS_OWNER_PROFILE/package.json"
+  profile_patch_keys "$SETTINGS_PATCH" >"$ROLLBACK_ROOT/settings-owner.before.keys"
+  profile_patch_keys "$ROLLBACK_ROOT/settings.yaml" legacy >"$ROLLBACK_ROOT/settings-owner.expected.keys"
+  if [ -f "$SETTINGS_PATCH" ]; then
+    cp --preserve=mode "$SETTINGS_PATCH" "$ROLLBACK_ROOT/settings-owner.before.patch.yml"
+  fi
+  test ! -e "$DSH_HOME/settings.yaml"
+  test ! -e "$DSH_HOME/settings.yaml.imported"
+  mv "$DSH_HOME/settings.yaml.pre-0.2" "$DSH_HOME/settings.yaml"
+  if "$DSH_BIN" --profile "$SETTINGS_OWNER_PROFILE" "${SETTINGS_BOOT_ARGS[@]}" >"$ROLLBACK_ROOT/settings-import.log" 2>&1; then :
+  else test "$?" = 130; fi
+  test ! -e "$DSH_HOME/settings.yaml"
+  test -f "$DSH_HOME/settings.yaml.imported"
+  cmp -s "$ROLLBACK_ROOT/settings.yaml" "$DSH_HOME/settings.yaml.imported"
+  stat -c 'import marker mtime=%y' "$DSH_HOME/settings.yaml.imported"
+  profile_patch_keys "$SETTINGS_PATCH" >"$ROLLBACK_ROOT/settings-owner.after.keys"
+  if diff -u "$ROLLBACK_ROOT/settings-owner.before.keys" "$ROLLBACK_ROOT/settings-owner.after.keys"; then :
+  else test "$?" = 1; fi
+  node --input-type=module - "$ROLLBACK_ROOT/settings-owner.expected.keys" "$ROLLBACK_ROOT/settings-owner.after.keys" <<'NODE'
+import { readFileSync } from 'node:fs'
+const [expected, actual] = process.argv.slice(2).map(file => new Set(readFileSync(file, 'utf8').split('\n').filter(Boolean)))
+const missing = [...expected].filter(key => !actual.has(key))
+for (const key of missing) console.error(`import key missing: ${key}`)
+if (missing.length) process.exit(1)
+console.log('expected imported sections/keys present; values checked privately')
+NODE
+else
+  printf '%s\n' 'no staged import; do not move an existing import marker back'
+fi
+```
+
+Expected output for a staged import is `import marker mtime=<timestamp>`, a
+keys-only patch diff (or no diff when the keys already existed), and
+`expected imported sections/keys present; values checked privately`, with
+exit 0 after the owned boot exited 130. Without a staged file, expected
+output is the one `no staged import` line. The confirmation alone is not proof
+that every section was accepted. A section rejected at import
+(`dsh-settings/lib/index.js:358`) stays only in `.imported`: detect missing
+mapped sections/keys in the projected patch, stop and re-author them by hand,
+never move the file back for another import. Existing keys can make the diff
+empty even when values changed; the keys check does not replace the private
+value comparison, and no log receipt is claimed.
+
+A concrete partial-import case: `settings.update` delegates to the write path
+(`dsh-settings/lib/index.js:470-472`), which requires the mapped target to be
+an active configurable row (`:501-506`). Legacy `ui-onboarding` maps to
+`ui-settings-general` (`:302-308`), declared only by the web-app bundle
+(`dsh-web-app/cordis.patch.yml:304-305`). A dashi-owned import without that web
+row rejects the section and leaves it in `.imported`; restore it by hand only
+in a profile that actually has the target row, not by inventing one in dashi.
+Valid `agent-default-model` and `llm-pi-ai` sections do land in the normal dashi
+composition: both are base-bundle rows (`dsh-base/cordis.patch.yml:85,130`).
+
+For each other profile that previously relied on the global file and lacks its
+own provider/model rows, privately copy **only the needed selection section**
+from `settings.yaml.imported` (or the private backup) into that profile's
+`cordis.patch.yml`: an id-targeted patch with the section's fields under
+`config`. Apply the legacy section-id map from
+`dsh-settings/lib/index.js:302-308`: `ui-developer-tools` -> `ui-settings`,
+`ui-onboarding` -> `ui-settings-general`, `shell` -> `bash-sandbox` on Linux
+(`pwsh-sandbox` on Windows); other section ids, including
+`agent-default-model`, stay unchanged. Do not copy all legacy sections into all
+profiles, add duplicate entries, overwrite their own rows, or switch providers.
+Preserve other patch entries and privately verify the restored provider/model
+equal the prior selection. For the web profile the native settings UI is the
+interactive equivalent (`dsh-api-settings-controller/lib/index.js:401-410,460-468`
+delegates to `settings.update`). There is **no** `dsh settings` CLI in alpha.2:
+`dsh/lib/bin.js:115-129` treats `settings` as a profile name.
+
+Before and after each manual document/UI edit, save keys-only evidence (replace
+`<profile>` with that eligible profile, and perform the edit between the two
+projections):
+
+```sh
+RESTORE_PROFILE='<profile>'
+profile_patch_keys "$DSH_HOME/profiles/$RESTORE_PROFILE/cordis.patch.yml" >"$ROLLBACK_ROOT/$RESTORE_PROFILE.before.keys"
+# Make the narrowly scoped profile-document or native-settings-UI edit here.
+profile_patch_keys "$DSH_HOME/profiles/$RESTORE_PROFILE/cordis.patch.yml" >"$ROLLBACK_ROOT/$RESTORE_PROFILE.after.keys"
+if diff -u "$ROLLBACK_ROOT/$RESTORE_PROFILE.before.keys" "$ROLLBACK_ROOT/$RESTORE_PROFILE.after.keys"; then :
+else test "$?" = 1; fi
+```
+
+Expected output is only a diff of row ids/key paths, or none if unchanged; no
+values. This projection cannot certify equality of values: check that privately
+against the backup. Run section 5's registration checks before any model turn.
 
 ### Give the daemon its product command and advertisement
 
@@ -1320,10 +1561,44 @@ For another provider such as `openai-codex`, populate that array with the exact
 provider packages independently verified against alpha.2. Inventory the existing
 dashi profile, read each package's published manifest and bundle declaration,
 and verify its registered adapter and native model turn on this DSH line before
-adopting it. A peer range alone is not runtime compatibility evidence. No
-alpha.2 dsh-codex version is certified by this change; do not automatically reuse
-the historical provider example. A missing compatible provider is a stop,
+adopting it. A peer range alone is not runtime compatibility evidence; do not
+automatically reuse the historical 0.3.0 provider example. A missing compatible provider is a stop,
 not permission to pin an older API graph or substitute a fake service.
+
+The accepted dsh-host configuration uses `dsh-codex@0.3.2`. Its manifest's
+`@deepseek-ai/dsh-invariants: ^0.2.0-rc.1` peer (`dsh-codex/package.json:86`)
+is stale metadata: DSH 0.2.1 removed that package. Leave this one peer unmet;
+never install it or add an override to satisfy it. Preserve `autoInstallPeers:
+false` in each provider-bearing profile's `pnpm-workspace.yaml` (not just the
+task shell), alongside its other workspace settings. The uniform-lock check
+above explicitly rejects **any** invariants record; accepted means missing,
+not an old DSH island. For every profile carrying that provider, verify:
+
+```sh
+for profile_root in "$DSH_HOME"/profiles/* "$DSH_HOME"/profiles/.[!.]* "$DSH_HOME"/profiles/..?*; do
+  [ -d "$profile_root" ] || continue
+  profile_name=${profile_root##*/}
+  [ "$profile_name" != node_modules ] || continue
+  if [ -f "$profile_root/node_modules/dsh-codex/package.json" ]; then
+    grep -Eq '^autoInstallPeers: false[[:space:]]*$' "$profile_root/pnpm-workspace.yaml" || exit 1
+    node --input-type=module - "$profile_root/pnpm-lock.yaml" "$profile_name" <<'NODE' || exit 1
+import { readFileSync } from 'node:fs'
+const [lockFile, profile] = process.argv.slice(2)
+const packages = readFileSync(lockFile, 'utf8').split('\nsnapshots:\n', 1)[0]
+if (/^  '?@deepseek-ai\/dsh-invariants@/m.test(packages)) throw new Error(`removed invariants package in ${profile} lock: stop`)
+console.log(`${profile}: autoInstallPeers=false; invariants lock records=0 (accepted unmet peer)`)
+NODE
+  fi
+done
+```
+
+Expected output is one `autoInstallPeers=false; invariants lock records=0
+(accepted unmet peer)` line for each profile with dsh-codex installed. A missing
+or unreadable workspace/lock, a missing workspace setting, or any invariants
+lock record stops. This read-only check includes custom and hidden profile
+directories; non-directories and the `node_modules` fallback are ignored, as
+are profiles without this provider. It never repairs them automatically. This
+metadata exception does not waive any other graph check.
 
 For `deepseek-official`, leave that array empty because the base bundle already
 owns the adapter. Otherwise add every exact spec to both profiles and repair
@@ -1338,6 +1613,7 @@ if [ "$MODEL_PROVIDER" != deepseek-official ]; then
     done
     remove_untracked_nested_packages "$DSH_HOME/profiles/$profile_name"
     repair_dsh_graph "$DSH_HOME/profiles/$profile_name" 0.2.1-alpha.2 optional "$profile_name"
+    test "$?" -eq 0 || exit 1
   done
 fi
 ```
@@ -1961,3 +2237,30 @@ service environment and effective PATH match preflight. It does not claim that
 `node_modules` is byte-for-byte identical to its old physical layout; the
 manifest, lockfile, resolved package versions, profile rows, service bytes, and
 live service state are the consistency checks.
+
+If this upgrade staged or imported a legacy settings file, restore the private
+pre-upgrade copy **only when rolling back to the pre-0.2 installation** after
+the profile patches are restored. Retain any staging/import marker under the
+failed-artifacts directory instead of deleting it. Do not use this rollback
+step to repeat an import on 0.2:
+
+```sh
+if [ -f "$ROLLBACK_ROOT/settings.yaml" ]; then
+  case "$PREVIOUS_DSH_VERSION" in
+    0.1.*) ;;
+    *) printf '%s\n' 'legacy restore requires rollback to pre-0.2; stop' >&2; exit 1 ;;
+  esac
+  for marker in settings.yaml.pre-0.2 settings.yaml.imported; do
+    if [ -e "$DSH_HOME/$marker" ]; then
+      test ! -e "$ROLLBACK_FAILED/$marker"
+      mv "$DSH_HOME/$marker" "$ROLLBACK_FAILED/$marker"
+    fi
+  done
+  cp --preserve=mode "$ROLLBACK_ROOT/settings.yaml" "$DSH_HOME/settings.yaml"
+  cmp -s "$ROLLBACK_ROOT/settings.yaml" "$DSH_HOME/settings.yaml"
+  printf '%s\n' 'pre-0.2 legacy settings restored; import history retained privately'
+fi
+```
+
+Expected output is that one status line when a legacy backup exists, otherwise
+none. If the prior runtime is on 0.2, stop rather than create a new import.
