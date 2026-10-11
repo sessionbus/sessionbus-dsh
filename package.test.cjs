@@ -37,6 +37,49 @@ test("package metadata stays rooted in the standalone repository", () => {
   assert.equal(Object.hasOwn(manifest.dependencies, "zod"), false);
 });
 
+test("dashi copy oracle derives plugin multiplicity and rejects duplicate or wrong providers", async (t) => {
+  const { providerInventory } = await import("./.github/scripts/prove-upload-provider.mjs");
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-dashi-resolution.mjs"), "utf8");
+  const start = source.indexOf("  const importer ="), end = source.indexOf("  console.log(JSON.stringify", start);
+  assert.ok(start >= 0 && end > start, "execute the actual checker body, not a copied oracle");
+  const oracle = new Function("ctx", "profile", "appVersion", "candidateVersion", "assert", "fs", "path", "pathToFileURL", "createRequire", "providerInventory", `${source.slice(start, end)}\nreturn paths.size;`);
+  const { pathToFileURL } = await import("node:url");
+  const helper = "@antst/dsh-file-uploads-none", pin = "0.2.0-alpha.2";
+  const fixture = ({ candidate = "0.1.0-pre.20", separate = false, extraPhysical = false, extraLock = false, wrongProvider = false } = {}) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-dashi-oracle-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const write = (file, body) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, body); };
+    const pkg = (directory, name, version, dependencies = {}) => {
+      const manifest = { name, version, main: "lib/index.js", dependencies };
+      const manifestPath = path.join(directory, "package.json");
+      write(manifestPath, JSON.stringify(manifest)); write(path.join(directory, "lib/index.js"), "module.exports = {};\n");
+      return { name, version, manifest, manifestPath, dir: directory };
+    };
+    const app = pkg(path.join(dir, "node_modules/@antst/dashi-app"), "@antst/dashi-app", "0.2.0-alpha.2", { "@sessionbus/dsh": "0.1.0-pre.20", [helper]: pin });
+    write(path.join(app.dir, "cordis.patch.yml"), "[]\n");
+    const direct = pkg(path.join(dir, "node_modules/@sessionbus/dsh"), "@sessionbus/dsh", candidate);
+    const bundled = separate ? pkg(path.join(app.dir, "node_modules/@sessionbus/dsh"), "@sessionbus/dsh", "0.1.0-pre.20") : direct;
+    pkg(path.join(dir, "node_modules/@antst/dsh-file-uploads-none"), helper, wrongProvider ? "0.1.3" : pin);
+    if (extraPhysical) pkg(path.join(dir, "node_modules/stale/node_modules/@antst/dsh-file-uploads-none"), helper, "0.1.3");
+    write(path.join(dir, "pnpm-lock.yaml"), `packages:\n  '${helper}@${pin}':\n${extraLock ? `  '${helper}@0.1.3':\n` : ""}\nsnapshots:\n`);
+    const ctx = { pluginPackages: { packageOf(name, importer) {
+      if (name === "@antst/dashi-app") return app;
+      assert.equal(name, "@sessionbus/dsh");
+      return importer === pathToFileURL(fs.realpathSync(path.join(app.dir, "cordis.patch.yml"))).href ? bundled : direct;
+    } } };
+    return () => oracle(ctx, { dir }, app.version, candidate, assert, fs, path, pathToFileURL, createRequire, providerInventory);
+  };
+  // Oracle-only inputs with real Node/filesystem lookups; native published matrix is separate.
+  assert.equal(fixture()(), 1);
+  assert.equal(fixture({ candidate: "0.1.0-pre.21", separate: true })(), 2);
+  for (const [name, options] of [
+    ["matching versions with two canonical plugin paths", { separate: true }],
+    ["untracked stale physical provider", { extraPhysical: true }],
+    ["extra provider lock record", { extraLock: true }],
+    ["all importers selecting a wrong single provider", { wrongProvider: true }],
+  ]) await t.test(name, () => assert.throws(fixture(options), assert.AssertionError));
+});
+
 test("zod pins come from the storage-domain producer, admit separate copies and reject wrong versions", async (t) => {
   const { deriveCliPins, assertPinnedGraph, assertPluginZod } = await import("./.github/scripts/dsh-cli-pins.mjs");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-zod-producer-"));

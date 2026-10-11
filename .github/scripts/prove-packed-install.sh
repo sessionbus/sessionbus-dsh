@@ -427,4 +427,4 @@ for (const profile of ["sessionbus", "web", "dashi"]) {
 }
 NODE
 echo "DSH $version sessionbus-dsh lane, web active/idle/trace delivery, real-Agent boundary, packed install and uninstall: PASS"
-if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS (published launcher lane + installed-app coexistence; candidate-inside-dashi not claimed)"; fi
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS (published launcher lane + version-derived installed-app resolution; ONE provider; not a TUI boot)"; fi
