@@ -33,6 +33,10 @@ DSH floor before changing a profile; a manual `pnpm add` bypasses that guard.
 pnpm is required for the prerelease floors; strict npm does not admit them.
 The runbook's provider-parity step must be completed for both the lane and plain
 peer profiles before either one runs a model turn.
+The quick-start commands below assume pnpm's default peer auto-install. With
+`auto-install-peers=false` and `strict-peer-dependencies=true`, first follow the
+runbook's `pin_uploads_provider` step and add the plugin plus that exact provider
+pin together; otherwise the initial add fails before the installer can run.
 
 Create the base-only lane profile for the package-owned `sessionbus-dsh`
 product with:

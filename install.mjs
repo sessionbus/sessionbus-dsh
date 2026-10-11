@@ -212,7 +212,10 @@ export function install(profileNames = [], options = {}) {
     const profile = path.join(home, "profiles", name);
     const manifestFile = path.join(profile, "package.json");
     if (!existsSync(manifestFile)) continue;
-    const conflict = bundleConflict(JSON.parse(readFileSync(manifestFile, "utf8")), manifestFile, peerRows(name), anchor);
+    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+    const bundles = manifest.dsh?.profile?.bundles;
+    if (name === "sessionbus" && bundles != null && !Array.isArray(bundles)) throw refusal("sessionbus profile bundles must be an array");
+    const conflict = bundleConflict(manifest, manifestFile, peerRows(name), anchor);
     if (conflict) throw refusal(`profile ${JSON.stringify(name)} bundle ${JSON.stringify(conflict.bundle)} already provides row ${JSON.stringify(conflict.row)}`);
   }
   const pins = new Map(names.map(name => {

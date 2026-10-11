@@ -49,6 +49,17 @@ function providerProfile(t, name, extra = {}) {
   } };
 }
 
+/** Unit-only local provider for real offline removal; packed proofs stay registry-based and override-free. */
+function offlineRemovalProvider(profile) {
+  const manifestFile = path.join(profile, "package.json"), manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+  const fixture = path.join(profile, "uploads-fixture");
+  mkdirSync(fixture, { recursive: true });
+  writeFileSync(path.join(fixture, "package.json"), JSON.stringify({ name: uploads, version: manifest.dependencies[uploads] }));
+  manifest.pnpm = { overrides: { [uploads]: "file:./uploads-fixture" } };
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  writeFileSync(path.join(profile, ".npmrc"), "auto-install-peers=false\noffline=true\nignore-scripts=true\n");
+}
+
 test("W-122 installer pins the highest matching provider in lane, web and custom profiles", async t => {
   for (const name of ["sessionbus", "web", "custom"]) await t.test(name, t => {
     const fixture = providerProfile(t, name, { keeper: "1.2.3", [uploads]: "0.1.3" });
@@ -162,6 +173,44 @@ test("W-122 each profile queries its own registry before either profile changes"
   } });
   assert.deepEqual(queries, [fixture.profile, custom]);
   assert.deepEqual(adds.map(args => args.at(-1)), [`${uploads}@0.1.3`, `${uploads}@0.2.0-alpha.1`]);
+});
+
+test("W-122 malformed lane bundles refuse before either profile queries or changes", t => {
+  const fixture = providerProfile(t, "web"), lane = path.join(fixture.home, "profiles/sessionbus");
+  mkdirSync(lane, { recursive: true });
+  const manifestFile = path.join(lane, "package.json"), patch = path.join(lane, "cordis.patch.yml");
+  writeFileSync(patch, "# preserve\n[]\n");
+  for (const bundles of ["keeper-bundle", {}, 42]) {
+    writeFileSync(manifestFile, JSON.stringify({ ...fixture.manifest, dsh: { profile: { bundles } } }));
+    const files = [fixture.manifestFile, path.join(fixture.profile, "cordis.patch.yml"), manifestFile, patch];
+    const before = files.map(file => readFileSync(file));
+    let queries = 0, adds = 0, caught;
+    assert.throws(() => install(["web", "sessionbus"], { home: fixture.home, product: "dashi", query: () => {
+      queries++;
+      return { status: 0, stdout: '"0.1.3"' };
+    }, run: args => {
+      adds++;
+      const file = path.join(fixture.home, "profiles", args[2], "package.json");
+      const manifest = JSON.parse(readFileSync(file, "utf8"));
+      manifest.dependencies[uploads] = "0.1.3";
+      writeFileSync(file, JSON.stringify(manifest));
+      return { status: 0 };
+    } }), error => { caught = error; return /sessionbus profile bundles must be an array/u.test(error.message); });
+    assert.equal(queries, 0, "guard must run before any profile's queries");
+    assert.equal(adds, 0);
+    assert.equal(caught.exitCode, 2);
+    files.forEach((file, i) => assert.deepEqual(readFileSync(file), before[i], file));
+  }
+});
+
+test("W-122 absent and null lane bundles keep the base-bundle default", t => {
+  const fixture = providerProfile(t, "sessionbus", { [uploads]: "0.2.0-alpha.1" });
+  for (const bundles of [undefined, null]) {
+    writeFileSync(fixture.manifestFile, JSON.stringify({ ...fixture.manifest, dsh: { profile: { bundles } } }));
+    install(["sessionbus"], fixture);
+    assert.deepEqual(JSON.parse(readFileSync(fixture.manifestFile, "utf8")).dsh.profile.bundles, ["@deepseek-ai/dsh-base"]);
+  }
+  assert.equal(fixture.calls.length, 0);
 });
 
 test("W-122 app owner must be profile-local and match its declared version", t => {
@@ -491,10 +540,12 @@ test("removal never loads the plugin and preserves every other row", () => {
   } });
   const broken = spawnSync(process.execPath, [path.join(profile, "node_modules", "@sessionbus", "dsh", "plugin.cjs")], { encoding: "utf8" });
   assert.notEqual(broken.status, 0);
+  offlineRemovalProvider(profile);
   remove(["broken"], { home });
   assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), original);
   assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies?.["@sessionbus/dsh"], undefined);
   assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies[uploads], "0.2.0-alpha.1");
+  assert.equal(JSON.parse(readFileSync(path.join(profile, "node_modules", uploads, "package.json"), "utf8")).version, "0.2.0-alpha.1");
   assert.equal(existsSync(path.join(profile, "node_modules", "@sessionbus", "dsh")), false);
 });
 
@@ -559,9 +610,12 @@ test("installed bin symlink runs the installer", () => {
   }
   // The app above is a metadata stub, not a real installed dependency; restore the removal fixture.
   writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies }));
+  offlineRemovalProvider(profile);
   const removed = spawnSync(command, ["--remove", "sessionbus"], { encoding: "utf8", env: { ...process.env, DSH_HOME: home } });
   assert.equal(removed.status, 0, removed.stderr);
   assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies?.["@sessionbus/dsh"], undefined);
+  assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies[uploads], "0.2.0-alpha.1");
+  assert.equal(JSON.parse(readFileSync(path.join(profile, "node_modules", uploads, "package.json"), "utf8")).version, "0.2.0-alpha.1");
   assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), "[]\n");
 });
 
