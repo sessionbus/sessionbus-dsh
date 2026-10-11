@@ -1,18 +1,28 @@
-# Installing a DSH lane host
+# Operations: upgrading a project DSH install in place
 
-This runbook installs a DSH lane host, with `umka-dev1` as the worked
-example. Run it as the ordinary account returned by `id -un`, never with
+This is an operations procedure for upgrading DSH in a long-lived **pnpm
+project** and preserving its existing profiles and daemon deployment. It is
+not the ordinary plugin install path; use the two commands in the
+[README](../README.md#installation) for global npm/pnpm, npx or fresh project
+installs. Name the project and the `dsh` you intend to upgrade; other DSH
+installs may coexist and are not scanned, counted or changed. Stale peer-only
+lock records, snapshots and the optional project-local companion pins below
+belong to this operations procedure, not to DSH's plugin requirements.
+
+The Linux/systemd user-service procedure uses `umka-dev1` as a worked example,
+not a requirement for an installation layout or operating system. Its GNU
+tools and `/proc` checks are Linux-specific. Run it as the ordinary account returned by `id -un`, never with
 `sudo`, and refer to its home as `$HOME` in commands. On `umka-dev1` that
 account is `antst` and its home is `/home/antst`; earlier references to `pdev`
 were wrong. The target set is DSH `0.2.1-alpha.2`, `@antst/dashi-launcher`
-`0.2.0-alpha.1`, `@antst/dashi-app` `0.2.0-alpha.1`, `@sessionbus/dsh`
-`0.1.0-pre.20`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
+`0.2.0-alpha.2`, `@antst/dashi-app` `0.2.0-alpha.2`, `@sessionbus/dsh`
+`0.1.0-pre.21`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
 `v0.5.9` or newer. The dsh host runs `v0.5.12` at revision
 `fd85d7ee3a19735b2712fbbacdef30d62720cd5b`; v0.5.12 is not a higher host minimum.
-The published dashi target pins plugin pre.18 and its exact upload provider.
-The pre.20 packed dashi case reports coexistence, not candidate-inside-dashi
-or a single-provider guarantee for an in-place upgraded dashi profile.
-That proof belongs to dashi 0.2.0-alpha.2 after its pre.20 re-pin.
+The published dashi target pins plugin pre.20 and its own exact upload provider.
+The pre.21 candidate beside that pin is a labelled coexistence case, not a
+one-plugin-copy claim. Upload acceptance observes the mounted row and the
+registered service, never a count of physical packages or lock records.
 Use the plugin source at
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh) and
 daemon release artifacts from
@@ -25,13 +35,13 @@ first block. `pipefail` is not required; the package-record, pnpm-output and
 credential-presence assertions also work if it is inherited. This is not a
 blanket guarantee for unrelated pipelines.
 
-Pre.17 is a DSH flag day: upgrade the host graph to alpha.2 before running its
-installer. It refuses a below-floor host before any profile write, naming the
-installed version, `>=0.2.1-alpha.2` and this preflight; a manual `pnpm add`
-bypasses that guard. Pre.16 keeps running on the old graph until the upgrade.
+Pre.17 is a DSH flag day: upgrade the project runtime to alpha.2 before adding
+this plugin. DSH's native package command rejects incompatible declared peers;
+the rows-only installer neither guesses the executing CLI's layout nor boots
+DSH to check it. Pre.16 keeps running on the old graph until the upgrade.
 DSH owns recorded-log V3-to-V4 migration; loading old logs on alpha.2 is not
 tested here. The native new-write lane/web/Agent packed cases are mandatory;
-the dashi packed case visibly reports NOT RUN pending W-114.
+the published dashi case reports the versions and actual active resolution.
 
 None of the commands below prints `SESSIONBUS_LAUNCH_TOKEN`,
 `SESSIONBUS_GROUPS`, the local key, or the federation secret. The only
@@ -58,19 +68,19 @@ with DSH 0.1.5-rc.2. Inventory again before an authorised host upgrade.
 Run these exact probes immediately before starting:
 
 ```sh
-npm view @antst/dashi@0.2.0-alpha.1 version && npm view @antst/dashi-app@0.2.0-alpha.1 version
-npm view @antst/dashi-launcher@0.2.0-alpha.1 version && npm view @antst/dsh-file-uploads-none@0.2.0-alpha.1 version
-npm view @sessionbus/dsh@0.1.0-pre.20 version && npm view @sessionbus/kit@0.5.12 version
+npm view @antst/dashi@0.2.0-alpha.2 version && npm view @antst/dashi-app@0.2.0-alpha.2 version
+npm view @antst/dashi-launcher@0.2.0-alpha.2 version && npm view @antst/dsh-file-uploads-none@0.2.0-alpha.2 version
+npm view @sessionbus/dsh@0.1.0-pre.21 version && npm view @sessionbus/kit@0.5.12 version
 ```
 
 Expected output, in order:
 
 ```text
-0.2.0-alpha.1
-0.2.0-alpha.1
-0.2.0-alpha.1
-0.2.0-alpha.1
-0.1.0-pre.20
+0.2.0-alpha.2
+0.2.0-alpha.2
+0.2.0-alpha.2
+0.2.0-alpha.2
+0.1.0-pre.21
 0.5.12
 ```
 
@@ -81,10 +91,10 @@ before the first profile add:
 
 ```sh
 for package in \
-  @antst/dashi@0.2.0-alpha.1 \
-  @antst/dashi-app@0.2.0-alpha.1 \
-  @antst/dashi-launcher@0.2.0-alpha.1 \
-  @antst/dsh-file-uploads-none@0.2.0-alpha.1; do
+  @antst/dashi@0.2.0-alpha.2 \
+  @antst/dashi-app@0.2.0-alpha.2 \
+  @antst/dashi-launcher@0.2.0-alpha.2 \
+  @antst/dsh-file-uploads-none@0.2.0-alpha.2; do
   tarball=$(npm view "$package" dist.tarball)
   ready=
   for attempt in $(seq 1 60); do
@@ -104,20 +114,27 @@ the run before package metadata or the physical graph can be changed.
 
 Use one shell for the whole procedure so the paths and rollback record remain
 authoritative. The PATH export is local to this task shell; do not edit a shell
-startup file. Every direct DSH or dashi invocation below still uses its
-absolute, derived path. The PATH export is also required because the installer
-and the `sessionbus-dsh` launcher resolve their child `dsh` by name.
+startup file. Every direct DSH or dashi invocation below uses the absolute
+paths the operator selects. The task PATH lets the `sessionbus-dsh` launcher
+resolve its child `dsh` by name; the rows-only installer starts no child.
+Set `DSH_INSTALL_DIR` to the project being upgraded and `DSH_BIN` to that
+project's executable before the block. The umka worked example uses
+`DSH_INSTALL_DIR=/home/antst` and `DSH_BIN=/home/antst/node_modules/.bin/dsh`;
+these are examples, not discovery defaults.
 
 ```sh
 set -eu
 HOST_USER=$(id -un)
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-HOST_BIN_DIR="$HOME/node_modules/.bin"
+: "${DSH_INSTALL_DIR:?name the pnpm project to upgrade}"
+: "${DSH_BIN:?name that project's dsh executable}"
+test -f "$DSH_INSTALL_DIR/package.json"
+test -f "$DSH_INSTALL_DIR/pnpm-lock.yaml"
+HOST_BIN_DIR="$(dirname "$DSH_BIN")"
 LOGIN_DSH=$(command -v dsh || true)
 printf 'host user=%s\nhost home=%s\n' "$HOST_USER" "$HOME"
 printf 'login-path dsh=%s\n' "${LOGIN_DSH:-<not found>}"
 export PATH="$HOST_BIN_DIR:$PATH"
-DSH_BIN="$HOST_BIN_DIR/dsh"
 DASHI_BIN="$HOST_BIN_DIR/dashi"
 test -x "$DSH_BIN"
 printf 'pnpm='; pnpm --version
@@ -139,14 +156,14 @@ explicit dsh=/home/antst/node_modules/.bin/dsh
 ```
 
 The `login-path dsh` line is observational for the already-prepared task
-shell; the install-location assertions below, not that line, establish the one
-authoritative DSH install.
+shell; it does not select the install. The operator's explicit project and
+executable select the scope, even when another global or project DSH exists.
 
-Inventory the one host install and every profile before changing them:
+Inventory the selected project and every profile before changing them:
 
 ```sh
-printf '%s\n' 'home direct packages:'
-pnpm --dir "$HOME" list --depth 0 @deepseek-ai/dsh @antst/dashi-launcher @sessionbus/dsh || true
+printf '%s\n' 'selected project direct packages:'
+pnpm --dir "$DSH_INSTALL_DIR" list --depth 0 @deepseek-ai/dsh @antst/dashi-launcher @sessionbus/dsh || true
 printf '%s\n' 'profiles:'
 find "$DSH_HOME/profiles" -mindepth 1 -maxdepth 1 -type d ! -name node_modules -printf '%f\n' 2>/dev/null | LC_ALL=C sort || true
 for profile_dir in "$DSH_HOME"/profiles/*; do
@@ -163,31 +180,13 @@ the historical umka baseline. The final line is the current DSH version. On
 the existing hosts, upgrade profiles in place, never delete or recreate them.
 Record whether web exists before taking snapshots.
 
-Resolve the install project without relying on the login PATH. This assertion
-stops on a global or profile-local DSH copy and also stops when a second install
-location exists:
+Confirm the selected project's files. This procedure deliberately does not
+enumerate other installs, assert that only one exists, or translate a global
+install into a home project:
 
 ```sh
-mapfile -t DSH_INSTALL_LOCATIONS < <({
-  if [ -f "$HOME/node_modules/@deepseek-ai/dsh/package.json" ]; then
-    printf '%s\n' "$HOME"
-  fi
-  global_modules=$(pnpm root -g)
-  if [ -f "$global_modules/@deepseek-ai/dsh/package.json" ]; then
-    dirname "$global_modules"
-  fi
-  for profile_dir in "$DSH_HOME"/profiles/*; do
-    [ "${profile_dir##*/}" = node_modules ] && continue
-    if [ -f "$profile_dir/node_modules/@deepseek-ai/dsh/package.json" ]; then
-      printf '%s\n' "$profile_dir"
-    fi
-  done
-} | LC_ALL=C sort -u)
-printf '%s\n' 'DSH install locations:' "${DSH_INSTALL_LOCATIONS[@]}"
-test "${#DSH_INSTALL_LOCATIONS[@]}" -eq 1
-test "${DSH_INSTALL_LOCATIONS[0]}" = "$HOME"
-test "$(readlink -f "$DSH_BIN")" = "$(readlink -f "$HOME/node_modules/.bin/dsh")"
-DSH_INSTALL_DIR=$HOME
+test -x "$DSH_BIN"
+test -f "$DSH_INSTALL_DIR/node_modules/@deepseek-ai/dsh/package.json"
 test -d "$DSH_HOME/profiles/dashi"
 test -d "$DSH_HOME/profiles/sessionbus"
 if [ -e "$DSH_HOME/profiles/web" ]; then
@@ -201,8 +200,6 @@ printf '%s\n' 'DSH_INSTALL_DIR selected'
 Expected output:
 
 ```text
-DSH install locations:
-/home/antst
 web profile: existing
 DSH_INSTALL_DIR selected
 ```
@@ -210,8 +207,8 @@ DSH_INSTALL_DIR selected
 The presence line is `web profile: existing` or `web profile: absent`; both
 are valid inventory results. Preserve an existing web profile in its snapshot.
 
-If an assertion fails, stop and report the inventory. Do not translate the
-commands below into `pnpm --global`.
+If an assertion fails, stop and report the selected project's inventory. A
+global install uses the README, not this in-place project repair procedure.
 
 Inventory the running daemon without restarting it. The lane proof uses the
 inventory-confirmed `$HOME/e2e-work`, not the user service process's cwd (which
@@ -240,12 +237,11 @@ if (!version || Number(version[1]) === 0 && (Number(version[2]) < 5 || Number(ve
   throw new Error('Sessionbus daemon v0.5.9 or newer is required; stop before package changes')
 }
 NODE
-node --input-type=module - "$DSH_BIN" <<'NODE'
+node --input-type=module - "$DSH_INSTALL_DIR" <<'NODE'
 import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-const require = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))
-const anchor = require.resolve('@deepseek-ai/dsh/package.json')
+const anchor = realpathSync(join(process.argv[2], 'node_modules/@deepseek-ai/dsh/package.json'))
 console.log(`preflight DSH=${JSON.parse(readFileSync(anchor)).version}; install target >=0.2.1-alpha.2`)
 NODE
 if PATH="$SERVICE_PATH" command -v sessionbus-dsh dsh >/dev/null 2>&1; then
@@ -381,7 +377,7 @@ import step after the profile upgrades, every repair/check boot finds no legacy
 file and imports nothing. Never put `.imported` back at `settings.yaml`, even
 after partial failure.
 
-Upgrade the existing home project and verify the explicit binary:
+Upgrade the explicitly named project and verify its selected binary:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
@@ -395,7 +391,10 @@ Expected final line:
 0.2.1-alpha.2
 ```
 
-Define one bounded repair for the host and every profile graph. It inspects the
+The following repair is operations-only for this project's in-place upgrade,
+not a plugin-install prerequisite. Its target-version lock checks catch retained
+old peer-only DSH packages; the running composition is still checked separately.
+Define one bounded repair for the project and every profile graph. It inspects the
 lock records, promotes every stale DSH peer provider and stale, missing or
 duplicate CLI companion to an exact direct dependency in one command,
 installs that frozen graph, boots the real DSH, and checks its native runtime
@@ -422,12 +421,16 @@ passing it to `createRequire`: that API does not resolve its anchor's symlinks.
 A pnpm alias can otherwise walk up to unrelated hoisted Zod 3 even though the
 producer's real file context resolves Zod 4. Keep synthetic profile importers logical;
 they are native resolution keys, not necessarily files on disk.
-Uploads-peer assertions belong only to profiles whose own manifest depends on
+Upload-service assertions belong only to profiles whose own manifest depends on
 `@sessionbus/dsh` or `@antst/dashi-app`. Other profiles can resolve the plugin
 through legacy `profiles/node_modules` (present on both measured hosts) without
 owning a plugin or lockfile; report that name/version/path as an observation,
-not as a profile-owned provider assertion. Lane/web/dashi owner checks remain
-mandatory.
+not as a profile-owned provider assertion. Owning profiles assert the mounted
+row and its sole registered service, not a physical or lockfile count. This
+offline closure check deliberately disables the bus/task row and proves
+metadata resolution only; it does not prove Sessionbus admission or a model
+turn. Section 5's real product proof must reject skipped, disabled or pending
+required rows even when the CLI exits zero.
 
 ```sh
 cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
@@ -443,14 +446,14 @@ export function registryHasVersion(name, version) {
   return available
 }
 NODE
-node --input-type=module - "$DSH_BIN" "$ROLLBACK_ROOT/cli-companion-pins.json" "$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
+node --input-type=module - "$DSH_INSTALL_DIR" "$ROLLBACK_ROOT/cli-companion-pins.json" "$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-const [bin, destination, registryFile] = process.argv.slice(2)
+const [installDir, destination, registryFile] = process.argv.slice(2)
 const { registryHasVersion } = await import(pathToFileURL(registryFile).href)
-const anchor = realpathSync(createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json'))
+const anchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
 const { dependencies } = JSON.parse(readFileSync(anchor, 'utf8'))
 const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, declaration]) => {
   if (!name.startsWith('@deepseek-ai/') || name.startsWith('@deepseek-ai/dsh')) return []
@@ -484,6 +487,10 @@ for (const [name, version] of Object.entries(pins)) {
 writeFileSync(destination, `${JSON.stringify(pins)}\n`)
 console.log(`CLI companion pins: ${JSON.stringify(pins)}`)
 NODE
+# OPERATIONS-ONLY: after an in-place project upgrade, retained old companion
+# records can select an incompatible loader/service API. This project-policy
+# check is not a universal plugin-install requirement; native runtime peer
+# resolution is the compatibility oracle for ordinary installation.
 cat >"$ROLLBACK_ROOT/check-cli-companions.mjs" <<'NODE'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -517,32 +524,18 @@ const dshHome = process.env.DSH_HOME ?? join(process.env.HOME, '.dsh')
 const anchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
 const require = createRequire(anchor)
 const cli = JSON.parse(readFileSync(anchor, 'utf8'))
-const wanted = Object.fromEntries(Object.entries(cli.dependencies).flatMap(([name, declaration]) => {
-  if (!name.startsWith('@deepseek-ai/') || name.startsWith('@deepseek-ai/dsh')) return []
-  const floor = /^(?:\^|~|>=)?(\d+\.\d+\.\d+(?:-[\da-z.-]+)?)$/i.exec(declaration)
-  if (!floor) throw new Error(`cannot derive CLI minimum ${name}: ${declaration}`)
-  return [[name, floor[1]]]
-}))
+const wanted = Object.fromEntries(Object.keys(cli.dependencies).filter(name => name.startsWith('@deepseek-ai/dsh')).map(name => [name, cli.version]))
 wanted['@deepseek-ai/dsh-base'] = cli.version
-function installedDir(name) {
-  for (const search of require.resolve.paths(name) ?? []) {
-    const candidate = join(search, name)
-    if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate)
-  }
-  throw new Error(`cannot resolve installation package ${name}`)
-}
 function assertRuntimeSelection(name, version, resolved) {
-  const expected = JSON.parse(readFileSync(join(installedDir(name), 'package.json'), 'utf8'))
-  if (expected.name !== name || expected.version !== version) throw new Error(`installation manifest mismatch ${name}@${version}`)
   const selected = resolved && JSON.parse(readFileSync(join(resolved.dir, 'package.json'), 'utf8'))
-  if (resolved?.name !== expected.name || resolved?.version !== expected.version ||
-      selected?.name !== expected.name || selected?.version !== expected.version) {
+  if (resolved?.name !== name || resolved?.version !== version ||
+      selected?.name !== name || selected?.version !== version) {
     throw new Error(`runtime selection mismatch ${name}: ${selected?.version ?? 'missing'} at ${resolved?.dir ?? 'missing'}`)
   }
   console.log(`runtime ${name}@${selected.version} -> ${realpathSync(resolved.dir)}: PASS`)
 }
 const [{ runProfile }, { loadLayeredEnv }] = await Promise.all([
-  import(pathToFileURL(join(dirname(anchor), 'lib/profile-boot.js')).href),
+  import(pathToFileURL(require.resolve('@deepseek-ai/dsh/profile-boot')).href),
   import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href),
 ])
 const overlay = mkdtempSync(join(tmpdir(), 'dsh-runtime-resolution-check-'))
@@ -573,36 +566,43 @@ try {
   const producerZod = realpathSync(createRequire(realpathSync(join(storage.dir, 'package.json'))).resolve('zod/package.json'))
   const plugin = packages.packageOf('@sessionbus/dsh', importer)
   const pluginManifest = plugin?.dir && JSON.parse(readFileSync(join(plugin.dir, 'package.json'), 'utf8'))
-  if (pluginManifest?.peerDependencies?.zod) {
+  const directory = join(dshHome, 'profiles', profile)
+  const profileManifestFile = join(directory, 'package.json')
+  const profileManifest = existsSync(profileManifestFile) ? JSON.parse(readFileSync(profileManifestFile, 'utf8')) : {}
+  const ownsPlugin = ['@sessionbus/dsh', '@antst/dashi-app'].some(name => Object.hasOwn(profileManifest.dependencies ?? {}, name))
+  if (ownsPlugin && pluginManifest) {
+    const pluginImporter = pathToFileURL(realpathSync(join(plugin.dir, 'plugin.cjs'))).href
+    const producer = packages.packageOf('@deepseek-ai/dsh-app-boot', pluginImporter)
+    if (!producer?.manifestPath) throw new Error('native compatibility producer missing')
+    const semver = createRequire(realpathSync(producer.manifestPath))('semver')
+    for (const [name, range] of Object.entries(pluginManifest.peerDependencies ?? {})) {
+      const selected = packages.packageOf(name, pluginImporter)
+      if (!selected || selected.name !== name || !semver.satisfies(selected.version, range, { includePrerelease: true })) {
+        throw new Error(`unresolved or incompatible plugin peer ${name}@${selected?.version ?? 'missing'}: ${range}`)
+      }
+      if (name.startsWith('@deepseek-ai/dsh') && selected.version !== cli.version) throw new Error(`mixed plugin DSH peer ${name}@${selected.version}`)
+      console.log(`runtime plugin peer ${name}@${selected.version} -> ${realpathSync(selected.dir)}: PASS`)
+    }
+  }
+  if (ownsPlugin && pluginManifest?.peerDependencies?.zod) {
     const pluginZod = realpathSync(createRequire(realpathSync(join(plugin.dir, 'plugin.cjs'))).resolve('zod/package.json'))
     const selected = JSON.parse(readFileSync(pluginZod, 'utf8')), expected = JSON.parse(readFileSync(producerZod, 'utf8'))
     if (selected.name !== expected.name || selected.version !== expected.version) throw new Error(`runtime plugin Zod version mismatch: ${selected.name}@${selected.version} at ${pluginZod} != storage-domain ${expected.name}@${expected.version} at ${producerZod}`)
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
-  const uploads = '@antst/dsh-file-uploads-none'
-  const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
-  const profileManifestFile = join(directory, 'package.json')
-  const profileManifest = existsSync(profileManifestFile) ? JSON.parse(readFileSync(profileManifestFile, 'utf8')) : {}
-  const ownsPlugin = ['@sessionbus/dsh', '@antst/dashi-app'].some(name => Object.hasOwn(profileManifest.dependencies ?? {}, name))
-  if (ownsPlugin && pluginManifest?.peerDependencies?.[uploads]) {
-    const selected = packages.packageOf(uploads, importer)
-    const peer = packages.packageOf(uploads, pathToFileURL(realpathSync(join(plugin.dir, 'plugin.cjs'))).href)
-    const pin = profileManifest.dependencies?.['@antst/dashi-app']
-      ? packages.packageOf('@antst/dashi-app', importer)?.manifest.dependencies?.[uploads] : profileManifest.dependencies?.[uploads]
-    const physical = [...new Set(readdirSync(modules, { recursive: true })
-      .filter(file => file.endsWith(join('@antst', 'dsh-file-uploads-none', 'package.json')))
-      .map(file => realpathSync(join(modules, file))))]
-    const records = [...readFileSync(join(directory, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n')[0]
-      .matchAll(/^  '@antst\/dsh-file-uploads-none@([^']+)':$/gm)].map(match => match[1])
-    const actual = physical.length === 1 && JSON.parse(readFileSync(physical[0], 'utf8'))
-    console.log(`upload provider inventory: ${JSON.stringify({ physical, records })}`)
-    if (selected?.version !== pin || peer?.version !== pin || physical.length !== 1 ||
-        records.length !== 1 || records[0] !== pin || actual?.name !== uploads || actual?.version !== pin ||
-        realpathSync(selected.manifestPath) !== realpathSync(peer.manifestPath) || realpathSync(selected.manifestPath) !== physical[0]) {
-      throw new Error('profile/plugin upload provider must resolve one exact profile-owned copy')
+  if (ownsPlugin) {
+    const implementations = Reflect.ownKeys(boot.ctx.reflect.store).map(key => boot.ctx.reflect.store[key])
+      .filter(value => value?.name === 'fileUploads' && value.fiber.state === 2)
+    if (implementations.length !== 1) throw new Error('expected one active fileUploads implementation')
+    const rows = [...boot.ctx.loader.entries()].filter(row => row.fiber === implementations[0].fiber)
+    if (rows.length !== 1) throw new Error('expected one mounted upload-provider row')
+    const row = rows[0], mounted = packages.packageOf(row.options.name, row.parent.tree.ctx.baseUrl)
+    if (!mounted) throw new Error('mounted upload provider has no native package owner')
+    if (pluginManifest?.exports?.['./file-uploads-none'] && profile === 'sessionbus') {
+      if (row.options.name !== '@sessionbus/dsh/file-uploads-none' || mounted.name !== '@sessionbus/dsh') throw new Error('lane must mount its own provider entry')
     }
-    console.log(`runtime profile/plugin upload provider@${pin}: one copy: PASS`)
-  } else if (!ownsPlugin && plugin) {
+    console.log(`runtime upload row ${row.options.name}: ${mounted.name}@${mounted.version} -> ${realpathSync(mounted.dir)}; registered services=1: PASS`)
+  } else if (plugin) {
     console.log(`fallback ${plugin.name}@${plugin.version} -> ${realpathSync(plugin.dir)}: REPORTED ONLY (profile does not own the plugin)`)
   }
   console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
@@ -754,13 +754,12 @@ console.log('absent target packages: zero lock records')
 NODE
   rm "$stale_file"
   if [ "$physical_mode" = report ]; then
-    node --input-type=module - "$DSH_BIN" "$target_version" <<'NODE' || return
+    node --input-type=module - "$DSH_INSTALL_DIR" "$target_version" <<'NODE' || return
 import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-const [bin, target] = process.argv.slice(2)
-const binDir = dirname(realpathSync.native(bin))
-const anchor = realpathSync(createRequire(join(binDir, 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json'))
+const [installDir, target] = process.argv.slice(2)
+const anchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'))
 const version = JSON.parse(readFileSync(anchor, 'utf8')).version
 console.log(`DSH executing install anchor: ${anchor}`)
 console.log(`DSH executing version: ${version}`)
@@ -772,65 +771,11 @@ NODE
   check_dsh_graph "$graph_root" "$target_version" "$physical_mode" "$profile"
 }
 
-profile_lock_has_package() {
-  lock_file=$1
-  package_id=$2
-  node --input-type=module - "$lock_file" "$package_id" <<'NODE'
-import { readFileSync } from 'node:fs'
-const [file, packageId] = process.argv.slice(2)
-const packages = readFileSync(file, 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
-const escaped = packageId.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-if (!new RegExp(`^  '?${escaped}'?:$`, 'mu').test(packages)) process.exit(1)
-NODE
-}
-
-read_nested_package_identity() {
-  node --input-type=module - "$1" <<'NODE'
-import { readFileSync } from 'node:fs'
-const file = process.argv[2]
-const parts = file.split('/node_modules/').at(-1).split('/')
-const isPackageRoot = parts.length === 2 || (parts.length === 3 && parts[0].startsWith('@'))
-if (!isPackageRoot || parts.at(-1) !== 'package.json') process.exit(0)
-const { name, version } = JSON.parse(readFileSync(file, 'utf8'))
-if (typeof name === 'string' && typeof version === 'string') process.stdout.write(`${name}@${version}`)
-NODE
-}
-
-remove_untracked_nested_packages() {
-  profile_root=$1
-  lock_file="$profile_root/pnpm-lock.yaml"
-  removed=0
-  while IFS= read -r -d '' package_json; do
-    package_dir=${package_json%/package.json}
-    case "$package_json" in
-      "$profile_root"/node_modules/*/node_modules/*/package.json) ;;
-      *) printf 'nested package escaped profile: %s\n' "$package_json" >&2; exit 1 ;;
-    esac
-    package_id=$(read_nested_package_identity "$package_json")
-    test -n "$package_id" || continue
-    if profile_lock_has_package "$lock_file" "$package_id"; then continue; fi
-
-    # Guard 1: the physical package identity has not changed since discovery.
-    test ! -L "$package_dir"
-    test "$package_id" = "$(read_nested_package_identity "$package_json")"
-    # Guard 2: the exact package record is still absent from the frozen lock.
-    if profile_lock_has_package "$lock_file" "$package_id"; then
-      printf 'nested package became lock-tracked: %s\n' "$package_id" >&2
-      exit 1
-    fi
-    printf 'removing untracked nested package: %s (%s)\n' "$package_dir" "$package_id"
-    rm -r -- "$package_dir"
-    removed=$((removed + 1))
-  done < <(find "$profile_root/node_modules" -mindepth 3 -path '*/node_modules/*/node_modules/*' -name package.json -print0)
-
-  install_output=$(pnpm --dir "$profile_root" install --frozen-lockfile 2>&1)
-  printf '%s\n' "$install_output"
-  grep -Fqx 'Lockfile is up to date, resolution step is skipped' <<< "$install_output"
-  grep -Fqx 'Already up to date' <<< "$install_output"
-  printf 'untracked nested packages removed: %s\n' "$removed"
-}
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
+# OPERATIONS ONLY: verify this named project owns DSH records before accepting
+# its in-place repair. Uniform target records catch retained old peer-only DSH
+# packages; counts are not a universal installation/runtime oracle.
 DSH_RECORD_COUNT=$(awk "/^snapshots:/ {exit} /^  '?@deepseek-ai\/dsh[^@']*@/ {count++} END {print count+0}" "$DSH_INSTALL_DIR/pnpm-lock.yaml") || exit 1
 if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
   printf '%s\n' 'host DSH graph has no package records' >&2
@@ -902,29 +847,11 @@ transitively. One exact-pin add and a frozen no-op install produced 290 DSH
 records, all alpha.2, with zero records of the three absent names. A network or
 auth failure cannot take this path. These counts are evidence, not fixed targets.
 
-Before any profile/plugin writes, assert the executing host meets the declared
-DSH floor (the daemon v0.5.9+ check was in section 1):
-
-```sh
-node --input-type=module - "$DSH_BIN" <<'NODE'
-import { readFileSync, realpathSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-const discovery = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))
-const anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))
-const require = createRequire(anchor)
-const installed = JSON.parse(readFileSync(anchor)).version
-const semver = createRequire(realpathSync(require.resolve('@deepseek-ai/dsh-app-boot')))('semver')
-if (!semver.satisfies(installed, '>=0.2.1-alpha.2', { includePrerelease: true })) throw new Error(`installed DSH ${installed} is below the plugin floor; stop before profile changes`)
-console.log(`DSH floor >=0.2.1-alpha.2: PASS (${installed})`)
-NODE
-```
-
-Expected output: `DSH floor >=0.2.1-alpha.2: PASS (0.2.1-alpha.2)`.
-Resolve native dependencies from the real executing DSH package manifest, not
-the bin-directory anchor: pnpm's real `.bin/dsh` wrapper can discover DSH but
-cannot see an unhoisted `dsh-app-boot` in its virtual store. The provider-pin
-lookup below follows the same owning-package rule.
+DSH owns the plugin floor (`0.2.1-alpha.2`). Its native add refuses an incompatible
+plugin with `Plugin @sessionbus/dsh@0.1.0-pre.21 is incompatible with dsh
+0.2.1-alpha.1`; a forced boot disables the row with the same readable reason.
+Stop on that refusal; do not grant a version exemption. The rows-only installer
+does not infer a CLI installation from a bin, home directory or package layout.
 
 pnpm 10.28.1 retains already auto-installed peer providers in the lock even
 when their published ranges reject those versions; scoped updates, dedupe, and
@@ -935,9 +862,8 @@ the mandatory assertions are a lock uniform at the target, the executing
 install anchor at the target, one companion version at every CLI minimum, and
 a successful native runtime-resolution check. Any leftover lock version,
 wrong executing anchor, failed boot, or wrong native package selection stops the run
-with the rollback copy intact. Profile checks additionally require their
-nonempty physical projections to be uniform; the dashi profile must have a
-nonempty projection. The old shared physical entries are listed as legacy
+with the rollback copy intact. Physical projections are reported inventory, not runtime assertions; they may
+contain unused old packages. The executing native resolution is authoritative. The old shared physical entries are listed as legacy
 extras only, never asserted as a current closure and never hand-linked/pruned.
 
 DSH 0.2 replaces physical fallback healing with an immutable in-memory table
@@ -946,11 +872,13 @@ interception before profile rows mount (`:1718-1722,3353-3363`;
 CLI `lib/profile-boot-BZ2ZjNWi.js:205-215,271-275` at alpha.2). App-boot's README
 states that runtime resolution creates no links (`README.md:67,137-144`).
 The checker boots the actual profile and queries `ctx.pluginPackages.packageOf`
-from its root importer, asserting dsh-base and companions against the executing
-installation's manifest names and versions, reporting the selected realpaths
-without requiring path identity. DSH's native lookup prefers profile-local
-candidates (`dsh-app-boot/lib/index.js:1490-1538`): an exact local pin at the
-same version passes; a different-version local candidate fails. It checks every native table
+from its root importer, asserting one DSH version and resolving the plugin's
+peers from its own importer against their declared ranges. Exact companion
+pins are an operations choice for this project's lock graph, not a runtime
+requirement. Selected realpaths are reported, not required equal. DSH's native
+lookup prefers profile-local candidates (`dsh-app-boot/lib/index.js:1490-1538`):
+a compatible local companion passes; a below-range peer or mixed DSH version
+fails. It checks every native table
 manifest and reports expected=current. The disposable overlay disables only
 headless task admission/runner, dashi's terminal driver, or the sessionbus row;
 no model turn or daemon publication occurs. Web startup output is suppressed
@@ -984,20 +912,20 @@ records in a populated pnpm 10.28.1 fixture; `--fix-lockfile` removed them while
 preserving unrelated resolution bytes. A still-referenced obsolete package
 continues to fail the zero-absent-record assertion; it is never hand-deleted.
 
-## 3. Upgrade dashi to 0.2.0-alpha.1 in place
+## 3. Upgrade dashi to 0.2.0-alpha.2 in place
 
 Upgrade the host launcher, then immediately re-check the host graph because a
 host-level `pnpm add` may re-resolve peers:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
-pnpm add --save-exact @antst/dashi-launcher@0.2.0-alpha.1
+pnpm add --save-exact @antst/dashi-launcher@0.2.0-alpha.2
 test -x "$DASHI_BIN"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
 ```
 
-Expected output reports launcher `0.2.0-alpha.1`, then a nonzero host DSH
+Expected output reports launcher `0.2.0-alpha.2`, then a nonzero host DSH
 count at the single version `0.2.1-alpha.2`.
 
 Upgrade the existing dashi profile rather than replacing it, and re-check that
@@ -1009,7 +937,7 @@ the pre-step state. It then stops; do not retry until all four tarball HEAD
 checks pass.
 
 ```sh
-if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.1; then
+if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.2; then
   printf '%s\n' 'dashi profile add failed; restoring the pre-step graph' >&2
   cp --preserve=mode "$ROLLBACK_ROOT/profiles/dashi/package.json" "$DSH_HOME/profiles/dashi/package.json"
   cp --preserve=mode "$ROLLBACK_ROOT/profiles/dashi/pnpm-lock.yaml" "$DSH_HOME/profiles/dashi/pnpm-lock.yaml"
@@ -1025,16 +953,14 @@ if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.1; then
   grep -Fqx 'Lockfile is up to date, resolution step is skipped' <<< "$second_install"
   grep -Fqx 'Already up to date' <<< "$second_install"
 
-  remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
   . "$ROLLBACK_ROOT/versions.env"
   test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/package.json")" = "$PREVIOUS_DASHI_APP_VERSION"
   test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@sessionbus/dsh/package.json")" = "$PREVIOUS_DASHI_SESSIONBUS_DSH_VERSION"
-  check_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 required dashi
+  check_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 report dashi
   printf '%s\n' 'pre-step dashi profile graph restored; stop before retry' >&2
   exit 1
 fi
-remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
-repair_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 required dashi
+repair_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 report dashi
 test "$?" -eq 0 || exit 1
 DSH_RECORD_COUNT=$(awk "/^snapshots:/ {exit} /^  '?@deepseek-ai\/dsh[^@']*@/ {count++} END {print count+0}" "$DSH_HOME/profiles/dashi/pnpm-lock.yaml") || exit 1
 if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
@@ -1043,95 +969,41 @@ if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
 fi
 printf '%s\n' 'dashi profile DSH graph nonzero'
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @antst/dashi-app @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
 Expected output contains `dashi profile DSH graph nonzero`,
-`@antst/dashi-app 0.2.0-alpha.1`, and a DSH package count at the single version
+`@antst/dashi-app 0.2.0-alpha.2`, and a DSH package count at the single version
 `0.2.1-alpha.2`. Its measured count is inventory, not a fixed acceptance
-criterion. The published dashi-app carries plugin pre.18 and kit 0.5.12;
-it owns the provider pin. Never substitute dashi 0.1.x or independently re-pin
-its plugin. An in-place alpha.1 profile can still have the old plugin's nested
-provider; the one-provider dashi host proof waits for alpha.2's pre.20 re-pin.
+criterion. The published dashi-app alpha.2 carries plugin pre.20 and kit 0.5.12;
+it owns its provider. Never substitute dashi 0.1.x or independently re-pin
+its plugin. A physical leftover or another lock record is inventory, not a
+runtime failure: inspect the mounted provider row and sole registered service.
+No package is deleted solely because it is not represented in this lockfile.
 
 ## 4. Upgrade sessionbus-dsh and its profiles
 
-Pre.20 moves the no-upload provider to a required peer. Pin it exactly in every
-managed standalone profile (including web, without a no-upload loader row).
-If the profile carries published dashi-app, its exact provider dependency owns
-the choice; otherwise choose the highest matching registry release, not the
-`latest` dist-tag. Define the lookup once; it prints only the selected version,
-uses the profile's registry configuration, and changes no files:
-
-```sh
-pin_uploads_provider() {
-  node --input-type=module - "$1" "$DSH_BIN" <<'NODE'
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { spawnSync } from 'node:child_process'
-const [directory, bin] = process.argv.slice(2)
-const discovery = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))
-const anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))
-const native = createRequire(anchor)
-const semver = createRequire(realpathSync(native.resolve('@deepseek-ai/dsh-app-boot')))('semver')
-const helper = '@antst/dsh-file-uploads-none', range = '^0.1.0 || ^0.2.0-alpha.1'
-const manifestFile = join(directory, 'package.json')
-const manifest = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, 'utf8')) : {}
-let pin
-if (manifest.dependencies?.['@antst/dashi-app']) {
-  const appFile = join(directory, 'node_modules/@antst/dashi-app/package.json')
-  if (!existsSync(appFile)) throw new Error(`cannot resolve dashi-app in profile ${directory}`)
-  const app = JSON.parse(readFileSync(appFile, 'utf8'))
-  if (!semver.satisfies(app.version, manifest.dependencies['@antst/dashi-app'])) throw new Error(`dashi-app ${app.version} does not satisfy profile spec ${manifest.dependencies['@antst/dashi-app']}`)
-  pin = app.dependencies?.[helper]
-  if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw new Error('dashi-app must declare an exact matching provider')
-} else {
-  const result = spawnSync('pnpm', ['view', `${helper}@${range}`, 'version', '--json'], {
-    cwd: existsSync(directory) ? directory : dirname(realpathSync(bin)), encoding: 'utf8', timeout: 60_000,
-  })
-  if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(result.stderr || 'provider lookup failed')
-  const versions = result.stdout.trim() ? JSON.parse(result.stdout) : []
-  pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range)
-  if (!pin) throw new Error('no matching provider release')
-}
-console.log(pin)
-NODE
-}
-```
-
-Expected: no output until invoked; the current registry selection is
-`0.2.0-alpha.1`. Lookup failure stops, with no silent fallback from an app-owned
-pin. Under pnpm defaults a missing peer is auto-installed at a matching version
-under pnpm's preferences (the `latest` tag when it satisfies, e.g. `0.1.3`
-today), not necessarily the highest. This is acceptable, not the strict proof;
-the installer explicitly pins with `maxSatisfying`. Under
-`auto-install-peers=false` and `strict-peer-dependencies=true` it fails instead,
-so the commands below supply the exact pin together with the plugin. Other-base
-prereleases such as `0.2.1-alpha.x` are not admitted by this range. Removing the
-plugin later leaves these profile-owned provider/companion pins untouched.
-Registry queries have a 60 s bound each, use each existing profile's own registry
-context, and propagate native failures without retry or fallback. The installer
-preflights every profile's pin before any profile add or row write; a later native
-package-operation failure can still leave earlier profiles changed.
+Pre.21 owns a separate no-upload entry in its own package. The installer has
+no provider lookup or package operations. DSH owns the add; the installer owns
+its marked rows and its base-bundle entry. Existing external-provider pins
+remain untouched and are reported as unused by the installer. Do not remove
+one on the basis of a lock or physical-copy count; another composition may use
+it. Dashi-app owns its own provider and Sessionbus row, so its profile is outside
+the installer.
 
 Install the package in the host project. This supplies the command for the
 daemon's service PATH; the task shell PATH already lets the package-owned
 launcher and installer find their child `dsh`. The host project intentionally
-gets its own exact provider pin too, to satisfy the host-installed plugin's peer:
+gets only the plugin package; there is no external upload-provider requirement:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
-UPLOADS_PIN=$(pin_uploads_provider "$DSH_INSTALL_DIR")
-pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
+pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.21
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
-test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
-Expected output reports `@sessionbus/dsh 0.1.0-pre.20`, the derived exact provider,
+Expected output reports `@sessionbus/dsh 0.1.0-pre.21`,
 and a nonzero host DSH
 count at the single version `0.2.1-alpha.2`.
 
@@ -1143,41 +1015,41 @@ expected because that lane profile consumes the host DSH graph. Section 5 adds
 the selected model provider's packages to this lane profile and the plain web
 profile before either one runs a model turn.
 Re-running the installer merges its
-dependency, row, and base-bundle entry into the existing profile manifest; it
+row and base-bundle entry into the existing profile manifest; DSH alone changes
+dependencies. The installer
 does not remove provider packages, other bundles, or other manifest fields.
-It rewrites the lane's canonical marked patch: the old `persona` row becomes
+It replaces only the installer's marked row spans, preserving every other byte,
+including the owner's `llm-pi-ai` and `agent-default-model` rows, comments and
+inert `!!js` expressions. Unmarked config-only lane defaults stay the owner's
+without a shadowing default; an unmarked Sessionbus or upload mount refuses.
+The old marked `persona` row becomes
 `personaPrefix`, retaining the model wording but not the unsupported `{{cwd}}`
 interpolation. Alpha.2 supplies cwd through native working-directory tools
 (`dsh-base/cordis.patch.yml:161-165`). Peer web installation never wrote that
 persona row. Snapshot first; no profile reinstall is needed.
 
-`@antst/dashi-app@0.2.0-alpha.1` and later already ship the `sessionbus` row
+`@antst/dashi-app@0.2.0-alpha.2` and later already ship the `sessionbus` row
 and their exact `@sessionbus/dsh` dependency. Do not run the installer against
 the dashi profile: the dashi product runs the plugin version that dashi-app
 pins, until dashi-app publishes a newer pin.
 
 ```sh
-UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/sessionbus")
-"$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
-repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 optional sessionbus
+"$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.21
+repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 report sessionbus
 test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
-remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
 pnpm --dir "$DSH_HOME/profiles/sessionbus" list --depth 0 @sessionbus/dsh
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @sessionbus/dsh
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/sessionbus/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/sessionbus/cordis.patch.yml"
-grep -F 'config: { product: dashi }' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/cordis.patch.yml"
 ```
 
-Expected output contains `@sessionbus/dsh 0.1.0-pre.20` for the sessionbus
+Expected output contains `@sessionbus/dsh 0.1.0-pre.21` for the sessionbus
 profile and the exact version pinned by dashi-app for the dashi profile, no DSH
 version other than alpha.2 in the lane graph (which may have zero DSH records),
-and these exact rows:
+and this lane profile entry:
 
 ```text
 config: { mode: lane, product: sessionbus-dsh }
-config: { product: dashi }
 ```
 
 Upgrade the existing plain, non-dashi web profile, or create it if it was absent
@@ -1188,13 +1060,10 @@ group. Re-check its graph immediately after the package add:
 if [ ! -f "$DSH_HOME/profiles/web/package.json" ]; then
   "$DSH_BIN" --profile web --dump-default-config >"$ROLLBACK_ROOT/web-default-config.yml"
 fi
-UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/web")
-"$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
-repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 optional web
+"$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.21
+repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 report web
 test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
-remove_untracked_nested_packages "$DSH_HOME/profiles/web"
-test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 grep -F 'config: { product: dsh }' "$DSH_HOME/profiles/web/cordis.patch.yml"
 if grep -Eq '(^|[[:space:]{,])groups:' "$DSH_HOME/profiles/web/cordis.patch.yml"; then
   printf '%s\n' 'unexpected configured groups in web profile' >&2
@@ -1552,7 +1421,7 @@ packages first:
 pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0
 ```
 
-Expected output contains `@antst/dashi-app 0.2.0-alpha.1` and the selected
+Expected output contains `@antst/dashi-app 0.2.0-alpha.2` and the selected
 provider's direct plugin packages with their exact installed versions.
 
 The umka worked example selects `deepseek-official`, so it adds no provider
@@ -1618,8 +1487,7 @@ if [ "$MODEL_PROVIDER" != deepseek-official ]; then
     for package_spec in "${PROVIDER_PACKAGE_SPECS[@]}"; do
       "$DSH_BIN" plugin --profile "$profile_name" add "$package_spec"
     done
-    remove_untracked_nested_packages "$DSH_HOME/profiles/$profile_name"
-    repair_dsh_graph "$DSH_HOME/profiles/$profile_name" 0.2.1-alpha.2 optional "$profile_name"
+    repair_dsh_graph "$DSH_HOME/profiles/$profile_name" 0.2.1-alpha.2 report "$profile_name"
     test "$?" -eq 0 || exit 1
   done
 fi
@@ -1979,7 +1847,8 @@ environment group:
 
 ```sh
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-HOST_BIN_DIR="$HOME/node_modules/.bin"
+: "${DSH_BIN:?use the executable selected in section 1}"
+HOST_BIN_DIR="$(dirname "$DSH_BIN")"
 export PATH="$HOST_BIN_DIR:$PATH"
 env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["peer-dev"]' "$HOST_BIN_DIR/dsh" --profile web --no-open --host 127.0.0.1 --port 0
 ```
@@ -2026,7 +1895,8 @@ This is a separate integration check, not the peer-mode proof above:
 
 ```sh
 export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-HOST_BIN_DIR="$HOME/node_modules/.bin"
+: "${DASHI_BIN:?use the executable selected in section 1}"
+HOST_BIN_DIR="$(dirname "$DASHI_BIN")"
 export PATH="$HOST_BIN_DIR:$PATH"
 env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["peer-dev"]' "$HOST_BIN_DIR/dashi"
 ```
@@ -2065,7 +1935,7 @@ rm "$HELP_FILE"
 Expected output:
 
 ```text
-dashi 0.2.0-alpha.1 on DSH 0.2.1-alpha.2
+dashi 0.2.0-alpha.2 on DSH 0.2.1-alpha.2
 dashi help exit=0
 ```
 
@@ -2085,7 +1955,7 @@ mkdir -p "$ROLLBACK_FAILED"
 Expected output: none; one private `failed-*` directory now exists for any
 new artifacts moved aside during recovery.
 
-Remove the current plugin rows and package from every profile where its
+Remove the current plugin rows from every profile where its
 installer is present. This path does not require a profile to boot:
 
 ```sh
@@ -2093,14 +1963,14 @@ for profile_name in web sessionbus; do
   installer="$DSH_HOME/profiles/$profile_name/node_modules/.bin/sessionbus-dsh-install"
   package="$DSH_HOME/profiles/$profile_name/node_modules/@sessionbus/dsh/package.json"
   installed_version=$(if [ -f "$package" ]; then node -p 'require(process.argv[1]).version' "$package" 2>/dev/null || true; fi)
-  if [ "$installed_version" = '0.1.0-pre.20' ] && [ -x "$installer" ]; then
+  if [ "$installed_version" = '0.1.0-pre.21' ] && [ -x "$installer" ]; then
     pnpm --dir "$DSH_HOME/profiles/$profile_name" exec sessionbus-dsh-install --remove "$profile_name"
   fi
 done
 ```
 
-Expected output: each installer-managed profile reports removal of the current
-`@sessionbus/dsh` package and its managed rows; absent or not-yet-installed
+Expected output: each installer-managed profile's managed rows are removed;
+packages and pins are untouched. Absent or not-yet-installed
 profiles are explicitly skipped. The dashi-app-owned dependency and bundle row
 are restored with the dashi profile files below, not removed by this installer.
 

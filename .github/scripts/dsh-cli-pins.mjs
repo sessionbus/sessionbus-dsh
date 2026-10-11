@@ -60,7 +60,7 @@ export function assertPinnedGraph(lockfile, pins, version) {
     if (name === 'zod') {
       if (!versions.includes(pin)) throw new Error(`storage-domain zod ${pin} is missing; found ${versions.join(', ') || 'none'}`)
       // Other majors are valid elsewhere; producer name/version equality is the importer oracle.
-    } else if (versions.length !== 1 || versions[0] !== pin) throw new Error(`${name} must resolve once at CLI minimum ${pin}; found ${versions.join(', ') || 'none'}`)
+    } else console.log(`OPERATIONS inventory ${name}: ${versions.join(', ') || 'none'}; prepared pin=${pin}; runtime peer resolution is checked separately`)
   }
   for (const [, name, resolved] of packages) {
     if (name.startsWith('@deepseek-ai/dsh') && resolved !== version) throw new Error(`${name}@${resolved} is not the requested DSH ${version}`)
@@ -75,6 +75,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const [name, pin] of Object.entries(pins)) console.log(`${name}@${pin}`)
   } else if (action === 'assert') {
     assertPinnedGraph(fs.readFileSync(destination, 'utf8'), pins, version)
-    console.log(`uniform DSH ${version}; CLI companion pins ${JSON.stringify(pins)}: PASS`)
+    console.log(`OPERATIONS-ONLY project lock DSH ${version}; stale peer-only DSH versions refused; companion inventory ${JSON.stringify(pins)}: PASS`)
   } else throw new Error('use prepare or assert')
 }

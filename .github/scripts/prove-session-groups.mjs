@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { assertEmptyGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
 
 const [home, work, daemonBin, root] = process.argv.slice(2);
 assert.ok(home && work && daemonBin && root, 'usage: prove-session-groups.mjs HOME WORK DAEMON_BIN REPO');
@@ -16,22 +17,25 @@ fs.symlinkSync(path.join(root, '.github/fixtures/groups-worker/worker.cjs'), pat
 const cleanEnv = { ...process.env, PATH: `${bin}:${home}/node_modules/.bin:${process.env.PATH}`, W120_WORK: work };
 for (const key of Object.keys(cleanEnv)) if (key.startsWith('SESSIONBUS_')) delete cleanEnv[key];
 const processes = new Set(), peers = new Set();
+const beforeSpawn = installInterruptCleanup(processes);
 const groupResponses = { immediate: 0, progress: 0 };
 const run = (command, args, env, label) => {
-  const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: work });
+  beforeSpawn();
+  const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: work, detached: true });
   processes.add(child);
   child.output = ''; child.errors = '';
   child.stdout.on('data', chunk => { child.output += chunk; fs.appendFileSync(path.join(work, `${label}.stdout`), chunk); });
   child.stderr.on('data', chunk => { child.errors += chunk; fs.appendFileSync(path.join(work, `${label}.stderr`), chunk); });
-  child.once('exit', () => processes.delete(child));
+  child.ended = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); });
+  });
   return child;
 };
 const stop = async child => {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const ended = new Promise(resolve => child.once('exit', resolve));
-  child.kill('SIGTERM');
-  await Promise.race([ended, delay(5000).then(() => { if (processes.has(child)) child.kill('SIGKILL'); })]);
-  await ended;
+  const result = await stopOwnedChild(child);
+  assert.equal(result.signal, null, 'normal native stop must exit rather than be killed');
+  processes.delete(child); return result;
 };
 // Bounded observation waits are harness-only; native calls and changes are never replayed.
 const until = async (read, label) => {
@@ -70,7 +74,7 @@ const launchWeb = async label => {
   ], { ...cleanEnv, DSH_HOME: home, SESSIONBUS_SOCKET: socket, SESSIONBUS_GROUPS: '["default"]',
     DSH_SNAPSHOT_FILE: path.join(root, '.github/fixtures/sessionbus-groups.jsonl'), DSH_W081_SESSION_ROOT: sessionRoot }, label);
   const launch = await until(() => {
-    if (!processes.has(child)) throw new Error(`web exited: ${child.errors}`);
+    if (child.hasEnded) throw new Error(`web exited: ${child.errors}`);
     return /dsh web: (http:\/\/\S+)/u.exec(child.output)?.[1];
   }, 'web launch URL');
   const login = await fetch(launch, { redirect: 'manual' });
@@ -204,14 +208,15 @@ try {
   const bad = run(path.join(home, 'node_modules/.bin/dsh'), ['--profile', 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'], {
     ...cleanEnv, DSH_HOME: home, SESSIONBUS_SOCKET: socket,
   }, 'groups-invalid-record');
-  await until(() => !processes.has(bad), 'invalid record refuses profile');
+  await until(() => bad.hasEnded, 'invalid record refuses profile');
   assert.equal(bad.exitCode, 1, bad.errors);
   assert.equal(bad.errors, `sessionbus: domain 'sessionbus_groups': stored record '${second}' in table 'groups' does not match its schema\n`);
   assert.deepEqual(JSON.parse(fs.readFileSync(stored(second))), invalid, 'invalid state never rewritten or skipped');
+  assertEmptyGroup(bad); processes.delete(bad);
   console.log('invalid stored table/key refuses activation unchanged: PASS');
   await stop(daemon);
 } finally {
   console.log(`group command responses: immediate=${groupResponses.immediate} progress=${groupResponses.progress}; observation bound=10000ms`);
   for (const peer of peers) peer.shutdown();
-  await Promise.all([...processes].map(stop));
+  await Promise.all([...processes].map(async child => { await stopOwnedChild(child, child.pid, true); processes.delete(child); }));
 }
