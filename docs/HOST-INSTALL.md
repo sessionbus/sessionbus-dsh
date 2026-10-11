@@ -1535,23 +1535,30 @@ above explicitly rejects **any** invariants record; accepted means missing,
 not an old DSH island. For every profile carrying that provider, verify:
 
 ```sh
-for profile_name in sessionbus web dashi; do
-  profile_root="$DSH_HOME/profiles/$profile_name"
+for profile_root in "$DSH_HOME"/profiles/* "$DSH_HOME"/profiles/.[!.]* "$DSH_HOME"/profiles/..?*; do
+  [ -d "$profile_root" ] || continue
+  profile_name=${profile_root##*/}
+  [ "$profile_name" != node_modules ] || continue
   if [ -f "$profile_root/node_modules/dsh-codex/package.json" ]; then
     grep -Eq '^autoInstallPeers: false[[:space:]]*$' "$profile_root/pnpm-workspace.yaml"
-    if sed '/^snapshots:/,$d' "$profile_root/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh-invariants@"; then
-      printf 'removed invariants package in %s lock: stop\n' "$profile_name" >&2
-      exit 1
-    fi
-    printf '%s: autoInstallPeers=false; invariants lock records=0 (accepted unmet peer)\n' "$profile_name"
+    node --input-type=module - "$profile_root/pnpm-lock.yaml" "$profile_name" <<'NODE'
+import { readFileSync } from 'node:fs'
+const [lockFile, profile] = process.argv.slice(2)
+const packages = readFileSync(lockFile, 'utf8').split('\nsnapshots:\n', 1)[0]
+if (/^  '?@deepseek-ai\/dsh-invariants@/m.test(packages)) throw new Error(`removed invariants package in ${profile} lock: stop`)
+console.log(`${profile}: autoInstallPeers=false; invariants lock records=0 (accepted unmet peer)`)
+NODE
   fi
 done
 ```
 
 Expected output is one `autoInstallPeers=false; invariants lock records=0
 (accepted unmet peer)` line for each profile with dsh-codex installed. A missing
-workspace setting or any invariants lock record stops; skipped profiles have no
-such provider. This metadata exception does not waive any other graph check.
+or unreadable workspace/lock, a missing workspace setting, or any invariants
+lock record stops. This read-only check includes custom and hidden profile
+directories; non-directories and the `node_modules` fallback are ignored, as
+are profiles without this provider. It never repairs them automatically. This
+metadata exception does not waive any other graph check.
 
 For `deepseek-official`, leave that array empty because the base bundle already
 owns the adapter. Otherwise add every exact spec to both profiles and repair
