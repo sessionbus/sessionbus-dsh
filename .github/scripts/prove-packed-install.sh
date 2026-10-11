@@ -15,18 +15,19 @@ stop_processes() {
   server_pid=
 }
 assert_permission_proof() {
-  node --input-type=module - "$1" "$2" "${3:-}" "${4:-}" <<'NODE'
+  node --input-type=module - "$1" "$2" "${3:-}" "${4:-}" "$root/package.json" <<'NODE'
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const [capture, root, token, sessionFile] = process.argv.slice(2);
+const [capture, root, token, sessionFile, manifest] = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(capture, "utf8"));
 const input = "W087_INPUT_SENTINEL", deliveryInput = "W087_DELIVERY_SENTINEL", traceContent = "W102_TRACE_CONTENT_SENTINEL";
 assert.equal(state.hello, true);
 assert.equal(state.listed, true);
 if (Object.hasOwn(state, "ready")) assert.equal(state.ready, true);
 if (token !== "") {
+  assert.equal(state.helloParams.version, JSON.parse(fs.readFileSync(manifest)).version, 'the launched candidate must identify its actual package version');
   assert.equal(state.helloParams.launch_token, token);
   assert.equal(Object.hasOwn(state.helloParams, "groups"), false);
   assert.equal(state.helloParams.supports_message_run, true);
@@ -273,12 +274,13 @@ if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
 DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-row
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml" "$home"
+node "$root/.github/scripts/prove-dashi-resolution.mjs" "$home" "$DASHI_APP_VERSION" "$(node -p "require('./package.json').version")" | tee "$work/dashi-resolution.json"
 DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install" --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
 capture="$work/dashi-lane-proof.json"
 token="w084-dashi-lane-$version"
-echo "DSH $version dashi launcher lane permission proof"
+echo "DSH $version published dashi launcher lane permission proof with dashi-app installed"
 node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dashi worker &
 server_pid=$!
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
@@ -287,20 +289,6 @@ dsh_pid=$!
 for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/dashi-lane.stdout" "$work/dashi-lane.stderr" >&2 2>/dev/null || true; exit 1; fi
 assert_permission_proof "$capture" "$work/dashi-lane-sessions" "$token"
-stop_processes
-
-socket="$work/dashi.sock"
-capture="$work/dashi-proof.json"
-token="w077-dashi-$version"
-echo "DSH $version dashi row permission proof"
-node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dashi worker &
-server_pid=$!
-for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
-DSH_HOME="$home" DSH_SNAPSHOT_FILE="$fixture" DSH_W081_SESSION_ROOT="$work/dashi-sessions" SESSIONBUS_SOCKET="$socket" SESSIONBUS_LAUNCH_TOKEN="$token" "$dsh" --profile dashi --patch "$proof_patch" >"$work/dashi.stdout" 2>"$work/dashi.stderr" &
-dsh_pid=$!
-for _ in $(seq 1 300); do [[ -s "$capture" ]] && grep -q '"ready":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
-if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capture" "$work/dashi.stdout" "$work/dashi.stderr" >&2 2>/dev/null || true; exit 1; fi
-assert_permission_proof "$capture" "$work/dashi-sessions" "$token"
 stop_processes
 else
   not_run='NOT RUN: dashi packed (DASHI_APP_VERSION unset; dashi 0.2.0-alpha.1 not released, W-114)'

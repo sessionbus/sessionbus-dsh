@@ -36,6 +36,8 @@ jobs:
         env:
           DSH_TEST_VERSION: ${{ matrix.dsh }}
       - run: .github/scripts/prove-packed-install.sh "${{ matrix.dsh }}"
+        env:
+          DASHI_APP_VERSION: 0.2.0-alpha.1
 
   publish:
     needs: verify

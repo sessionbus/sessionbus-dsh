@@ -1283,6 +1283,34 @@ test("rejection after progress preserves the old identity and reports one diagno
   await runtime.close();
 });
 
+test("old reconnect terminal rejection after progress releases the queue and unpublishes once", async () => {
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  const runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);
+  ctx.ready();
+  const old = runtime.peers.get(root), connect = deps.connectPeer;
+  deps.connectPeer = (...args) => {
+    const peer = connect(...args);
+    peer.caller.list = async () => { throw new Error("not connected"); };
+    return peer;
+  };
+  assert.match((await ctx.command.handler({ agent: root, rawInput: "after", signal: new AbortController().signal })).text, /^change in progress/u);
+  const cancel = new AbortController();
+  const queued = ctx.command.handler({ agent: root, rawInput: "later", signal: cancel.signal });
+  cancel.abort(new Error("queued user cancelled"));
+  old.peer.finish(Object.assign(new Error("invalid_hello"), { code: -32602 }));
+  await new Promise(setImmediate);
+  const state = { mapped: runtime.peers.has(root), stopped: deps.peers[1].stopped, errors: [...deps.errors], effects: ctx.effects.size };
+  // Cleanup also releases the old implementation's dead queue, so the test fails, not hangs.
+  await ctx.dispose();
+  const result = await queued;
+  assert.equal(state.mapped, false, "terminal old peer cannot remain published");
+  assert.equal(state.stopped, true, "pending candidate belongs to the failed operation");
+  assert.deepEqual(state.errors, ["sessionbus: invalid_hello\n"]);
+  assert.equal(state.effects, 1);
+  assert.deepEqual(ctx.groupWrites, []);
+  assert.deepEqual(result, { kind: "error", text: "queued user cancelled" });
+});
+
 test("lost self-info acknowledgment after supersession preserves the admitted candidate", async () => {
   const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
   const runtime = createRuntime(ctx, { product: "dsh", groups: ["before"] }, deps);

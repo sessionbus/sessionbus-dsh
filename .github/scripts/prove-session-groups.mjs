@@ -16,6 +16,7 @@ fs.symlinkSync(path.join(root, '.github/fixtures/groups-worker/worker.cjs'), pat
 const cleanEnv = { ...process.env, PATH: `${bin}:${home}/node_modules/.bin:${process.env.PATH}`, W120_WORK: work };
 for (const key of Object.keys(cleanEnv)) if (key.startsWith('SESSIONBUS_')) delete cleanEnv[key];
 const processes = new Set(), peers = new Set();
+const groupResponses = { immediate: 0, progress: 0 };
 const run = (command, args, env, label) => {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: work });
   processes.add(child);
@@ -76,19 +77,43 @@ const launchWeb = async label => {
   assert.equal(login.status, 303);
   const cookie = login.headers.get('set-cookie')?.split(';', 1)[0];
   assert.ok(cookie);
-  const rpc = async (method, args) => {
+  const rpc = async (method, args, signal = AbortSignal.timeout(10000)) => {
     const response = await fetch(`${new URL(launch).origin}/api/${method}`, {
       method: 'POST', headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload: { args } }), signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method, payload: { args } }), signal,
     });
     const body = await response.json();
     assert.equal(body.result?.ok, true, `${method}: ${JSON.stringify(body)}`);
     return body.result.value;
   };
   const command = async (id, line) => {
+    const diagnostics = child.errors.length;
     const execution = await rpc('commands/execute', { agentId: id, line, submittedAttachments: [] });
     assert.equal(execution.result.kind, 'success', JSON.stringify(execution));
-    return JSON.parse(execution.result.text);
+    const progress = 'change in progress; `/sessionbus-groups` with no argument shows the result';
+    if (execution.result.text !== progress) {
+      if (line.startsWith('/sessionbus-groups ')) groupResponses.immediate++;
+      return JSON.parse(execution.result.text);
+    }
+    assert.ok(line.startsWith('/sessionbus-groups '), 'only a groups mutation can report progress');
+    groupResponses.progress++;
+    const input = line.slice('/sessionbus-groups '.length).trim();
+    const wanted = input === '-' ? ['default'] : input.split(',').map(value => value.trim());
+    const record = path.join(home, 'storages/sessionbus_groups/groups', `${id}.json`);
+    const bound = AbortSignal.timeout(10000);
+    // Observe live AND durable state for at most 10s. Never replay the mutation.
+    for (;;) {
+      bound.throwIfAborted();
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(diagnostics)), false, child.errors.slice(diagnostics));
+      const shown = await rpc('commands/execute', { agentId: id, line: '/sessionbus-groups', submittedAttachments: [] }, bound);
+      assert.equal(shown.result.kind, 'success', JSON.stringify(shown));
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(diagnostics)), false, child.errors.slice(diagnostics));
+      const live = JSON.stringify(JSON.parse(shown.result.text)) === JSON.stringify(wanted);
+      const durable = input === '-' ? !fs.existsSync(record)
+        : fs.existsSync(record) && JSON.stringify(JSON.parse(fs.readFileSync(record)).record) === JSON.stringify(wanted);
+      if (live && durable) return wanted;
+      await delay(50, undefined, { signal: bound });
+    }
   };
   return { child, rpc, command };
 };
@@ -186,6 +211,7 @@ try {
   console.log('invalid stored table/key refuses activation unchanged: PASS');
   await stop(daemon);
 } finally {
+  console.log(`group command responses: immediate=${groupResponses.immediate} progress=${groupResponses.progress}; observation bound=10000ms`);
   for (const peer of peers) peer.shutdown();
   await Promise.all([...processes].map(stop));
 }

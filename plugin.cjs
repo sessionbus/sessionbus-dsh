@@ -500,6 +500,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
             });
             const admitted = old.peer.closed.then(() => {
               if (old.peer.error?.code === -32012) return;
+              if (old.peer.error) throw old.peer.error;
               if (!live() || peers.get(agent) !== old) throw new Error("DSH root was disposed or replaced");
               return new Promise(() => {});
             });
@@ -538,7 +539,8 @@ function createRuntime(ctx, config, dependencies, prepared) {
       });
       initial.rehello = changed.then(() => {}, () => {});
       const result = changed.catch(error => {
-        if (inProgress && active()) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+        // The old peer's deferred publication handler reports that exact terminal error once.
+        if (inProgress && active() && peers.get(agent)?.peer.error !== error) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
         return { kind: "error", text: clean(error) };
       });
       return Promise.race([result, progress.promise]);

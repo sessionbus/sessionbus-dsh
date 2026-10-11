@@ -132,6 +132,10 @@ neither terminal signal arrives, the operation remains pending under those same
 kit close/reconnect semantics; there is no swap deadline or polling loop. Show
 remains available; later changes and title updates wait. A failure after the
 progress response has one sanitized `sessionbus:` stderr diagnostic.
+A terminal rejection of the old peer's reconnect also ends the pending change
+and unpublishes it with that diagnostic. A second change queued behind a pending
+one has no progress response of its own; it checks cancellation only once the
+first operation settles.
 
 A saving failure after a live identity change reports
 `live groups changed, saving failed: <native error>; restart will use the prior value`;
@@ -139,7 +143,9 @@ the new live identity remains, and the prior durable value is unchanged.
 Saving a same-list set/reset can fail without changing the identity; that message
 says `live groups unchanged` instead. A narrow known limitation remains: after a
 daemon outage, an old peer's reconnect hello already in flight can race shutdown
-after replacement. No extra recovery/replay mechanism is added.
+after replacement. A `sessionbus: superseded` diagnostic can mean the group change
+lost to that reconnect; stable group removal is not claimed in that window.
+No extra recovery/replay mechanism is added.
 Native domain `put` does not validate; this plugin validates before every write.
 Invalid stored values therefore require external damage in this release and
 refuse activation at the next open with the native table/key diagnostic.
