@@ -28,12 +28,12 @@ try {
     const candidate = join(profile, 'node_modules/@deepseek-ai/cordis');
     mkdirSync(candidate, { recursive: true });
     writeFileSync(join(profile, 'package.json'), JSON.stringify({
-      private: true, dependencies: { '@deepseek-ai/cordis': version, '@sessionbus/dsh': '0.1.0-pre.21' },
+      private: true, dependencies: { '@deepseek-ai/cordis': version, '@sessionbus/dsh': '0.1.0' },
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
     }));
     const plugin = join(profile, 'node_modules/@sessionbus/dsh');
     mkdirSync(plugin, { recursive: true });
-    writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', version: '0.1.0-pre.21',
+    writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', version: '0.1.0',
       main: './plugin.cjs', peerDependencies: { '@deepseek-ai/cordis': '>=4.0.5-alpha.1' } }));
     writeFileSync(join(plugin, 'plugin.cjs'), 'exports.apply = () => {};\n');
     writeFileSync(join(candidate, 'package.json'), JSON.stringify({ ...expected, version }));

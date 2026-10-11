@@ -147,6 +147,12 @@ try {
     await stop(server);
     console.log(`${mode}: executing native resolution, mounted provider, round trip, durable text, permission control${mode === 'web' ? ', cookie HTTP empty-request root and idle wake without socket override' : ''}: PASS`);
   }
+  const optionProof = start([process.execPath, path.join(repo, '.github/scripts/prove-lane-options.mjs'),
+    path.join(work, 'lane-options'), JSON.stringify(dsh), home, repo], base, 'lane-options-proof');
+  optionProof.stdout.on('data', bytes => process.stdout.write(bytes));
+  assert.deepEqual(await optionProof.ended, { code: 0, signal: null }, optionProof.stderrText);
+  assertEmptyGroup(optionProof); children.delete(optionProof);
+  console.log('W-126: session-only options and unchanged profile bytes after native open/turn/shutdown: PASS');
   for (const profile of profiles) {
     await operation(['plugin', '--profile', profile, 'exec', 'sessionbus-dsh-install', '--remove', profile], `${profile}-remove-rows`);
     const directory = path.join(home, 'profiles', profile);

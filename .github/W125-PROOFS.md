@@ -1,5 +1,9 @@
 # W-125 proof and preservation map
 
+This records W-125's accepted installer change at merged main 8677643.
+The subsequent runtime and stable-version change has its own [W-126 map](W126-PROOFS.md);
+W-125's byte-preservation claims describe that earlier change, not W-126.
+
 ## Consequences and ownership
 
 DSH owns package installation and the compatibility floor. The installer owns
