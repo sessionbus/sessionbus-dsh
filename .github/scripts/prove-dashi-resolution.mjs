@@ -7,8 +7,9 @@ import { providerInventory } from './prove-upload-provider.mjs';
 
 const [home, appVersion, candidateVersion] = process.argv.slice(2);
 assert.ok(home && appVersion && candidateVersion, 'pass HOME APP_VERSION CANDIDATE_VERSION');
-const native = createRequire(fs.realpathSync(path.join(home, 'package.json')));
-const anchor = fs.realpathSync(native.resolve('@deepseek-ai/dsh/package.json'));
+const discovery = createRequire(fs.realpathSync(path.join(home, 'package.json')));
+const anchor = fs.realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'));
+const native = createRequire(anchor);
 const { Context } = await import(native.resolve('@deepseek-ai/cordis'));
 const { PluginPackages, createRuntimeResolution, loadProfileDirectory } = await import(native.resolve('@deepseek-ai/dsh-app-boot'));
 const profile = loadProfileDirectory('dsh', path.join(home, 'profiles/dashi'), anchor);

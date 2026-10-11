@@ -25,8 +25,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   assert.equal(inventory.physical.length, 1, 'ordinary add must leave one physical provider: no cleanup');
   assert.deepEqual(inventory.lockVersions, [wanted]);
   assert.equal(inventory.physical[0].version, wanted);
-  const native = createRequire(fs.realpathSync(path.join(home, 'package.json')));
-  const anchor = fs.realpathSync(native.resolve('@deepseek-ai/dsh/package.json'));
+  const discovery = createRequire(fs.realpathSync(path.join(home, 'package.json')));
+  const anchor = fs.realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'));
+  const native = createRequire(anchor);
   const { Context } = await import(native.resolve('@deepseek-ai/cordis'));
   const { PluginPackages, createRuntimeResolution, loadProfileDirectory } = await import(native.resolve('@deepseek-ai/dsh-app-boot'));
   const profile = loadProfileDirectory('dsh', profileDir, anchor);
