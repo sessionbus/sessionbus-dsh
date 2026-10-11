@@ -168,16 +168,21 @@ function validProfile(name) {
   return name && !name.includes("/") && !name.includes("\\") && name !== "." && name !== ".." && name !== "node_modules";
 }
 
+/** Select a profile-owned exact pin without writing or falling back from a broken app owner. */
 function providerPin(manifest, manifestFile, range, semver, query) {
   if (manifest?.dependencies?.["@antst/dashi-app"]) {
-    const directory = packageDir(realpathSync(manifestFile), "@antst/dashi-app");
-    const pin = directory && JSON.parse(readFileSync(path.join(directory, "package.json"))).dependencies?.[uploads];
+    const appFile = path.join(path.dirname(manifestFile), "node_modules/@antst/dashi-app/package.json");
+    if (!existsSync(appFile)) throw refusal(`cannot resolve dashi-app in profile ${path.dirname(manifestFile)}`);
+    const app = JSON.parse(readFileSync(appFile, "utf8"));
+    if (!semver.satisfies(app.version, manifest.dependencies["@antst/dashi-app"])) throw refusal(`dashi-app ${app.version} does not satisfy profile spec ${manifest.dependencies["@antst/dashi-app"]}`);
+    const pin = app.dependencies?.[uploads];
     if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw refusal(`dashi-app must declare an exact matching provider ${uploads}`);
     return pin;
   }
   const result = query(["view", `${uploads}@${range}`, "version", "--json"], path.dirname(manifestFile));
-  if (result.status !== 0) throw new Error(String(result.stderr || result.error?.message || "provider registry lookup failed").trim());
-  const versions = JSON.parse(result.stdout);
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(String(result.stderr || "provider registry lookup failed").trim());
+  const versions = result.stdout.trim() ? JSON.parse(result.stdout) : [];
   const pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range);
   if (!pin) throw refusal(`no matching registry provider for ${uploads}@${range}`);
   return pin;
@@ -187,7 +192,7 @@ export function install(profileNames = [], options = {}) {
   const home = options.home || process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
   const root = options.root || path.dirname(fileURLToPath(import.meta.url));
   const run = options.run || ((args) => spawnSync("dsh", args, { cwd: root, encoding: "utf8" }));
-  const query = options.query || ((args, profile) => spawnSync("pnpm", args, { cwd: existsSync(profile) ? profile : root, encoding: "utf8" }));
+  const query = options.query || ((args, profile) => spawnSync("pnpm", args, { cwd: existsSync(profile) ? profile : root, encoding: "utf8", timeout: 60_000 }));
   const names = [...new Set(profileNames.length ? profileNames : ["sessionbus"])];
   const laneProduct = options.product ?? "sessionbus-dsh";
   if (options.product !== undefined && (typeof options.product !== "string" || !productPattern.test(options.product))) throw new Error(`invalid product ${JSON.stringify(options.product)}; expected ^[a-z0-9][a-z0-9-]{0,31}$`);
@@ -210,12 +215,17 @@ export function install(profileNames = [], options = {}) {
     const conflict = bundleConflict(JSON.parse(readFileSync(manifestFile, "utf8")), manifestFile, peerRows(name), anchor);
     if (conflict) throw refusal(`profile ${JSON.stringify(name)} bundle ${JSON.stringify(conflict.bundle)} already provides row ${JSON.stringify(conflict.row)}`);
   }
+  const pins = new Map(names.map(name => {
+    const manifestFile = path.join(home, "profiles", name, "package.json");
+    const manifest = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, "utf8")) : null;
+    return [name, providerPin(manifest, manifestFile, peers[uploads], semver, query)];
+  }));
   for (const name of names) {
     const profile = path.join(home, "profiles", name);
     const manifestFile = path.join(profile, "package.json");
     const existed = existsSync(manifestFile);
     let manifest = existed ? JSON.parse(readFileSync(manifestFile, "utf8")) : null;
-    const pin = providerPin(manifest, manifestFile, peers[uploads], semver, query);
+    const pin = pins.get(name);
     const missingPlugin = !manifest?.dependencies?.["@sessionbus/dsh"];
     if (missingPlugin || manifest.dependencies[uploads] !== pin) {
       const result = run(["plugin", "--profile", name, "add", "--save-exact", ...(missingPlugin ? ["@sessionbus/dsh"] : []), `${uploads}@${pin}`]);

@@ -4,6 +4,7 @@
 
 - Move `@antst/dsh-file-uploads-none` from a dependency to a required peer at the unchanged `^0.1.0 || ^0.2.0-alpha.1` range. The installer exact-pins the profile-owned provider in lane, web and custom profiles, using an installed dashi-app's exact dependency when present or the highest matching registry release otherwise. Web never gains a no-upload row; uninstall leaves provider/companion pins intact. Other-base helper prereleases remain excluded. Plugin runtime, launchers and wire behavior are unchanged (W-122).
 - Prove ordinary pre.19 lane upgrade and standalone web each have one physical/lock provider, strict missing-peer refusal with auto-install disabled, and published-dashi coexistence without a one-provider claim. The dashi single-provider in-place proof follows its pre.20 re-pin; real lane/web host acceptance is required before this tag.
+- Preflight all profiles before writing, query each registry in its own context with a 60 s metadata-only bound, and refuse missing or version-mismatched profile-local dashi-app ownership without fallback. A newly added plugin is saved exactly rather than with a caret. The host-install runbook intentionally pins the provider in the host project as well as standalone profiles.
 
 ## 0.1.0-pre.19 — 2026-10-11
 

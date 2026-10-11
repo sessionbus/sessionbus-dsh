@@ -1007,15 +1007,19 @@ const manifestFile = join(directory, 'package.json')
 const manifest = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, 'utf8')) : {}
 let pin
 if (manifest.dependencies?.['@antst/dashi-app']) {
-  const owner = createRequire(realpathSync(manifestFile))
-  pin = JSON.parse(readFileSync(owner.resolve('@antst/dashi-app/package.json'), 'utf8')).dependencies?.[helper]
+  const appFile = join(directory, 'node_modules/@antst/dashi-app/package.json')
+  if (!existsSync(appFile)) throw new Error(`cannot resolve dashi-app in profile ${directory}`)
+  const app = JSON.parse(readFileSync(appFile, 'utf8'))
+  if (!semver.satisfies(app.version, manifest.dependencies['@antst/dashi-app'])) throw new Error(`dashi-app ${app.version} does not satisfy profile spec ${manifest.dependencies['@antst/dashi-app']}`)
+  pin = app.dependencies?.[helper]
   if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw new Error('dashi-app must declare an exact matching provider')
 } else {
   const result = spawnSync('pnpm', ['view', `${helper}@${range}`, 'version', '--json'], {
-    cwd: existsSync(directory) ? directory : dirname(realpathSync(bin)), encoding: 'utf8',
+    cwd: existsSync(directory) ? directory : dirname(realpathSync(bin)), encoding: 'utf8', timeout: 60_000,
   })
-  if (result.status !== 0) throw new Error(result.stderr || result.error?.message || 'provider lookup failed')
-  const versions = JSON.parse(result.stdout)
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(result.stderr || 'provider lookup failed')
+  const versions = result.stdout.trim() ? JSON.parse(result.stdout) : []
   pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range)
   if (!pin) throw new Error('no matching provider release')
 }
@@ -1034,10 +1038,15 @@ the installer explicitly pins with `maxSatisfying`. Under
 so the commands below supply the exact pin together with the plugin. Other-base
 prereleases such as `0.2.1-alpha.x` are not admitted by this range. Removing the
 plugin later leaves these profile-owned provider/companion pins untouched.
+Registry queries have a 60 s bound each, use each existing profile's own registry
+context, and propagate native failures without retry or fallback. The installer
+preflights every profile's pin before any profile add or row write; a later native
+package-operation failure can still leave earlier profiles changed.
 
 Install the package in the host project. This supplies the command for the
 daemon's service PATH; the task shell PATH already lets the package-owned
-launcher and installer find their child `dsh`:
+launcher and installer find their child `dsh`. The host project intentionally
+gets its own exact provider pin too, to satisfy the host-installed plugin's peer:
 
 ```sh
 cd "$DSH_INSTALL_DIR"

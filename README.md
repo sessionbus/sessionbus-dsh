@@ -70,6 +70,12 @@ Pre.20 declares `@antst/dsh-file-uploads-none` as a required peer at
 `^0.1.0 || ^0.2.0-alpha.1`, not a nested dependency. Every profile managed by
 the installer gets an exact pin: the installed dashi-app's exact provider pin
 when present, otherwise the highest registry release matching that range.
+The app must be installed in that profile's own `node_modules` at a version
+satisfying its manifest spec. All profile guards and pin lookups complete before
+any profile changes; each registry query uses that profile's context and has a
+60 s bound, with native errors propagated and no retry or fallback. A later
+package-operation failure can leave earlier profiles changed. When the plugin
+is missing, the same add saves its dependency exactly, not with a caret.
 The web profile gets the package pin but never a no-upload loader row.
 DSH and the Cordis/Zod companions must still be coherent as the runbook requires.
 With pnpm defaults, auto-install supplies a matching missing peer under pnpm's

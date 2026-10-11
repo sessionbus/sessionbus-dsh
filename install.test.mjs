@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
+import childProcess, { spawnSync } from "node:child_process";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -74,13 +74,13 @@ test("W-122 installer takes the app-owned exact provider, never registry fallbac
   const app = path.join(fixture.profile, "node_modules/@antst/dashi-app");
   mkdirSync(app, { recursive: true });
   const appFile = path.join(app, "package.json");
-  writeFileSync(appFile, JSON.stringify({ name: "@antst/dashi-app", dependencies: { [uploads]: "0.1.3" } }));
+  writeFileSync(appFile, JSON.stringify({ name: "@antst/dashi-app", version: "0.2.0-alpha.1", dependencies: { [uploads]: "0.1.3" } }));
   const options = { ...fixture, product: "dsh", query: () => assert.fail("app owns this fact") };
   install(["custom"], options);
   assert.equal(JSON.parse(readFileSync(fixture.manifestFile)).dependencies[uploads], "0.1.3");
   const before = readFileSync(fixture.manifestFile), patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"));
   for (const pin of [undefined, "^0.1.3", "0.3.0", "0.2.1-alpha.1"]) {
-    writeFileSync(appFile, JSON.stringify({ dependencies: { [uploads]: pin } }));
+    writeFileSync(appFile, JSON.stringify({ version: "0.2.0-alpha.1", dependencies: { [uploads]: pin } }));
     assert.throws(() => install(["custom"], options), /dashi-app.*exact.*provider/u);
     assert.deepEqual(readFileSync(fixture.manifestFile), before);
     assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
@@ -90,7 +90,7 @@ test("W-122 installer takes the app-owned exact provider, never registry fallbac
 test("W-122 registry or add failure leaves provider rows unwritten", t => {
   const fixture = providerProfile(t, "web");
   const before = readFileSync(fixture.manifestFile), patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"));
-  for (const response of [{ status: 1, stderr: "registry unavailable" }, { status: 0, stdout: "[]" }]) {
+  for (const response of [{ status: 1, stderr: "registry unavailable" }, { status: 0, stdout: "" }]) {
     assert.throws(() => install(["web"], { ...fixture, product: "dsh", query: () => response }), /registry unavailable|no matching.*provider/u);
     assert.deepEqual(readFileSync(fixture.manifestFile), before);
     assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
@@ -98,6 +98,85 @@ test("W-122 registry or add failure leaves provider rows unwritten", t => {
   assert.throws(() => install(["web"], { ...fixture, product: "dsh", query: () => ({ status: 0, stdout: '"0.1.3"' }), run: () => ({ status: 1, stderr: "package add failed" }) }), /package add failed/u);
   assert.deepEqual(readFileSync(fixture.manifestFile), before);
   assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
+});
+
+test("W-122 every profile pin is preflighted before any add or row write", async t => {
+  for (const failure of ["app-pin", "registry", "empty"]) await t.test(failure, t => {
+    const fixture = providerProfile(t, "web"), custom = path.join(fixture.home, "profiles/custom");
+    mkdirSync(custom, { recursive: true });
+    const dependencies = { "@sessionbus/dsh": packageVersion };
+    if (failure === "app-pin") {
+      dependencies["@antst/dashi-app"] = "0.2.0-alpha.1";
+      const app = path.join(custom, "node_modules/@antst/dashi-app");
+      mkdirSync(app, { recursive: true });
+      writeFileSync(path.join(app, "package.json"), JSON.stringify({ version: "0.2.0-alpha.1", dependencies: { [uploads]: "^0.1.3" } }));
+    }
+    writeFileSync(path.join(custom, "package.json"), JSON.stringify({ dependencies }));
+    writeFileSync(path.join(custom, "cordis.patch.yml"), "[]\n");
+    const files = [fixture.profile, custom].flatMap(directory => ["package.json", "cordis.patch.yml"].map(name => path.join(directory, name)));
+    const before = files.map(file => readFileSync(file));
+    let adds = 0;
+    assert.throws(() => install(["web", "custom"], { home: fixture.home, product: "dsh", query: (args, cwd) => {
+      assert.ok([fixture.profile, custom].includes(cwd), "each query uses that profile's registry context");
+      return cwd === fixture.profile ? { status: 0, stdout: '"0.2.0-alpha.1"' }
+        : failure === "registry" ? { status: 1, stderr: "custom registry unavailable" } : { status: 0, stdout: "" };
+    }, run: args => { adds++; return fixture.run(args); } }), /exact.*provider|custom registry unavailable|no matching.*provider/u);
+    assert.equal(adds, 0);
+    files.forEach((file, i) => assert.deepEqual(readFileSync(file), before[i], file));
+  });
+});
+
+test("W-122 query timeout is bounded, preserves native ETIMEDOUT and changes nothing", t => {
+  const fixture = providerProfile(t, "web"), before = readFileSync(fixture.manifestFile);
+  t.mock.method(childProcess, "spawnSync", (command, args, options) => {
+    assert.equal(command, "pnpm");
+    assert.equal(args[0], "view");
+    assert.equal(options.timeout, 60_000);
+    assert.equal(options.cwd, fixture.profile);
+    return { status: null, stderr: "partial progress", error: Object.assign(new Error("spawnSync pnpm ETIMEDOUT"), { code: "ETIMEDOUT" }) };
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  assert.throws(() => installProfile(["web"], { ...fixture, product: "dsh", run: () => assert.fail("timeout precedes mutation") }), error => error.code === "ETIMEDOUT" && /ETIMEDOUT/u.test(error.message));
+  assert.deepEqual(readFileSync(fixture.manifestFile), before);
+  assert.equal(readFileSync(path.join(fixture.profile, "cordis.patch.yml"), "utf8"), "[]\n");
+});
+
+test("W-122 each profile queries its own registry before either profile changes", t => {
+  const fixture = providerProfile(t, "web"), custom = path.join(fixture.home, "profiles/custom");
+  mkdirSync(custom, { recursive: true });
+  writeFileSync(path.join(custom, "package.json"), JSON.stringify(fixture.manifest));
+  writeFileSync(path.join(custom, "cordis.patch.yml"), "[]\n");
+  const queries = [], adds = [];
+  install(["web", "custom"], { home: fixture.home, product: "dsh", query: (args, cwd) => {
+    assert.equal(adds.length, 0);
+    queries.push(cwd);
+    return { status: 0, stdout: JSON.stringify(cwd === fixture.profile ? "0.1.3" : "0.2.0-alpha.1") };
+  }, run: args => {
+    adds.push(args);
+    const manifestFile = path.join(fixture.home, "profiles", args[2], "package.json");
+    const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
+    manifest.dependencies[uploads] = args.at(-1).slice(uploads.length + 1);
+    writeFileSync(manifestFile, JSON.stringify(manifest));
+    return { status: 0 };
+  } });
+  assert.deepEqual(queries, [fixture.profile, custom]);
+  assert.deepEqual(adds.map(args => args.at(-1)), [`${uploads}@0.1.3`, `${uploads}@0.2.0-alpha.1`]);
+});
+
+test("W-122 app owner must be profile-local and match its declared version", t => {
+  const fixture = providerProfile(t, "web", { "@antst/dashi-app": "0.2.0-alpha.1" });
+  const ancestor = path.join(fixture.home, "node_modules/@antst/dashi-app");
+  mkdirSync(ancestor, { recursive: true });
+  writeFileSync(path.join(ancestor, "package.json"), JSON.stringify({ version: "0.2.0-alpha.1", dependencies: { [uploads]: "0.1.3" } }));
+  const before = readFileSync(fixture.manifestFile), options = { ...fixture, product: "dsh", query: () => assert.fail("no fallback") };
+  assert.throws(() => install(["web"], options), error => error.exitCode === 2 && /cannot resolve.*dashi-app.*profile/u.test(error.message));
+  const local = path.join(fixture.profile, "node_modules/@antst/dashi-app");
+  mkdirSync(local, { recursive: true });
+  writeFileSync(path.join(local, "package.json"), JSON.stringify({ version: "0.3.0", dependencies: { [uploads]: "0.1.3" } }));
+  assert.throws(() => install(["web"], options), error => error.exitCode === 2 && /dashi-app.*does not satisfy/u.test(error.message));
+  assert.deepEqual(readFileSync(fixture.manifestFile), before);
+  assert.equal(fixture.calls.length, 0);
 });
 
 test("W-122 floor refusal precedes provider registry and package operations", t => {
@@ -176,12 +255,15 @@ test("installer canonicalises a pnpm wrapper's symlinked CLI anchor before findi
     assert.throws(() => createRequire(path.join(modules, "@deepseek-ai/dsh/package.json")).resolve("@deepseek-ai/dsh-app-boot"), { code: "MODULE_NOT_FOUND" });
     const home = path.join(root, "home"), profile = path.join(home, "profiles/web");
     mkdirSync(profile, { recursive: true });
-    const manifest = JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } });
+    const manifest = JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1", "@antst/dashi-app": "0.2.0-alpha.1" } });
+    const app = path.join(profile, "node_modules/@antst/dashi-app");
+    mkdirSync(app, { recursive: true });
+    writeFileSync(path.join(app, "package.json"), JSON.stringify({ version: "0.2.0-alpha.1", dependencies: { [uploads]: "0.2.0-alpha.1" } }));
     const patch = "[]\n";
     writeFileSync(path.join(profile, "package.json"), manifest);
     writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
     const result = spawnSync(process.execPath, [path.resolve("bin.mjs"), "--product", "dsh", "web"], {
-      encoding: "utf8", env: { ...process.env, DSH_HOME: home, PATH: `${path.join(modules, ".bin")}${path.delimiter}${process.env.PATH}` },
+      encoding: "utf8", env: { ...process.env, DSH_HOME: home, npm_config_registry: "http://127.0.0.1:1", PATH: `${path.join(modules, ".bin")}${path.delimiter}${process.env.PATH}` },
     });
     assert.equal(result.status, version === "0.2.1-alpha.2" ? 0 : 2, result.stderr);
     assert.equal(readFileSync(path.join(profile, "package.json"), "utf8"), manifest);
@@ -451,12 +533,17 @@ test("installed bin symlink runs the installer", () => {
   const bin = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-bin-"));
   const profile = path.join(home, "profiles", "sessionbus");
   mkdirSync(profile, { recursive: true });
-  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
+  const dependencies = { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" };
+  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { ...dependencies, "@antst/dashi-app": "0.2.0-alpha.1" } }));
+  // Offline app-owner metadata for bin selection; package-manager removal has its own fixture below.
+  const app = path.join(profile, "node_modules/@antst/dashi-app");
+  mkdirSync(app, { recursive: true });
+  writeFileSync(path.join(app, "package.json"), JSON.stringify({ version: "0.2.0-alpha.1", dependencies: { [uploads]: "0.2.0-alpha.1" } }));
   writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
   writeFileSync(path.join(home, "cordis.patch.yml"), "[]\n");
   const command = path.join(bin, "sessionbus-dsh-install");
   symlinkSync(path.resolve("bin.mjs"), command);
-  const result = spawnSync(command, [], { encoding: "utf8", env: { ...process.env, DSH_HOME: home } });
+  const result = spawnSync(command, [], { encoding: "utf8", env: { ...process.env, DSH_HOME: home, npm_config_registry: "http://127.0.0.1:1" } });
   assert.equal(result.status, 0, result.stderr);
   assert.match(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), /mode: lane/u);
   assert.match(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), /file-uploads-none/u);
@@ -470,6 +557,8 @@ test("installed bin symlink runs the installer", () => {
     assert.equal(failed.status, 1);
     assert.match(failed.stderr, message);
   }
+  // The app above is a metadata stub, not a real installed dependency; restore the removal fixture.
+  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies }));
   const removed = spawnSync(command, ["--remove", "sessionbus"], { encoding: "utf8", env: { ...process.env, DSH_HOME: home } });
   assert.equal(removed.status, 0, removed.stderr);
   assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies?.["@sessionbus/dsh"], undefined);

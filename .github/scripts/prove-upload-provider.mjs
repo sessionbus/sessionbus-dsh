@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const helper = '@antst/dsh-file-uploads-none';
+/** Report real physical provider copies and lock records, including stale unreferenced copies. */
 export function providerInventory(profile) {
   const modules = path.join(profile, 'node_modules');
   const files = fs.readdirSync(modules, { recursive: true })
