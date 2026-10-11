@@ -221,7 +221,7 @@ test('sampled JSON evidence is published atomically by the actual fake producer 
 });
 
 test('cleanup aggregation retains the primary error at every real proof throw site', () => {
-  for (const file of ['prove-native-floor.mjs', 'prove-native-row-conflicts.mjs', 'prove-universal-profile.mjs']) {
+  for (const file of ['prove-native-floor.mjs', 'prove-native-row-conflicts.mjs', 'prove-universal-profile.mjs', 'prove-native-peer-policy.mjs']) {
     const source = readFileSync(new URL(`./.github/scripts/${file}`, import.meta.url), 'utf8');
     const line = source.split('\n').find(line => line.includes('throw new AggregateError('));
     assert.ok(line, file);
@@ -582,6 +582,53 @@ test('valid YAML that cannot be safely edited gets an editing diagnostic rather 
   }
 });
 
+test('owner-only indentless insert lists survive install, rerun and removal without byte changes', t => {
+  for (const name of ['sessionbus', 'web', 'custom']) {
+    const f = fixture(t, [name]);
+    const owner = '# owner\n- insert:\n  - id: llm-pi-ai\n    config: { owner: true }\n  - id: agent-default-model\n    config: { owner: true }\n';
+    writeFileSync(f.file(name), owner);
+    install([name], { ...f, ...(name === 'sessionbus' ? {} : { product: 'dsh' }) });
+    const installed = readFileSync(f.file(name), 'utf8'); assert.ok(installed.startsWith(owner));
+    install([name], { ...f, ...(name === 'sessionbus' ? {} : { product: 'dsh' }) });
+    assert.equal(readFileSync(f.file(name), 'utf8'), installed);
+    remove([name], f); assert.equal(readFileSync(f.file(name), 'utf8'), owner);
+  }
+});
+
+test('an idempotent installer rerun does not rename or change inode and mtime', t => {
+  for (const name of ['sessionbus', 'web']) {
+    const f = fixture(t, [name]), options = { ...f, ...(name === 'web' ? { product: 'dsh' } : {}) };
+    install([name], options);
+    const before = statSync(f.file(name), { bigint: true });
+    const rename = fs.renameSync;
+    t.mock.method(fs, 'renameSync', () => assert.fail('an idempotent rerun must not rename'));
+    syncBuiltinESMExports();
+    try { install([name], options); }
+    finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+    const after = statSync(f.file(name), { bigint: true });
+    assert.equal(after.ino, before.ino); assert.equal(after.mtimeNs, before.mtimeNs);
+    assert.equal(fs.renameSync, rename);
+  }
+});
+
+test('invalid UTF-8 refuses in all-profile preflight instead of changing owner comment bytes', t => {
+  for (const operation of [install, remove]) {
+    const f = fixture(t, ['web', 'sessionbus']);
+    const invalid = Buffer.concat([Buffer.from('# owner '), Buffer.from([0xe9]), Buffer.from('\n[]\n')]);
+    writeFileSync(f.file('sessionbus'), invalid);
+    const before = readFileSync(f.file('web'));
+    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')) && /UTF-8/u.test(error.message));
+    assert.deepEqual(readFileSync(f.file('web')), before); assert.deepEqual(readFileSync(f.file('sessionbus')), invalid);
+  }
+});
+
+test('repairing an empty config retains the required separator before its inline comment', t => {
+  const f = fixture(t, ['web']);
+  const original = `- id: sessionbus ${marker}\n  name: '@sessionbus/dsh'\n  config: # owner note\n`;
+  writeFileSync(f.file('web'), original); install(['web'], { ...f, product: 'dsh' });
+  assert.equal(readFileSync(f.file('web'), 'utf8'), original.replace('config: #', 'config: { product: dsh } #'));
+});
+
 test('missing-package hints name this installer exact version and every leftover pin is reported', t => {
   for (const name of ['sessionbus', 'web', 'custom']) {
     const f = fixture(t, [name]); const output = [];
@@ -792,5 +839,31 @@ test('interrupting the actual shell proof during PID-record polling cleans its s
     clearTimeout(bound);
     if (native && !emptyGroup(native)) signalOwnedGroup(native, 'SIGKILL');
     signalOwnedGroup(child, 'SIGKILL'); await child.ended;
+  }
+});
+
+test('the shared Node-proof interrupt handler closes its owned detached group before exit', async () => {
+  const helperURL = new URL('./.github/scripts/proof-process-group.mjs', import.meta.url).href;
+  const program = `import {spawn} from 'node:child_process'; import * as groups from ${JSON.stringify(helperURL)};
+    const children=new Set(); const beforeSpawn=groups.installInterruptCleanup?.(children);
+    process.on('SIGTERM',()=>{if(beforeSpawn){try{beforeSpawn()}catch{console.log('later spawn refused')}}});
+    const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
+    children.add(child); child.ended=new Promise(resolve=>child.once('close',(code,signal)=>{child.hasEnded=true;resolve({code,signal})}));
+    console.log(JSON.stringify({pid:child.pid}));setInterval(()=>{},1000);`;
+  const parent = childProcess.spawn(process.execPath, ['--input-type=module', '-e', program], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = ''; parent.stdout.on('data', data => { output += data; });
+  parent.ended = new Promise(resolve => parent.once('close', resolve));
+  let owned, bound;
+  try {
+    for (let count = 0; count < 100 && !output.includes('\n'); count++) await delay(10);
+    assert.ok(output.includes('\n')); owned = JSON.parse(output);
+    assertNativeInGroup(owned, owned.pid); signalOwnedGroup(parent, 'SIGTERM');
+    await Promise.race([parent.ended, new Promise((_, reject) => { bound = setTimeout(() => reject(new Error('Node proof interrupt cleanup did not finish')), 8000); })]);
+    assertEmptyGroup(owned);
+    assert.ok(output.includes('later spawn refused'));
+  } finally {
+    clearTimeout(bound);
+    if (owned && !emptyGroup(owned)) signalOwnedGroup(owned, 'SIGKILL');
+    signalOwnedGroup(parent, 'SIGKILL'); await parent.ended;
   }
 });

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild } from './proof-process-group.mjs';
+import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
 
 const [work, commandJSON, candidate] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate);
@@ -12,8 +12,10 @@ fs.mkdirSync(home, { recursive: true });
 const env = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(env)) if (key.startsWith('SESSIONBUS_')) delete env[key];
 const children = new Set();
+const beforeSpawn = installInterruptCleanup(children);
 let primary;
 async function run(args, label, observedFile) {
+  beforeSpawn();
   const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child); let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });

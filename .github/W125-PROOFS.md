@@ -117,6 +117,11 @@ The adapter registers interruption cleanup synchronously at spawn, and the
 shell records the wrapper/group handle before PID-record polling. One shared
 SIGINT/SIGTERM cleanup path handles interruption during startup; its owned
 fixture fails on the old code while the leaked child is still alive.
+The five Node proofs install the shared owned-set interrupt handler before
+starting children. Its interrupted flag refuses any subsequent spawn during
+cleanup, then the process exits nonzero after its registered groups are empty.
+The single-child runner retains its terminal handler. A Node fixture proves
+the old detached leak, the new cleanup and the no-later-spawn guard.
 
 The first hosted head also retains two Linux failures as history: a snapshot
 reader met the fake producer's truncate/write window, and the 60-second
@@ -216,6 +221,22 @@ They test harness/oracle facts, never invoke the installer. This final delta
 adds installer-independent live-JSONL, startup-interruption and exec-bound
 controls; its other five new controls invoke install/remove. No harness test
 is represented as an installer failing-first proof.
+
+The second delta adds owner-only indentless-list preservation, invalid-UTF-8
+preflight refusal, inline empty-config comment separation, and the shared
+Node-interruption failing-first controls. The valid-UTF-8 no-rename/inode/mtime
+control already passes at 29b7e2e: the reported rewrite was the invalid-UTF-8
+case, now refused rather than re-encoded. Owner-only indentless lists are never
+edited; only lists containing marked rows are refused for unsupported editing.
+README wording now distinguishes whole lane-default replacement from peer
+product-only repair and states the optimistic comparison-to-rename limit.
+Optional syntax diagnostics remain a known limit, not claimed as repaired:
+valid anchored/tagged flow roots, an anchored empty `config: &c`, and a marked
+indentless flow row written `-   {` refuse with exit 2 and
+`cannot parse profile patch "<file>"`, leaving the file unchanged. Removing a
+marked lane row ending in a `|+` literal can leave one blank line (exit 0).
+These measured shapes remain outside this correction; no YAML fallback or
+speculative source-span mechanism is added for them.
 
 CI wall time is reported per fresh global/npm/pnpm/npx/project/mixed cell.
 pnpm 11 retains the default native-binding failure on each OS, then applies

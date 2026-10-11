@@ -27,6 +27,22 @@ export function assertEmptyGroup(child) {
   assert.equal(emptyGroup(child), true, `owned proof group ${child.pid} must be empty`);
 }
 
+/** Interrupted proofs clean only their registered groups and cannot spawn more. */
+export function installInterruptCleanup(children) {
+  let interrupted = false;
+  const interrupt = async signal => {
+    if (interrupted) return;
+    interrupted = true;
+    const results = await Promise.allSettled([...children].map(child => stopOwnedChild(child, child.pid, true)));
+    const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+    if (failures.length) console.error(new AggregateError(failures, 'interrupted owned proof cleanup failed'));
+    process.exit(failures.length ? 1 : signal === 'SIGINT' ? 130 : 143);
+  };
+  process.on('SIGINT', () => interrupt('SIGINT'));
+  process.on('SIGTERM', () => interrupt('SIGTERM'));
+  return () => assert.equal(interrupted, false, 'proof interrupted; no new child may be spawned');
+}
+
 /** Native stop fails on leaked descendants BEFORE cleanup is allowed to kill. */
 export async function stopOwnedChild(child, nativePid = child.pid, cleanup = false) {
   if (cleanup) signalOwnedGroup(child, 'SIGTERM');

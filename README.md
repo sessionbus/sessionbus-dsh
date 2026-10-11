@@ -101,13 +101,16 @@ is left untouched and reported, not removed. An unmarked plugin or upload row be
 the user: remove it and rerun, or keep that profile outside the installer.
 Removing the marker from a config-only lane default makes it yours: the installer
 keeps that row unchanged, prints `kept as yours, lane default not applied`, and
-does not append a shadowing default. Everything inside a marked row belongs to
-the installer and is replaced. Unrelated owner rows, comments and expressions
+does not append a shadowing default. A marked lane-default row belongs to the
+installer and is replaced whole; in a marked peer `sessionbus` row only `product`
+is repaired and its other fields are kept. Unrelated owner rows, comments and expressions
 remain byte-identical, including the lane's provider and default-model rows.
 All structural and row-ownership guards complete before any profile changes.
 The installer supports block-form YAML lists and DSH's empty `[]` template,
 including comments, a UTF-8 BOM and CRLF line endings. Convert a nonempty
 flow/JSON top-level list to block form, or keep that profile outside the installer.
+An owner-only indentless list is kept unchanged; an indentless list containing
+installer-marked rows refuses editing. Profile files must be valid UTF-8.
 Each changed file is replaced atomically, preserving its existing mode exactly
 and replacing a symlink's referent without replacing the link; the containing
 directory must be writable. Unlike DSH's
@@ -116,8 +119,10 @@ Ownership by another user, hard links, extended attributes and ACLs are not
 preserved. A later filesystem write failure can still leave earlier files or
 profiles changed; it cannot leave a half-written file. Removal strips only
 marked rows and also keeps the owner's unmarked config-only rows unchanged.
-The installer refuses to overwrite a profile file that changed while it was
-running; rerunning is safe because installation is idempotent.
+Before replacing a file, the installer compares it with the bytes it read at
+the start and refuses if they differ. A change in the instant between that
+comparison and the rename is not detected. Rerunning is safe because installation
+is idempotent.
 
 The plugin is tested with DSH's profile defaults (`nodeLinker: hoisted`,
 `autoInstallPeers: false`); its DSH peers come from the DSH installation,

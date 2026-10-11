@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
-import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild } from './proof-process-group.mjs';
+import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
 
 const [work, commandJSON, candidate, repo] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate && repo, 'usage: prove-universal-profile.mjs WORK DSH_ARGV_JSON TARBALL REPO');
@@ -18,10 +18,12 @@ fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: tr
 const base = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(base)) if (key.startsWith('SESSIONBUS_')) delete base[key];
 const children = new Set(), timings = [];
+const beforeSpawn = installInterruptCleanup(children);
 let primary;
 const sockets = fs.mkdtempSync('/tmp/sb-w125-');
 const redact = value => String(value).replace(/([?&]token=)[^\s]+/gu, '$1<redacted>');
 function start(argv, env, label) {
+  beforeSpawn();
   const child = spawn(argv[0], argv.slice(1), { cwd: workspace, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child);
   child.stdoutText = ''; child.stderrText = '';

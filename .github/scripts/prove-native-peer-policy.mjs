@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { assertEmptyGroup, signalOwnedGroup } from './proof-process-group.mjs';
+import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
 
 const [work, commandJSON, candidate] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate);
@@ -10,18 +10,24 @@ const cli = JSON.parse(commandJSON), home = path.join(work, 'home');
 fs.mkdirSync(home, { recursive: true });
 const env = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(env)) if (key.startsWith('SESSIONBUS_')) delete env[key];
+const children = new Set(), beforeSpawn = installInterruptCleanup(children);
+let primary;
 async function run(args, label) {
+  beforeSpawn();
   const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  children.add(child);
+  child.ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }); });
   let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
   const acquisition = args[0] === 'plugin' && args.includes('add');
   const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
   const hard = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
   try {
-    const result = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
-    assert.deepEqual(result, { code: 0, signal: null }, output); assertEmptyGroup(child); return output;
+    const result = await child.ended;
+    assert.deepEqual(result, { code: 0, signal: null }, output); assertEmptyGroup(child); children.delete(child); return output;
   } finally { clearTimeout(bound); clearTimeout(hard); }
 }
+try {
 await run(['plugin', '--profile', 'policy-proof', 'list'], 'native-create');
 const directory = path.join(home, 'profiles/policy-proof');
 fs.writeFileSync(path.join(directory, '.npmrc'), 'node-linker=isolated\nauto-install-peers=false\nstrict-peer-dependencies=true\n');
@@ -44,3 +50,9 @@ const gap = await run(['--profile', 'headless', '--help'], 'stock-missing-bundle
 assert.ok(gap.includes('skipping profile bundle "@sessionbus/w125-not-installed"'), gap);
 fs.writeFileSync(path.join(work, 'missing-bundle-result.json'), JSON.stringify({ missingBundle: '@sessionbus/w125-not-installed', exit: 0, skippedDiagnostic: true }, null, 2));
 console.log('stock DSH missing profile bundle: skipped diagnostic with exit 0 reproduced for upstream (not runtime PASS)');
+} catch (error) { primary = error; throw error; }
+finally {
+  const cleanup = await Promise.allSettled([...children].map(child => stopOwnedChild(child, child.pid, true)));
+  const failures = cleanup.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw new AggregateError(primary ? [primary, ...failures] : failures, 'owned policy-proof cleanup failed');
+}

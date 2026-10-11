@@ -51,7 +51,9 @@ function snapshot(file) {
   }
   try {
     if (stat.isSymbolicLink()) realpathSync(file); // Broken links refuse in the all-profile preflight.
-    return readFileSync(file);
+    const bytes = readFileSync(file);
+    if (!Buffer.from(bytes.toString("utf8")).equals(bytes)) throw refusal(`profile file ${JSON.stringify(file)} is not valid UTF-8`);
+    return bytes;
   } catch (error) {
     throw refusal(`cannot read profile file ${JSON.stringify(file)}: ${error.message}`);
   }
@@ -132,6 +134,7 @@ function writablePatch(file, body) {
     for (let index = 0; index + 1 < row.node.children.length; index += 2) {
       const key = row.node.children[index], value = row.node.children[index + 1];
       if (key.value !== "insert" && !(row.value.group && key.value === "config") || value.kind !== "sequence" || !value.value.length || patch.body[tokenStart(patch, value)] === "[") continue;
+      if (!patch.rows.some(child => child.parent === value.value && (marked(patch, child) || marked(patch, child, "insert")))) continue;
       const keyColumn = key.start - (patch.body.lastIndexOf("\n", key.start - 1) + 1);
       const child = patch.nodes.get(value.value[0]), start = tokenStart(patch, child);
       const dashColumn = start - 2 - (patch.body.lastIndexOf("\n", start - 1) + 1);
@@ -183,7 +186,10 @@ function edit(body, edits) {
 function setField(patch, node, key, value) {
   const existing = field(node, key);
   if (existing) {
-    if (existing.kind === null && existing.value === null) return edit(patch.body, [[existing.start, tokenEnd(patch, existing), ` ${value}`]]);
+    if (existing.kind === null && existing.value === null) {
+      const end = tokenEnd(patch, existing);
+      return edit(patch.body, [[existing.start, end, ` ${value}${patch.body[end] === "#" ? " " : ""}`]]);
+    }
     return edit(patch.body, [[tokenStart(patch, existing), tokenEnd(patch, existing), value]]);
   }
   const start = tokenStart(patch, node), end = tokenEnd(patch, node);

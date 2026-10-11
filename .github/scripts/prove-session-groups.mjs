@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { assertEmptyGroup, stopOwnedChild } from './proof-process-group.mjs';
+import { assertEmptyGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
 
 const [home, work, daemonBin, root] = process.argv.slice(2);
 assert.ok(home && work && daemonBin && root, 'usage: prove-session-groups.mjs HOME WORK DAEMON_BIN REPO');
@@ -17,8 +17,10 @@ fs.symlinkSync(path.join(root, '.github/fixtures/groups-worker/worker.cjs'), pat
 const cleanEnv = { ...process.env, PATH: `${bin}:${home}/node_modules/.bin:${process.env.PATH}`, W120_WORK: work };
 for (const key of Object.keys(cleanEnv)) if (key.startsWith('SESSIONBUS_')) delete cleanEnv[key];
 const processes = new Set(), peers = new Set();
+const beforeSpawn = installInterruptCleanup(processes);
 const groupResponses = { immediate: 0, progress: 0 };
 const run = (command, args, env, label) => {
+  beforeSpawn();
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: work, detached: true });
   processes.add(child);
   child.output = ''; child.errors = '';
