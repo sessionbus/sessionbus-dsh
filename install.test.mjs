@@ -29,6 +29,68 @@ function host(version) {
 const supportedHost = host("0.2.1-alpha.2");
 process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
 
+test("runbook and proof lookups use the real CLI owner with an unhoisted app-boot", t => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "sessionbus-cli-owner-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const installation = path.join(directory, "host"), modules = path.join(installation, "node_modules");
+  const virtual = path.join(modules, ".pnpm/cli-generation/node_modules/@deepseek-ai");
+  const cli = path.join(virtual, "dsh"), boot = path.join(virtual, "dsh-app-boot"), cordis = path.join(virtual, "cordis");
+  for (const folder of [cli, path.join(boot, "lib"), path.join(boot, "node_modules"), path.join(cordis, "lib"), path.join(modules, "@deepseek-ai"), path.join(modules, ".bin")]) mkdirSync(folder, { recursive: true });
+  const cliFile = path.join(cli, "package.json");
+  writeFileSync(cliFile, JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.2.1-alpha.2" }));
+  writeFileSync(path.join(boot, "package.json"), JSON.stringify({ name: "@deepseek-ai/dsh-app-boot", type: "module", main: "lib/index.js" }));
+  // Resolution-only exports; no fake boot/model/runtime acceptance is claimed.
+  writeFileSync(path.join(boot, "lib/index.js"), "export class PluginPackages {}\nexport function createRuntimeResolution() {}\nexport function loadProfileDirectory() {}\n");
+  writeFileSync(path.join(cordis, "package.json"), JSON.stringify({ name: "@deepseek-ai/cordis", type: "module", main: "lib/index.js" }));
+  writeFileSync(path.join(cordis, "lib/index.js"), "export class Context {}\n");
+  symlinkSync(semverDir, path.join(boot, "node_modules/semver"));
+  symlinkSync(cli, path.join(modules, "@deepseek-ai/dsh"));
+  symlinkSync(cordis, path.join(modules, "@deepseek-ai/cordis"));
+  const bin = path.join(modules, ".bin/dsh");
+  writeFileSync(bin, "#!/bin/sh\n# real pnpm-style wrapper: never executed by this lookup test\n");
+  writeFileSync(path.join(installation, "package.json"), '{"private":true}\n');
+  assert.equal(existsSync(path.join(modules, "@deepseek-ai/dsh-app-boot")), false);
+  assert.throws(() => createRequire(path.join(modules, ".bin/dsh-anchor.cjs")).resolve("@deepseek-ai/dsh-app-boot"), { code: "MODULE_NOT_FOUND" });
+  const doc = readFileSync(new URL("./docs/HOST-INSTALL.md", import.meta.url), "utf8");
+  const floor = [...doc.matchAll(/<<'NODE'\n([\s\S]*?)\nNODE/g)].map(match => match[1]).find(source => source.includes("console.log(`DSH floor >=0.2.1-alpha.2:"));
+  const provider = doc.match(/pin_uploads_provider\(\) \{\n  node[^\n]*<<'NODE'\n([\s\S]*?)\nNODE\n\}/)?.[1];
+  assert.ok(floor && provider, "exercise the actual documented snippets");
+  const oldFloor = floor.replace("const discovery = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))\nconst anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))\nconst require = createRequire(anchor)\nconst installed = JSON.parse(readFileSync(anchor)).version", "const require = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))\nconst installed = JSON.parse(readFileSync(require.resolve('@deepseek-ai/dsh/package.json'))).version");
+  const oldProvider = provider.replace("const discovery = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))\nconst anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))\nconst native = createRequire(anchor)", "const native = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))");
+  const profile = path.join(directory, "profile"), app = path.join(profile, "node_modules/@antst/dashi-app");
+  mkdirSync(app, { recursive: true });
+  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@antst/dashi-app": "0.2.0-alpha.1" } }));
+  writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "@antst/dashi-app", version: "0.2.0-alpha.1", dependencies: { "@antst/dsh-file-uploads-none": "0.2.0-alpha.1" } }));
+  const execute = (source, args) => spawnSync(process.execPath, ["--input-type=module", "-", ...args], { input: source, encoding: "utf8", timeout: 5000, env: { ...process.env, npm_config_registry: "http://127.0.0.1:9/", npm_config_fetch_retries: "0" } });
+  for (const [legacy, current, args] of [[oldFloor, floor, [bin]], [oldProvider, provider, [profile, bin]]]) {
+    const rejected = execute(legacy, args);
+    assert.equal(rejected.status, 1, rejected.stderr);
+    assert.match(rejected.stderr, /Cannot find module '@deepseek-ai\/dsh-app-boot'/u);
+    const accepted = execute(current, args);
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.match(accepted.stdout, /0\.2\.(?:1-alpha\.2|0-alpha\.1)/u);
+  }
+  writeFileSync(cliFile, JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.5-rc.2" }));
+  const below = execute(floor, [bin]);
+  assert.equal(below.status, 1);
+  assert.match(below.stderr, /below the plugin floor; stop before profile changes/u);
+  writeFileSync(cliFile, JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.2.1-alpha.2" }));
+  for (const file of ["prove-upload-provider.mjs", "prove-dashi-resolution.mjs"]) {
+    const script = readFileSync(new URL(`./.github/scripts/${file}`, import.meta.url), "utf8");
+    const prefix = script.match(/const (?:discovery|native) = createRequire\(fs\.realpathSync\(path\.join\(home, 'package.json'\)\)\);[\s\S]*?await import\(native\.resolve\('@deepseek-ai\/dsh-app-boot'\)\);/)?.[0];
+    assert.ok(prefix, `actual ${file} native-import prefix`);
+    const imports = "import fs from 'node:fs'; import path from 'node:path'; import { createRequire } from 'node:module';\n";
+    const run = source => execute(`${imports}const home=${JSON.stringify(installation)};\n${source}\nconsole.log(anchor);`, []);
+    const oldPrefix = prefix.replace("const discovery =", "const native =").replace("discovery.resolve('@deepseek-ai/dsh/package.json')", "native.resolve('@deepseek-ai/dsh/package.json')").replace(/\n\s*const native = createRequire\(anchor\);/u, "");
+    const rejected = run(oldPrefix);
+    assert.equal(rejected.status, 1, rejected.stderr);
+    assert.match(rejected.stderr, /Cannot find module '@deepseek-ai\/dsh-app-boot'/u);
+    const accepted = run(prefix);
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(accepted.stdout.trim(), cliFile);
+  }
+});
+
 const uploads = "@antst/dsh-file-uploads-none";
 const uploadsRange = "^0.1.0 || ^0.2.0-alpha.1";
 function providerProfile(t, name, extra = {}) {

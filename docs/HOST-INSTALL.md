@@ -848,8 +848,10 @@ node --input-type=module - "$DSH_BIN" <<'NODE'
 import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
-const require = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))
-const installed = JSON.parse(readFileSync(require.resolve('@deepseek-ai/dsh/package.json'))).version
+const discovery = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))
+const anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))
+const require = createRequire(anchor)
+const installed = JSON.parse(readFileSync(anchor)).version
 const semver = createRequire(realpathSync(require.resolve('@deepseek-ai/dsh-app-boot')))('semver')
 if (!semver.satisfies(installed, '>=0.2.1-alpha.2', { includePrerelease: true })) throw new Error(`installed DSH ${installed} is below the plugin floor; stop before profile changes`)
 console.log(`DSH floor >=0.2.1-alpha.2: PASS (${installed})`)
@@ -857,6 +859,10 @@ NODE
 ```
 
 Expected output: `DSH floor >=0.2.1-alpha.2: PASS (0.2.1-alpha.2)`.
+Resolve native dependencies from the real executing DSH package manifest, not
+the bin-directory anchor: pnpm's real `.bin/dsh` wrapper can discover DSH but
+cannot see an unhoisted `dsh-app-boot` in its virtual store. The provider-pin
+lookup below follows the same owning-package rule.
 
 pnpm 10.28.1 retains already auto-installed peer providers in the lock even
 when their published ranges reject those versions; scoped updates, dedupe, and
@@ -1000,7 +1006,9 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 const [directory, bin] = process.argv.slice(2)
-const native = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))
+const discovery = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))
+const anchor = realpathSync(discovery.resolve('@deepseek-ai/dsh/package.json'))
+const native = createRequire(anchor)
 const semver = createRequire(realpathSync(native.resolve('@deepseek-ai/dsh-app-boot')))('semver')
 const helper = '@antst/dsh-file-uploads-none', range = '^0.1.0 || ^0.2.0-alpha.1'
 const manifestFile = join(directory, 'package.json')
