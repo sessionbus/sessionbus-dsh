@@ -815,6 +815,7 @@ remove_untracked_nested_packages() {
   printf 'untracked nested packages removed: %s\n' "$removed"
 }
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 if ! sed '/^snapshots:/,$d' "$DSH_INSTALL_DIR/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
   printf '%s\n' 'host DSH graph has no package records' >&2
   exit 1
@@ -977,6 +978,7 @@ cd "$DSH_INSTALL_DIR"
 pnpm add --save-exact @antst/dashi-launcher@0.2.0-alpha.1
 test -x "$DASHI_BIN"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 ```
 
 Expected output reports launcher `0.2.0-alpha.1`, then a nonzero host DSH
@@ -1017,6 +1019,7 @@ if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.1; then
 fi
 remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
 repair_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 required dashi
+test "$?" -eq 0 || exit 1
 if ! sed '/^snapshots:/,$d' "$DSH_HOME/profiles/dashi/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
   printf '%s\n' 'dashi profile DSH graph has no package records' >&2
   exit 1
@@ -1107,6 +1110,7 @@ UPLOADS_PIN=$(pin_uploads_provider "$DSH_INSTALL_DIR")
 pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
+test "$?" -eq 0 || exit 1
 test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
@@ -1139,6 +1143,7 @@ pins, until dashi-app publishes a newer pin.
 UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/sessionbus")
 "$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 optional sessionbus
+test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
 remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
 pnpm --dir "$DSH_HOME/profiles/sessionbus" list --depth 0 @sessionbus/dsh
@@ -1169,6 +1174,7 @@ fi
 UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/web")
 "$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 optional web
+test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
 remove_untracked_nested_packages "$DSH_HOME/profiles/web"
 test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/web/node_modules/@sessionbus/kit/package.json")" = 0.5.12
@@ -1223,6 +1229,7 @@ if (format === 'legacy') {
   const ids = { 'ui-developer-tools': 'ui-settings', 'ui-onboarding': 'ui-settings-general', shell: process.platform === 'win32' ? 'pwsh-sandbox' : 'bash-sandbox' }
   rows = Object.entries(rows ?? {}).map(([id, config]) => ({ id: ids[id] ?? id, config }))
 }
+rows ??= []
 if (!Array.isArray(rows)) throw new Error('profile patch must be an entry list')
 const keys = new Set()
 function fields(value, path) {
@@ -1251,6 +1258,10 @@ printf '%s\n' 'keys-only patch projection ready'
 
 Expected output is `keys-only patch projection ready`. An invalid patch stops
 the projection without printing the parser's potentially value-bearing error.
+This read-only inventory treats absent, blank, comments-only, and `null` patch
+content as zero keys; it does not certify native validity. DSH rejects existing
+non-array patches (`dsh-app-boot/lib/index.js:3714-3723`); use `[]` for a valid
+empty patch. Scalars, maps, and malformed YAML still stop the inventory.
 
 For a staged import, run the chosen profile normally in your own terminal/PTY,
 with diagnostics redirected into the private rollback directory. This web
@@ -1583,6 +1594,7 @@ if [ "$MODEL_PROVIDER" != deepseek-official ]; then
     done
     remove_untracked_nested_packages "$DSH_HOME/profiles/$profile_name"
     repair_dsh_graph "$DSH_HOME/profiles/$profile_name" 0.2.1-alpha.2 optional "$profile_name"
+    test "$?" -eq 0 || exit 1
   done
 fi
 ```
