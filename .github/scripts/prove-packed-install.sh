@@ -20,12 +20,13 @@ start_process() {
   local record="$work/group-$group_sequence.json"
   node "$root/.github/scripts/proof-process-group-runner.mjs" run "$record" "$role" "$@" &
   local wrapper=$!
+  if [[ "$role" = native ]]; then dsh_wrapper=$wrapper; dsh_record=$record
+  else server_wrapper=$wrapper; server_record=$record; fi
   for _ in $(seq 1 50); do [[ -f "$record" ]] && break; kill -0 "$wrapper" 2>/dev/null || break; sleep 0.1; done
   [[ -f "$record" ]]
   local pid
   pid=$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).pid' "$record")
-  if [[ "$role" = native ]]; then dsh_pid=$pid; dsh_wrapper=$wrapper; dsh_record=$record
-  else server_pid=$pid; server_wrapper=$wrapper; server_record=$record; fi
+  if [[ "$role" = native ]]; then dsh_pid=$pid; else server_pid=$pid; fi
 }
 
 stop_processes() {
@@ -33,6 +34,12 @@ stop_processes() {
   if [[ -n "$server_pid" ]]; then node "$root/.github/scripts/proof-process-group-runner.mjs" stop "$server_record"; wait "$server_wrapper"; fi
   dsh_pid=
   server_pid=
+  dsh_wrapper=
+  server_wrapper=
+}
+installer_exec() {
+  group_sequence=$((group_sequence + 1))
+  node "$root/.github/scripts/proof-process-group-runner.mjs" run "$work/exec-$group_sequence.json" exec env DSH_HOME="$home" "$dsh" plugin "$@"
 }
 assert_permission_proof() {
   node --input-type=module - "$1" "$2" "${3:-}" "${4:-}" "$root/package.json" <<'NODE'
@@ -154,11 +161,13 @@ NODE
 cleanup() {
   local original_status=$?
   local cleanup_status=0
-  if [[ -n "$dsh_pid" ]]; then
+  if [[ -n "$dsh_wrapper" ]]; then
+    for _ in $(seq 1 50); do [[ -f "$dsh_record" ]] && break; kill -0 "$dsh_wrapper" 2>/dev/null || break; sleep 0.1; done
     node "$root/.github/scripts/proof-process-group-runner.mjs" cleanup "$dsh_record" || cleanup_status=1
     wait "$dsh_wrapper" || cleanup_status=1
   fi
-  if [[ -n "$server_pid" ]]; then
+  if [[ -n "$server_wrapper" ]]; then
+    for _ in $(seq 1 50); do [[ -f "$server_record" ]] && break; kill -0 "$server_wrapper" 2>/dev/null || break; sleep 0.1; done
     node "$root/.github/scripts/proof-process-group-runner.mjs" cleanup "$server_record" || cleanup_status=1
     wait "$server_wrapper" || cleanup_status=1
   fi
@@ -167,6 +176,9 @@ cleanup() {
   exit "$cleanup_status"
 }
 trap cleanup EXIT
+interrupted() { trap '' INT TERM; exit "$1"; }
+trap 'interrupted 130' INT
+trap 'interrupted 143' TERM
 
 tarball_name=$(npm pack "$root" --pack-destination "$work" --ignore-scripts --json | node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => process.stdout.write(JSON.parse(body)[0].filename))')
 tarball="$work/$tarball_name"
@@ -223,9 +235,9 @@ for profile in sessionbus web dashi; do
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact "$tarball"
 done
 cp "$home/profiles/sessionbus/package.json" "$work/lane-manifest-before-install.json"
-DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install
+installer_exec --profile sessionbus exec sessionbus-dsh-install
 cmp -s "$work/lane-manifest-before-install.json" "$home/profiles/sessionbus/package.json"
-DSH_HOME="$home" "$dsh" plugin --profile web exec sessionbus-dsh-install --product dsh web
+installer_exec --profile web exec sessionbus-dsh-install --product dsh web
 cp "$home/profiles/dashi/package.json" "$work/dashi-manifest-before-refusal.json"
 cp "$home/profiles/dashi/cordis.patch.yml" "$work/dashi-patch-before-refusal.yml"
 set +e
@@ -320,7 +332,7 @@ DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-ro
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml" "$home"
 node "$root/.github/scripts/prove-dashi-resolution.mjs" "$home" "$DASHI_APP_VERSION" "$(node -p 'require(process.argv[1]).version' "$root/package.json")" | tee "$work/dashi-resolution.log"
-DSH_HOME="$home" "$dsh" plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
+installer_exec --profile sessionbus exec sessionbus-dsh-install --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
 capture="$work/dashi-lane-proof.json"
@@ -439,7 +451,7 @@ for profile in sessionbus web; do
 done
 
 for profile in sessionbus web; do
-  DSH_HOME="$home" "$dsh" plugin --profile "$profile" exec sessionbus-dsh-install --remove "$profile"
+  installer_exec --profile "$profile" exec sessionbus-dsh-install --remove "$profile"
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" remove @sessionbus/dsh
 done
 node --input-type=module - "$home" "$work/pre20-provider-pins.json" <<'NODE'

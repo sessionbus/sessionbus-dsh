@@ -52,7 +52,7 @@ function inspectRuntime(ctx, { version, mode }) {
   const owner = owners[0];
   const provider = ctx.pluginPackages.packageOf(owner.options.name, owner.parent.tree.ctx.baseUrl);
   assert.ok(provider?.manifestPath);
-  if (mode === "lane" || mode === "custom") {
+  if (mode === "lane") {
     assert.equal(owner.options.name, "@sessionbus/dsh/file-uploads-none");
     assert.equal(provider.name, "@sessionbus/dsh");
     assert.equal(fs.realpathSync(provider.manifestPath), fs.realpathSync(plugin.manifestPath));

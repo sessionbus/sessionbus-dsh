@@ -33,6 +33,11 @@ lib/index.js:123). Ownership by another user, hard links, extended attributes
 and ACLs are not preserved. Write-time I/O can still partially change a
 profile across files; the error names completed profiles, the possibly partial
 current profile, and profiles not attempted. There is no rollback or retry.
+Immediately before each rename, the installer compares the target bytes with
+the preflight snapshot; an intervening edit refuses that file, cleans its temp,
+stops the loop, names completed/current/unattempted profiles and asks for a rerun.
+The comparison-to-rename window remains: this is optimistic protection, not a
+lock or an atomic compare-and-swap. Atomic replacement needs a writable directory.
 The fault control moves from direct-write to the atomic rename commit point,
 and now also requires unchanged original bytes and no leaked temporary file.
 
@@ -108,6 +113,10 @@ exit 0); it now rejects while the descendant is still alive. Only the ensuing
 cleanup may send group TERM/KILL. Retained prepared shell and per-session-group
 proofs now use that same group helper, via a portable detached-spawn adapter
 for Bash. No bare PID is used for termination outside an asserted owned group.
+The adapter registers interruption cleanup synchronously at spawn, and the
+shell records the wrapper/group handle before PID-record polling. One shared
+SIGINT/SIGTERM cleanup path handles interruption during startup; its owned
+fixture fails on the old code while the leaked child is still alive.
 
 The first hosted head also retains two Linux failures as history: a snapshot
 reader met the fake producer's truncate/write window, and the 60-second
@@ -173,14 +182,19 @@ not a global-install upgrade claim.
   dashi metadata script's CLI-owner lookup; the synthetic-bin negative fails.
 - The Linux project universal cell installs and removes an actual DSH-created
   custom non-web profile as well as lane/web; no manual profile fixture.
+  It does not boot that custom profile; the unused custom runtime-oracle branch
+  is deleted, not claimed as exercised.
   Native removal deletes the dependencies container when the last package is
   removed: the plugin-absence assertion accepts an absent or empty map and
   rejects a remaining plugin; JSON parsing stays strict. Its original false
   failure is retained as harness history.
 - `assertPinnedGraph` calls in the prepared operations leg reject retained
-  old peer-only DSH records after an in-place upgrade. Companion copy-count
-  gates are deleted: extra compatible copies do not establish a runtime
-  failure. The native peer/runtime oracle remains the compatibility test.
+  old peer-only DSH records after an in-place upgrade. Prepared companion
+  copy-count gates are deleted. The runbook's `check-cli-companions.mjs`
+  retains an operations-only named-project policy assertion: old records after
+  an in-place upgrade can select incompatible loader/service APIs. That is not
+  an ordinary plugin-install requirement; the native peer/runtime oracle is
+  the compatibility test and compatible extra copies are not runtime failures.
 - The runbook's named-project nonzero/target DSH lock check is operations-only,
   guarding a repair of the wrong project or retained old peer-only DSH records.
   Physical kit path and app-row checks that could inspect an unused copy are
@@ -189,6 +203,19 @@ not a global-install upgrade claim.
 - Both systems use Node 22 throughout. The pnpm 11 remedy consumes and verifies
   the actual README fence, executes it unchanged, and uses the public private
   global-dir setting established before the control. No pnpm layout inference.
+
+The seven installer-independent tests added at the preceding delta are:
+`sampled JSON evidence is published atomically by the actual fake producer and malformed input still fails`,
+`cleanup aggregation retains the primary error at every real proof throw site`,
+`the exact universal pack command always packs this repository from an unrelated cwd`,
+`dashi metadata proof uses the actual CLI owner when app-boot is not hoisted`,
+`pnpm 11 remedy is the actual README fenced text and exec has its own short bound`,
+`native removal plugin-absence assertion accepts no map or empty map but rejects a remaining plugin`,
+and `the actual normal stop rejects a surviving descendant before any cleanup kill`.
+They test harness/oracle facts, never invoke the installer. This final delta
+adds installer-independent live-JSONL, startup-interruption and exec-bound
+controls; its other five new controls invoke install/remove. No harness test
+is represented as an installer failing-first proof.
 
 CI wall time is reported per fresh global/npm/pnpm/npx/project/mixed cell.
 pnpm 11 retains the default native-binding failure on each OS, then applies

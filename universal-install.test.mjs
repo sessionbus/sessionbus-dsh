@@ -328,7 +328,7 @@ test('the native stock comment header and bare empty array survive row installat
   install(['web'], { ...f, product: 'dsh' });
   const after = readFileSync(f.file('web'), 'utf8');
   assert.ok(after.startsWith(header));
-  assert.ok(after.includes('\n# owner footer\n'));
+  assert.ok(after.endsWith('\n# owner footer\n'));
   assert.match(after, /id: sessionbus/u);
 });
 
@@ -499,6 +499,89 @@ test('empty native array templates keep comments in every position across rerun 
   }
 });
 
+test('DSH stock template has an exact one-cycle and three-cycle install/remove round trip', t => {
+  const stock = '# Your patch layer for this dsh profile, applied after every bundle layer:\n'
+    + '# a top-level YAML array of loader patch entries (id-targeted config\n'
+    + '# overrides, disables, and insert lists; `!!js` expressions allowed).\n[]\n';
+  for (const name of ['sessionbus', 'web']) {
+    const f = fixture(t, [name]); writeFileSync(f.file(name), stock);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      install([name], { ...f, ...(name === 'web' ? { product: 'dsh' } : {}) });
+      remove([name], f); assert.equal(readFileSync(f.file(name), 'utf8'), stock, `${name} cycle ${cycle + 1}`);
+    }
+  }
+});
+
+test('dangling patch symlinks refuse every profile in preflight, before manifest or row writes', t => {
+  for (const operation of [install, remove]) {
+    const f = fixture(t, ['web', 'sessionbus']);
+    const manifest = JSON.parse(readFileSync(f.file('sessionbus', 'package.json')));
+    manifest.dsh.profile.bundles = []; writeFileSync(f.file('sessionbus', 'package.json'), JSON.stringify(manifest));
+    const files = [f.file('web'), f.file('web', 'package.json'), f.file('sessionbus', 'package.json')];
+    const before = files.map(file => readFileSync(file));
+    fs.unlinkSync(f.file('sessionbus')); symlinkSync(path.join(f.home, 'absent.yml'), f.file('sessionbus'));
+    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')));
+    files.forEach((file, index) => assert.deepEqual(readFileSync(file), before[index]));
+    assert.equal(lstatSync(f.file('sessionbus')).isSymbolicLink(), true);
+  }
+});
+
+test('empty and alias last fields end owned spans before following owner comments', t => {
+  for (const value of ['', '*x']) for (const tail of ['# owner comment\n- id: tail\n', '  # owner comment\n- id: tail\n', '\n# owner comment\n- id: tail\n', '# owner comment\n', '# owner comment']) {
+    const f = fixture(t);
+    const head = '- id: keeper\n  config: &x {}\n';
+    const row = `- id: session-title-llm ${marker}\n  disabled: ${value}\n`;
+    writeFileSync(f.file('sessionbus'), head + row + tail);
+    install(['sessionbus'], f);
+    assert.ok(readFileSync(f.file('sessionbus'), 'utf8').includes(tail), 'lane replacement retains following owner bytes');
+    writeFileSync(f.file('sessionbus'), head + row + tail);
+    remove(['sessionbus'], f);
+    assert.equal(readFileSync(f.file('sessionbus'), 'utf8'), head + tail);
+  }
+});
+
+test('optimistic commit refuses a later concurrent owner edit without overwriting it', t => {
+  for (const operation of [install, remove]) {
+    const f = fixture(t, ['web', 'sessionbus']);
+    if (operation === remove) install(['web', 'sessionbus'], { ...f, product: 'dashi' });
+    const edited = readFileSync(f.file('sessionbus'), 'utf8') + '# concurrent owner edit\n';
+    const rename = fs.renameSync;
+    t.mock.method(fs, 'renameSync', (from, to) => {
+      if (to === f.file('web')) writeFileSync(f.file('sessionbus'), edited);
+      return rename(from, to);
+    }); syncBuiltinESMExports();
+    try {
+      assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), /profile "sessionbus".*changed.*rerun.*completed profiles: web/u);
+      assert.equal(readFileSync(f.file('sessionbus'), 'utf8'), edited);
+      assert.equal(readdirSync(path.dirname(f.file('sessionbus'))).some(file => file.endsWith('.tmp')), false);
+    } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  }
+});
+
+test('live JSONL evidence ignores only an unfinished last line, not a malformed completed record', t => {
+  const f = fixture(t), root = path.join(f.home, 'logs'); mkdirSync(root);
+  const file = path.join(root, 'session.jsonl');
+  const source = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('function events('), source.indexOf('\ntry {', source.indexOf('function events(')));
+  const events = new Function('fs', 'path', `${body}; return events`)(fs, path);
+  writeFileSync(file, '{"type":"header"}\n{"type":"turn/end"}\n{"type":');
+  assert.deepEqual(events(root), [{ type: 'turn/end' }]);
+  writeFileSync(file, '{"type":"header"}\n{broken}\n'); assert.throws(() => events(root), SyntaxError);
+});
+
+test('valid YAML that cannot be safely edited gets an editing diagnostic rather than a parse error', t => {
+  const f = fixture(t, ['web']);
+  for (const body of [
+    `- id: keeper\n  config: &x {}\n- id: sessionbus ${marker}\n  name: '@sessionbus/dsh'\n  config: *x\n# owner\n`,
+    `- insert: ${marker}\n  - id: sessionbus ${marker}\n    name: '@sessionbus/dsh'\n`,
+  ]) {
+    assert.ok(Array.isArray(yaml.load(body))); writeFileSync(f.file('web'), body);
+    const operation = body.includes('config: *x') ? install : remove;
+    assert.throws(() => operation(['web'], { ...f, product: 'dsh' }), error => error.exitCode === 2 && /not supported for editing/u.test(error.message));
+    assert.equal(readFileSync(f.file('web'), 'utf8'), body);
+  }
+});
+
 test('missing-package hints name this installer exact version and every leftover pin is reported', t => {
   for (const name of ['sessionbus', 'web', 'custom']) {
     const f = fixture(t, [name]); const output = [];
@@ -557,6 +640,22 @@ test('pnpm 11 remedy is the actual README fenced text and exec has its own short
   const line = driver.split('\n').find(line => line.includes('const milliseconds = args.includes(\'exec\')'));
   assert.ok(line); const bound = new Function('args', `${line}; return milliseconds`);
   assert.equal(bound(['plugin', 'exec']), 10_000); assert.equal(bound(['plugin', 'remove']), 60_000);
+});
+
+test('prepared and conflict candidate execs retain the same ten-second native completion bound', () => {
+  const read = file => readFileSync(new URL(`./.github/scripts/${file}`, import.meta.url), 'utf8');
+  const prepared = read('prove-packed-install.sh');
+  assert.equal(prepared.split('\n').filter(line => /^\s*installer_exec --profile /u.test(line)).length, 4);
+  assert.match(prepared, /run "\$work\/exec-\$group_sequence\.json" exec env DSH_HOME=/u);
+  const runner = read('proof-process-group-runner.mjs');
+  assert.match(runner, /role === 'exec' \? setTimeout\(.*10_000\)/u);
+  assert.match(runner, /role === 'exec' \? setTimeout\(.*15_000\)/u);
+  const conflict = read('prove-native-row-conflicts.mjs');
+  const line = conflict.split('\n').find(line => line.includes("const milliseconds = args.includes('exec')"));
+  assert.ok(line); assert.equal(new Function('args', `${line}; return milliseconds`)(['plugin', 'exec']), 10_000);
+  const policy = read('prove-native-peer-policy.mjs');
+  assert.match(policy, /const bound = acquisition \? undefined/u);
+  assert.match(policy, /const hard = acquisition \? undefined/u);
 });
 
 test('native removal plugin-absence assertion accepts no map or empty map but rejects a remaining plugin', t => {
@@ -662,5 +761,36 @@ test('the actual normal stop rejects a surviving descendant before any cleanup k
   } finally {
     signalOwnedGroup(child, 'SIGKILL'); await child.ended;
     await wait(() => emptyGroup(child), 'fixture cleanup empty', 2000); assertEmptyGroup(child);
+  }
+});
+
+test('interrupting the actual shell proof during PID-record polling cleans its synchronously owned child', async t => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-start-interrupt-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const root = path.dirname(new URL(import.meta.url).pathname);
+  const source = readFileSync(path.join(root, '.github/scripts/prove-packed-install.sh'), 'utf8');
+  const start = source.slice(source.indexOf('start_process()'), source.indexOf('\nstop_processes()'));
+  const cleanup = source.slice(source.indexOf('cleanup()'), source.indexOf('\ntarball_name='));
+  assert.ok(start.includes('local wrapper=$!') && cleanup.includes('trap cleanup EXIT'));
+  const script = `set -euo pipefail\nroot=${JSON.stringify(root)}\nwork=${JSON.stringify(work)}\nKEEP_PROOF=1\nserver_pid=\ndsh_pid=\nserver_wrapper=\ndsh_wrapper=\ngroup_sequence=0\n`
+    + `node() { if [[ "$1" = -p ]]; then touch "$work/polling"; sleep 2; fi; command node "$@"; }\n${start}\n${cleanup}\n`
+    + `start_process fixture node -e 'process.on("SIGTERM",()=>process.exit(0));setInterval(()=>{},1000)'\nsleep 30\n`;
+  const child = childProcess.spawn('bash', ['-c', script], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.ended = new Promise(resolve => child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }));
+  let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', data => { output += data; });
+  let native;
+  let bound;
+  try {
+    for (let count = 0; count < 200 && !existsSync(path.join(work, 'polling')); count++) await delay(10);
+    assert.equal(existsSync(path.join(work, 'polling')), true, output);
+    native = JSON.parse(readFileSync(path.join(work, 'group-1.json')));
+    assertNativeInGroup(native, native.pid);
+    signalOwnedGroup(child, 'SIGTERM');
+    await Promise.race([child.ended, new Promise((_, reject) => { bound = setTimeout(() => reject(new Error('interrupted proof did not finish cleanup')), 8000); })]);
+    assertEmptyGroup(native);
+  } finally {
+    clearTimeout(bound);
+    if (native && !emptyGroup(native)) signalOwnedGroup(native, 'SIGKILL');
+    signalOwnedGroup(child, 'SIGKILL'); await child.ended;
   }
 });

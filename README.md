@@ -101,19 +101,23 @@ is left untouched and reported, not removed. An unmarked plugin or upload row be
 the user: remove it and rerun, or keep that profile outside the installer.
 Removing the marker from a config-only lane default makes it yours: the installer
 keeps that row unchanged, prints `kept as yours, lane default not applied`, and
-does not append a shadowing default. Unrelated owner rows, comments and expressions
+does not append a shadowing default. Everything inside a marked row belongs to
+the installer and is replaced. Unrelated owner rows, comments and expressions
 remain byte-identical, including the lane's provider and default-model rows.
 All structural and row-ownership guards complete before any profile changes.
 The installer supports block-form YAML lists and DSH's empty `[]` template,
 including comments, a UTF-8 BOM and CRLF line endings. Convert a nonempty
 flow/JSON top-level list to block form, or keep that profile outside the installer.
 Each changed file is replaced atomically, preserving its existing mode exactly
-and replacing a symlink's referent without replacing the link. Unlike DSH's
+and replacing a symlink's referent without replacing the link; the containing
+directory must be writable. Unlike DSH's
 native settings writer, this does not force 0600 or replace symlinks themselves.
 Ownership by another user, hard links, extended attributes and ACLs are not
 preserved. A later filesystem write failure can still leave earlier files or
 profiles changed; it cannot leave a half-written file. Removal strips only
 marked rows and also keeps the owner's unmarked config-only rows unchanged.
+The installer refuses to overwrite a profile file that changed while it was
+running; rerunning is safe because installation is idempotent.
 
 The plugin is tested with DSH's profile defaults (`nodeLinker: hoisted`,
 `autoInstallPeers: false`); its DSH peers come from the DSH installation,
@@ -137,8 +141,7 @@ operator owns that setup, independently of the login shell.
 [Upgrading a project DSH install in place](docs/HOST-INSTALL.md) is an operations
 procedure for a long-lived pnpm project, not a prerequisite for ordinary plugin
 installation. It addresses that project's upgrade history, not global or fresh
-installs. The in-place regression is Linux-only; release acceptance also requires
-the real project's lane and web upgrade proof.
+installs.
 
 Without an explicit socket, peers use `$XDG_RUNTIME_DIR/sessionbus/presence.sock`
 or `/tmp/sessionbus-<uid>/presence.sock`, matching the daemon's discovery rule.

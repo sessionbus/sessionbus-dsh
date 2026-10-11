@@ -14,8 +14,9 @@ async function run(args, label) {
   const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
-  const bound = setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
-  const hard = setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
+  const acquisition = args[0] === 'plugin' && args.includes('add');
+  const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
+  const hard = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
   try {
     const result = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolve({ code, signal })); });
     assert.deepEqual(result, { code: 0, signal: null }, output); assertEmptyGroup(child); return output;

@@ -8,24 +8,41 @@ import { assertNativeInGroup, assertEmptyGroup, emptyGroup, signalOwnedGroup, st
 const [action, file, role, ...argv] = process.argv.slice(2);
 assert.ok(file && ['run', 'stop', 'cleanup', 'signal'].includes(action));
 if (action === 'run') {
-  assert.ok(['native', 'fixture'].includes(role) && argv.length);
+  assert.ok(['native', 'fixture', 'exec'].includes(role) && argv.length);
   const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: 'inherit' });
   child.ended = new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); });
   });
-  let primary;
+  // Register the owned group and its interruption cleanup synchronously at spawn,
+  // before publishing a PID record or awaiting a reader / native readiness.
+  let primary, interrupted, cleaning;
+  const cleanup = () => cleaning ??= stopOwnedChild(child, child.pid, true);
+  const interrupt = async signal => {
+    interrupted ??= signal === 'SIGINT' ? 130 : 143;
+    try { await cleanup(); }
+    catch (error) { primary ??= error; } // The same awaited finally propagates this failure.
+  };
+  const onInt = () => interrupt('SIGINT'), onTerm = () => interrupt('SIGTERM');
+  process.on('SIGINT', onInt); process.on('SIGTERM', onTerm);
+  const bound = role === 'exec' ? setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 10_000) : undefined;
+  const hard = role === 'exec' ? setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 15_000) : undefined;
   try {
     fs.writeFileSync(`${file}.tmp`, JSON.stringify({ pid: child.pid, role }), { flag: 'wx' });
     fs.renameSync(`${file}.tmp`, file);
     const result = await child.ended;
-    await stopOwnedChild(child); // No normal-stop cleanup kill: leaked descendants fail.
-    assert.equal(result.code, 0, `owned ${role} must exit 0 (signal=${result.signal})`);
+    clearTimeout(bound); clearTimeout(hard); // Completion timers must not hide a post-exit leak.
+    if (!interrupted) {
+      await stopOwnedChild(child); // No normal-stop cleanup kill: leaked descendants fail.
+      assert.equal(result.code, 0, `owned ${role} must exit 0 (signal=${result.signal})`);
+    }
   } catch (error) { primary = error; throw error; }
   finally {
-    try { await stopOwnedChild(child, child.pid, true); }
+    try { await cleanup(); }
     catch (cleanup) { throw new AggregateError(primary ? [primary, cleanup] : [cleanup], 'owned shell proof cleanup failed'); }
+    finally { clearTimeout(bound); clearTimeout(hard); process.off('SIGINT', onInt); process.off('SIGTERM', onTerm); }
   }
+  if (interrupted) process.exitCode = interrupted;
 } else {
   const child = JSON.parse(fs.readFileSync(file));
   if (action === 'signal') {

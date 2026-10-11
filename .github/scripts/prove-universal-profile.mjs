@@ -61,7 +61,7 @@ const state = capture => fs.existsSync(capture) && JSON.parse(fs.readFileSync(ca
 const alive = child => { if (child.hasEnded) throw new Error(`native process exited: ${redact(child.stderrText)}`); };
 function events(root) {
   return fs.readdirSync(root, { recursive: true }).filter(file => /session(?:\.v\d+)?\.jsonl$/u.test(file))
-    .flatMap(file => fs.readFileSync(path.join(root, file), 'utf8').trim().split('\n').slice(1).map(line => JSON.parse(line)));
+    .flatMap(file => fs.readFileSync(path.join(root, file), 'utf8').split('\n').slice(1, -1).map(line => JSON.parse(line)));
 }
 try {
   // The same documented version command absorbs cold npx acquisition first;

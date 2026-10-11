@@ -487,6 +487,10 @@ for (const [name, version] of Object.entries(pins)) {
 writeFileSync(destination, `${JSON.stringify(pins)}\n`)
 console.log(`CLI companion pins: ${JSON.stringify(pins)}`)
 NODE
+# OPERATIONS-ONLY: after an in-place project upgrade, retained old companion
+# records can select an incompatible loader/service API. This project-policy
+# check is not a universal plugin-install requirement; native runtime peer
+# resolution is the compatibility oracle for ordinary installation.
 cat >"$ROLLBACK_ROOT/check-cli-companions.mjs" <<'NODE'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

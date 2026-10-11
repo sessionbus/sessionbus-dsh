@@ -19,8 +19,9 @@ async function run(args, label, observedFile) {
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
   child.ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }); });
   const acquisition = args[0] === 'plugin' && args.includes('add');
-  const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), 60000);
-  const hard = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), 65000);
+  const milliseconds = args.includes('exec') ? 10_000 : 60_000;
+  const bound = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGTERM'), milliseconds);
+  const hard = acquisition ? undefined : setTimeout(() => signalOwnedGroup(child, 'SIGKILL'), milliseconds + 5000);
   try {
     if (observedFile) {
       for (let count = 0; count < 300 && !fs.existsSync(observedFile); count++) await delay(100);
