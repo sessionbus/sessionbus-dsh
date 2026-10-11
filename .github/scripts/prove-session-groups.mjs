@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const [home, work, daemonBin, root] = process.argv.slice(2);
 assert.ok(home && work && daemonBin && root, 'usage: prove-session-groups.mjs HOME WORK DAEMON_BIN REPO');
-const { connectPeer } = createRequire(path.join(home, 'profiles/web/node_modules/@sessionbus/dsh/plugin.cjs'))('@sessionbus/kit');
+const { connectPeer } = createRequire(fs.realpathSync(path.join(home, 'profiles/web/node_modules/@sessionbus/dsh/plugin.cjs')))('@sessionbus/kit');
 const socket = path.join(work, 'groups.sock'), bin = path.join(work, 'groups-bin');
 const sessionRoot = path.join(work, 'groups-sessions');
 fs.mkdirSync(bin);

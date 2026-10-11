@@ -11,7 +11,7 @@ export function storageZod(installation) {
     const manifest = pending.shift()
     if (seen.has(manifest)) continue
     seen.add(manifest)
-    const pkg = JSON.parse(fs.readFileSync(manifest)), require = createRequire(manifest)
+    const pkg = JSON.parse(fs.readFileSync(manifest)), require = createRequire(fs.realpathSync(manifest))
     if (pkg.name === '@deepseek-ai/dsh-storage-domain') {
       const zod = fs.realpathSync(require.resolve('zod/package.json'))
       return { producer: manifest, zod, version: JSON.parse(fs.readFileSync(zod)).version, range: pkg.dependencies.zod }

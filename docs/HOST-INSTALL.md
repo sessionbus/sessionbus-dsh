@@ -370,6 +370,11 @@ equality, not global Zod uniqueness or equal physical paths: native domain open
 calls the supplied schema's `.parse`, and separate same-version copies work.
 Retain and report other majors and both importer paths. No installer guard is
 added; these are the existing installation and runtime checks.
+Canonicalize an existing manifest or module file with `realpathSync` before
+passing it to `createRequire`: that API does not resolve its anchor's symlinks.
+A pnpm alias can otherwise walk up to unrelated hoisted Zod 3 even though the
+producer's real file context resolves Zod 4. Keep synthetic profile importers logical;
+they are native resolution keys, not necessarily files on disk.
 
 ```sh
 cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
@@ -392,7 +397,7 @@ import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 const [bin, destination, registryFile] = process.argv.slice(2)
 const { registryHasVersion } = await import(pathToFileURL(registryFile).href)
-const anchor = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json')
+const anchor = realpathSync(createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json'))
 const { dependencies } = JSON.parse(readFileSync(anchor, 'utf8'))
 const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, declaration]) => {
   if (!name.startsWith('@deepseek-ai/') || name.startsWith('@deepseek-ai/dsh')) return []
@@ -406,7 +411,7 @@ while (pending.length) {
   const manifest = pending.shift()
   if (seen.has(manifest)) continue
   seen.add(manifest)
-  const pkg = JSON.parse(readFileSync(manifest, 'utf8')), owner = createRequire(manifest)
+  const pkg = JSON.parse(readFileSync(manifest, 'utf8')), owner = createRequire(realpathSync(manifest))
   if (pkg.name === '@deepseek-ai/dsh-storage-domain') {
     const zod = realpathSync(owner.resolve('zod/package.json'))
     pins.zod = JSON.parse(readFileSync(zod, 'utf8')).version
@@ -512,11 +517,11 @@ try {
   // Native open accepts cross-copy schemas: compare names/versions and report both paths.
   const storage = packages.packageOf('@deepseek-ai/dsh-storage-domain', importer)
   if (!storage?.dir) throw new Error('runtime storage-domain producer is missing')
-  const producerZod = realpathSync(createRequire(join(storage.dir, 'package.json')).resolve('zod/package.json'))
+  const producerZod = realpathSync(createRequire(realpathSync(join(storage.dir, 'package.json'))).resolve('zod/package.json'))
   const plugin = packages.packageOf('@sessionbus/dsh', importer)
   const pluginManifest = plugin?.dir && JSON.parse(readFileSync(join(plugin.dir, 'package.json'), 'utf8'))
   if (pluginManifest?.peerDependencies?.zod) {
-    const pluginZod = realpathSync(createRequire(join(plugin.dir, 'plugin.cjs')).resolve('zod/package.json'))
+    const pluginZod = realpathSync(createRequire(realpathSync(join(plugin.dir, 'plugin.cjs'))).resolve('zod/package.json'))
     const selected = JSON.parse(readFileSync(pluginZod, 'utf8')), expected = JSON.parse(readFileSync(producerZod, 'utf8'))
     if (selected.name !== expected.name || selected.version !== expected.version) throw new Error(`runtime plugin Zod version mismatch: ${selected.name}@${selected.version} at ${pluginZod} != storage-domain ${expected.name}@${expected.version} at ${producerZod}`)
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
@@ -672,7 +677,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 const [bin, target] = process.argv.slice(2)
 const binDir = dirname(realpathSync.native(bin))
-const anchor = createRequire(join(binDir, 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json')
+const anchor = realpathSync(createRequire(join(binDir, 'dsh-anchor.cjs')).resolve('@deepseek-ai/dsh/package.json'))
 const version = JSON.parse(readFileSync(anchor, 'utf8')).version
 console.log(`DSH executing install anchor: ${anchor}`)
 console.log(`DSH executing version: ${version}`)
@@ -822,7 +827,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 const require = createRequire(join(dirname(realpathSync(process.argv[2])), 'dsh-anchor.cjs'))
 const installed = JSON.parse(readFileSync(require.resolve('@deepseek-ai/dsh/package.json'))).version
-const semver = createRequire(require.resolve('@deepseek-ai/dsh-app-boot'))('semver')
+const semver = createRequire(realpathSync(require.resolve('@deepseek-ai/dsh-app-boot')))('semver')
 if (!semver.satisfies(installed, '>=0.2.1-alpha.2', { includePrerelease: true })) throw new Error(`installed DSH ${installed} is below the plugin floor; stop before profile changes`)
 console.log(`DSH floor >=0.2.1-alpha.2: PASS (${installed})`)
 NODE
@@ -1433,6 +1438,26 @@ the daemon has already committed the child, but the detached caller then sees
 RPC `-32002 not_connected`. A one-shot caller is also invalid because its
 identity disappears immediately after the call. Record the controller's
 authenticated identity and SDK version before proceeding.
+
+Command-driven control drivers that type into native sessions must launch with
+a PTY and keep their input open until an explicit shutdown. A plain-pipe launcher
+that closes stdin can stop the driver before its proof finishes; preserve that
+as harness history, not a native failure or permission to replay work. This does
+not change the ordinary web server's ignored-stdin launch.
+
+Preserve the owner's default model during host proofs. The web HTTP
+`session/selectModel` RPC also saves the profile default in the background
+(`dsh-api-session-controller/lib/index.js:722-745`, save at `:740`).
+`agentDefaultModel.saveSelection` uses the configuration editor when present
+(`dsh-agent-default-model/lib/index.js:54-68`), whose target is the profile patch
+(`dsh-config-editor/lib/index.js:24-25,123`), not just the selected session.
+An in-process host driver instead validates the requested route with
+`ctx.llm.resolveCallConfig` and uses the pure
+`ctx.sessionController.agents.selectForNextRequest(agent, selection)`
+(`dsh-api-session-controller/lib/index.js:321-323`) for its exact proof roots.
+Assert the native `modelSelection` projection or the next request header;
+`agent.options` retains immutable launch values. Do not edit defaults, disable a
+provider row, or restart an owner process to make a proof pass.
 
 ### Lane: package-owned launcher selects `dsh --profile sessionbus`
 

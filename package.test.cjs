@@ -70,6 +70,63 @@ test("zod pins come from the storage-domain producer, admit separate copies and 
   assert.throws(() => assertPinnedGraph("packages:\n  zod@3.25.76:\n", { zod: pins.zod }, "0.2.1-alpha.2"), /storage-domain zod 4.5.4 is missing/u);
 });
 
+test("proof fixture and runbook resolve producer Zod from real manifest anchors, not pnpm aliases", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-realpath-control-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const write = (file, value) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
+    return file;
+  };
+  const producer = path.join(directory, "node_modules/.pnpm/storage/node_modules/@deepseek-ai/dsh-storage-domain");
+  const plugin = path.join(directory, "node_modules/.pnpm/plugin/node_modules/@sessionbus/dsh");
+  const alias = path.join(directory, "node_modules/.pnpm/base/node_modules/@deepseek-ai/dsh-storage-domain");
+  const pluginAlias = path.join(directory, "profiles/web/node_modules/@sessionbus/dsh");
+  write(path.join(producer, "package.json"), { name: "@deepseek-ai/dsh-storage-domain", dependencies: { zod: "^4.4.3" } });
+  write(path.join(producer, "index.cjs"), 'module.exports = require("zod/package.json").version;');
+  write(path.join(plugin, "package.json"), { name: "@sessionbus/dsh" });
+  write(path.join(plugin, "plugin.cjs"), 'module.exports = require("zod/package.json").version;');
+  const producerZod = write(path.join(directory, "node_modules/.pnpm/storage/node_modules/zod/package.json"), { name: "zod", version: "4.5.4" });
+  const pluginZod = write(path.join(directory, "node_modules/.pnpm/plugin/node_modules/zod/package.json"), { name: "zod", version: "4.5.4" });
+  write(path.join(directory, "node_modules/zod/package.json"), { name: "zod", version: "3.25.76" });
+  write(path.join(directory, "profiles/web/node_modules/zod/package.json"), { name: "zod", version: "4.5.4" });
+  for (const [link, target] of [[alias, producer], [pluginAlias, plugin]]) {
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(target, link, "dir");
+  }
+  assert.equal(createRequire(path.join(alias, "package.json"))("zod/package.json").version, "3.25.76", "host failing control: literal alias walks up to unrelated hoisted Zod");
+  assert.equal(require(path.join(alias, "index.cjs")), "4.5.4", "ordinary module loading uses the requiring file's realpath");
+  const oldHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = directory;
+  t.after(() => { if (oldHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = oldHome; });
+  const commands = new Map();
+  const packages = { packageOf: name => ({ dir: name === "@sessionbus/dsh" ? pluginAlias : alias }) };
+  require("./.github/fixtures/groups-proof-plugin/plugin.cjs").apply({
+    commands: { register: definition => commands.set(definition.name, definition) }, pluginPackages: packages,
+  });
+  const runbook = fs.readFileSync(path.join(__dirname, "docs/HOST-INSTALL.md"), "utf8");
+  const producerLine = runbook.match(/^  const producerZod = .*$/m)?.[0];
+  const pluginLine = runbook.match(/^    const pluginZod = .*$/m)?.[0];
+  assert.ok(producerLine && pluginLine, "test the actual embedded runbook lookup, not a copied implementation");
+  const lookup = new Function("realpathSync", "createRequire", "join", "storage", "plugin", `${producerLine}\n${pluginLine}\nreturn { producerZod, pluginZod };`);
+  const handler = commands.get("w120-zod").handler;
+  await t.test("embedded runbook resolves the actual producer and plugin", () => {
+    const docs = lookup(fs.realpathSync, createRequire, path.join, packages.packageOf("storage"), packages.packageOf("@sessionbus/dsh"));
+    assert.equal(docs.producerZod, producerZod);
+    assert.equal(docs.pluginZod, pluginZod);
+  });
+  await t.test("packed-proof fixture accepts correct copies and rejects mismatch or broken anchor", () => {
+    const selected = JSON.parse(handler().text);
+    assert.equal(selected.version, "4.5.4");
+    assert.equal(selected.producerZod, producerZod);
+    assert.equal(selected.actual, pluginZod);
+    write(pluginZod, { name: "zod", version: "3.25.76" });
+    assert.throws(handler, /plugin zod version mismatch/u, "real mismatch must still reject");
+    fs.unlinkSync(path.join(producer, "package.json"));
+    assert.throws(handler, { code: "ENOENT" }, "broken producer anchor must not fall back to hoisted Zod");
+  });
+});
+
 test("the extracted package imports and its real bin performs installation", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-pack-"));
   const packed = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], { cwd: __dirname, encoding: "utf8" });
@@ -97,7 +154,7 @@ test("the extracted package imports and its real bin performs installation", asy
   assert.equal(zodInstalled.status, 0, zodInstalled.stderr);
   assertPinnedGraph(fs.readFileSync(path.join(consumer, "pnpm-lock.yaml"), "utf8"), companionPins, dshVersion);
   assertPluginZod(path.join(consumer, "node_modules/@sessionbus/dsh/package.json"));
-  const semver = createRequire(path.join(consumer, "node_modules/@deepseek-ai/dsh-app-boot/package.json"))("semver");
+  const semver = createRequire(fs.realpathSync(path.join(consumer, "node_modules/@deepseek-ai/dsh-app-boot/package.json")))("semver");
   await t.test("file-uploads-none range resolves one provider for pinned stable and prerelease profiles", async () => {
     const helper = "@antst/dsh-file-uploads-none";
     const range = packageManifest.dependencies[helper];
@@ -178,8 +235,8 @@ test("the extracted package imports and its real bin performs installation", asy
         });
         assert.equal(result.code, 0, result.output);
         const owner = path.join(profile, layout === "direct" ? "package.json" : "node_modules/@antst/dashi-app/package.json");
-        const direct = fs.realpathSync(createRequire(owner).resolve(helper));
-        const indirect = fs.realpathSync(createRequire(path.join(profile, "node_modules/@sessionbus/dsh/package.json")).resolve(helper));
+        const direct = fs.realpathSync(createRequire(fs.realpathSync(owner)).resolve(helper));
+        const indirect = fs.realpathSync(createRequire(fs.realpathSync(path.join(profile, "node_modules/@sessionbus/dsh/package.json"))).resolve(helper));
         assert.equal(JSON.parse(fs.readFileSync(path.join(profile, "node_modules/@sessionbus/dsh/package.json"), "utf8")).dependencies[helper], count === 1 ? range : "^0.1.0");
         assert.equal(JSON.parse(fs.readFileSync(path.join(path.dirname(direct), "../package.json"), "utf8")).version, version);
         const lockPackages = fs.readFileSync(path.join(profile, "pnpm-lock.yaml"), "utf8").split("\nsnapshots:\n")[0];
