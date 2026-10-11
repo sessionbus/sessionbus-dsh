@@ -351,7 +351,8 @@ imports `$DSH_HOME/settings.yaml` after the Loader settles
 `settings.yaml.imported` **before** writing sections into the active profile's
 `cordis.patch.yml`, the configEditor's document path
 (`dsh-config-editor/lib/index.js:24-25`). The import lands in one profile only;
-reported upstream. Other profiles do not inherit those writes.
+[reported upstream](https://github.com/deepseek-ai/deepseek-harness/discussions/9419).
+Other profiles do not inherit those writes.
 
 Hide the already-backed-up legacy file during graph repair. Stop on an existing
 staging file or on both a legacy file and an import marker; do not overwrite or
@@ -1259,7 +1260,8 @@ patch; inspect the restored selection privately before stopping your own
 instance with SIGINT (Ctrl-C, expected exit 130). Do not use EOF or a help-only
 boot as an import-success oracle, print the whole private log, or touch an
 owner's process. The stock CLI prints no `settings: imported` line to the
-terminal: cordis loggers go to exporters (`cordis/lib/index.js:473-484,598-604`).
+terminal: cordis loggers go to exporters (`cordis/lib/index.js:473-484,598-604`);
+see the [upstream follow-up](https://github.com/deepseek-ai/deepseek-harness/discussions/9419#discussioncomment-18860327).
 
 ```sh
 if [ -f "$DSH_HOME/settings.yaml.pre-0.2" ]; then
