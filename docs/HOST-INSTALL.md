@@ -417,6 +417,12 @@ passing it to `createRequire`: that API does not resolve its anchor's symlinks.
 A pnpm alias can otherwise walk up to unrelated hoisted Zod 3 even though the
 producer's real file context resolves Zod 4. Keep synthetic profile importers logical;
 they are native resolution keys, not necessarily files on disk.
+Uploads-peer assertions belong only to profiles whose own manifest depends on
+`@sessionbus/dsh` or `@antst/dashi-app`. Other profiles can resolve the plugin
+through legacy `profiles/node_modules` (present on both measured hosts) without
+owning a plugin or lockfile; report that name/version/path as an observation,
+not as a profile-owned provider assertion. Lane/web/dashi owner checks remain
+mandatory.
 
 ```sh
 cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
@@ -569,11 +575,13 @@ try {
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
   const uploads = '@antst/dsh-file-uploads-none'
-  if (pluginManifest?.peerDependencies?.[uploads]) {
+  const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
+  const profileManifestFile = join(directory, 'package.json')
+  const profileManifest = existsSync(profileManifestFile) ? JSON.parse(readFileSync(profileManifestFile, 'utf8')) : {}
+  const ownsPlugin = ['@sessionbus/dsh', '@antst/dashi-app'].some(name => Object.hasOwn(profileManifest.dependencies ?? {}, name))
+  if (ownsPlugin && pluginManifest?.peerDependencies?.[uploads]) {
     const selected = packages.packageOf(uploads, importer)
     const peer = packages.packageOf(uploads, pathToFileURL(realpathSync(join(plugin.dir, 'plugin.cjs'))).href)
-    const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
-    const profileManifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
     const pin = profileManifest.dependencies?.['@antst/dashi-app']
       ? packages.packageOf('@antst/dashi-app', importer)?.manifest.dependencies?.[uploads] : profileManifest.dependencies?.[uploads]
     const physical = [...new Set(readdirSync(modules, { recursive: true })
@@ -589,6 +597,8 @@ try {
       throw new Error('profile/plugin upload provider must resolve one exact profile-owned copy')
     }
     console.log(`runtime profile/plugin upload provider@${pin}: one copy: PASS`)
+  } else if (!ownsPlugin && plugin) {
+    console.log(`fallback ${plugin.name}@${plugin.version} -> ${realpathSync(plugin.dir)}: REPORTED ONLY (profile does not own the plugin)`)
   }
   console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
   const entries = packages.current.entries
