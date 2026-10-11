@@ -25,13 +25,18 @@ lifetime (trusted host).
 
 See [Installing a DSH lane host](docs/HOST-INSTALL.md) for the complete
 preflight, installation, verification, and rollback procedure for
-`@sessionbus/dsh` `0.1.0-pre.17` with kit `0.5.12` on DSH alpha.2.
-Dashi packed acceptance is pending `0.2.0-alpha.1` (W-114); do not run a
+`@sessionbus/dsh` `0.1.0-pre.20` with kit `0.5.12` on DSH alpha.2.
+The published dashi-app `0.2.0-alpha.1` still pins plugin pre.18; its packed
+case proves coexistence, not pre.20 inside dashi. Do not run a
 dashi 0.1.x release against the alpha.2 graph. The installer checks the host's
 DSH floor before changing a profile; a manual `pnpm add` bypasses that guard.
 pnpm is required for the prerelease floors; strict npm does not admit them.
 The runbook's provider-parity step must be completed for both the lane and plain
 peer profiles before either one runs a model turn.
+The quick-start commands below assume pnpm's default peer auto-install. With
+`auto-install-peers=false` and `strict-peer-dependencies=true`, first follow the
+runbook's `pin_uploads_provider` step and add the plugin plus that exact provider
+pin together; otherwise the initial add fails before the installer can run.
 
 Create the base-only lane profile for the package-owned `sessionbus-dsh`
 product with:
@@ -65,6 +70,24 @@ The dashi-app bundle owns its dashi-profile row and
 exact plugin dependency; do not run this installer against that profile.
 Non-web profiles also receive the no-upload provider required by DSH's Session
 Controller; ordinary text prompts work while file-upload receipts are rejected.
+Pre.20 declares `@antst/dsh-file-uploads-none` as a required peer at
+`^0.1.0 || ^0.2.0-alpha.1`, not a nested dependency. Every profile managed by
+the installer gets an exact pin: the installed dashi-app's exact provider pin
+when present, otherwise the highest registry release matching that range.
+The app must be installed in that profile's own `node_modules` at a version
+satisfying its manifest spec. All profile guards and pin lookups complete before
+any profile changes; each registry query uses that profile's context and has a
+60 s bound, with native errors propagated and no retry or fallback. A later
+package-operation failure can leave earlier profiles changed. When the plugin
+is missing, the same add saves its dependency exactly, not with a caret.
+The web profile gets the package pin but never a no-upload loader row.
+DSH and the Cordis/Zod companions must still be coherent as the runbook requires.
+With pnpm defaults, auto-install supplies a matching missing peer under pnpm's
+preferences (the `latest` tag when it satisfies, e.g. `0.1.3` today);
+this is acceptable, not the strict-peer proof. The installer explicitly uses
+`maxSatisfying` for its pin. With auto-install disabled and strict peers enabled,
+installing without a provider fails: supply its exact pin in the same add.
+Other-base helper prereleases (such as `0.2.1-alpha.x`) remain outside the range.
 
 For the two-product form, register the daemon's `sessionbus-dsh` product as the
 package's `sessionbus-dsh` bin. For the one-product form, register only `dashi`
@@ -95,6 +118,8 @@ sessionbus-dsh-install --remove web` is the equivalent convenience form. The
 installer removes the package first, then strips its managed `sessionbus` and
 `file-uploads-none` rows. Managed rows carry an ownership comment; removal
 refuses a matching unmarked row instead of deleting someone else's config.
+Uninstall leaves the profile-owned provider and companion package pins in
+place; they may serve other consumers. It never checks versions or boots DSH.
 
 `SESSIONBUS_GROUPS` configures peer identities only. Lane membership is owned
 by the daemon; the plugin accepts and does not consume groups in `session.open`.

@@ -6,12 +6,13 @@ example. Run it as the ordinary account returned by `id -un`, never with
 account is `antst` and its home is `/home/antst`; earlier references to `pdev`
 were wrong. The target set is DSH `0.2.1-alpha.2`, `@antst/dashi-launcher`
 `0.2.0-alpha.1`, `@antst/dashi-app` `0.2.0-alpha.1`, `@sessionbus/dsh`
-`0.1.0-pre.17`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
+`0.1.0-pre.20`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
 `v0.5.9` or newer. The dsh host runs `v0.5.12` at revision
 `fd85d7ee3a19735b2712fbbacdef30d62720cd5b`; v0.5.12 is not a higher host minimum.
-The dashi target is a placeholder pending its release (W-114); do not execute
-the dashi install or acceptance sections until that exact version is published
-and pins plugin pre.17. No dashi acceptance is claimed for this runbook update.
+The published dashi target pins plugin pre.18 and its exact upload provider.
+The pre.20 packed dashi case reports coexistence, not candidate-inside-dashi
+or a single-provider guarantee for an in-place upgraded dashi profile.
+That proof belongs to dashi 0.2.0-alpha.2 after its pre.20 re-pin.
 Use the plugin source at
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh) and
 daemon release artifacts from
@@ -54,7 +55,7 @@ Run these exact probes immediately before starting:
 ```sh
 npm view @antst/dashi@0.2.0-alpha.1 version && npm view @antst/dashi-app@0.2.0-alpha.1 version
 npm view @antst/dashi-launcher@0.2.0-alpha.1 version && npm view @antst/dsh-file-uploads-none@0.2.0-alpha.1 version
-npm view @sessionbus/dsh@0.1.0-pre.17 version && npm view @sessionbus/kit@0.5.12 version
+npm view @sessionbus/dsh@0.1.0-pre.20 version && npm view @sessionbus/kit@0.5.12 version
 ```
 
 Expected output, in order:
@@ -64,7 +65,7 @@ Expected output, in order:
 0.2.0-alpha.1
 0.2.0-alpha.1
 0.2.0-alpha.1
-0.1.0-pre.17
+0.1.0-pre.20
 0.5.12
 ```
 
@@ -526,6 +527,28 @@ try {
     if (selected.name !== expected.name || selected.version !== expected.version) throw new Error(`runtime plugin Zod version mismatch: ${selected.name}@${selected.version} at ${pluginZod} != storage-domain ${expected.name}@${expected.version} at ${producerZod}`)
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
+  const uploads = '@antst/dsh-file-uploads-none'
+  if (pluginManifest?.peerDependencies?.[uploads]) {
+    const selected = packages.packageOf(uploads, importer)
+    const peer = packages.packageOf(uploads, pathToFileURL(realpathSync(join(plugin.dir, 'plugin.cjs'))).href)
+    const directory = join(dshHome, 'profiles', profile), modules = join(directory, 'node_modules')
+    const profileManifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+    const pin = profileManifest.dependencies?.['@antst/dashi-app']
+      ? packages.packageOf('@antst/dashi-app', importer)?.manifest.dependencies?.[uploads] : profileManifest.dependencies?.[uploads]
+    const physical = [...new Set(readdirSync(modules, { recursive: true })
+      .filter(file => file.endsWith(join('@antst', 'dsh-file-uploads-none', 'package.json')))
+      .map(file => realpathSync(join(modules, file))))]
+    const records = [...readFileSync(join(directory, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n')[0]
+      .matchAll(/^  '@antst\/dsh-file-uploads-none@([^']+)':$/gm)].map(match => match[1])
+    const actual = physical.length === 1 && JSON.parse(readFileSync(physical[0], 'utf8'))
+    console.log(`upload provider inventory: ${JSON.stringify({ physical, records })}`)
+    if (selected?.version !== pin || peer?.version !== pin || physical.length !== 1 ||
+        records.length !== 1 || records[0] !== pin || actual?.name !== uploads || actual?.version !== pin ||
+        realpathSync(selected.manifestPath) !== realpathSync(peer.manifestPath) || realpathSync(selected.manifestPath) !== physical[0]) {
+      throw new Error('profile/plugin upload provider must resolve one exact profile-owned copy')
+    }
+    console.log(`runtime profile/plugin upload provider@${pin}: one copy: PASS`)
+  }
   console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
   const entries = packages.current.entries
   let current = 0
@@ -955,24 +978,87 @@ test "$(node -p 'require(process.argv[1]).version' "$DSH_HOME/profiles/dashi/nod
 Expected output contains `dashi profile DSH graph nonzero`,
 `@antst/dashi-app 0.2.0-alpha.1`, and a DSH package count at the single version
 `0.2.1-alpha.2`. Its measured count is inventory, not a fixed acceptance
-criterion. The shipped dashi-app must carry plugin pre.17 and kit 0.5.12;
-these assertions remain pending the W-114 release. Never substitute dashi 0.1.x.
+criterion. The published dashi-app carries plugin pre.18 and kit 0.5.12;
+it owns the provider pin. Never substitute dashi 0.1.x or independently re-pin
+its plugin. An in-place alpha.1 profile can still have the old plugin's nested
+provider; the one-provider dashi host proof waits for alpha.2's pre.20 re-pin.
 
 ## 4. Upgrade sessionbus-dsh and its profiles
 
+Pre.20 moves the no-upload provider to a required peer. Pin it exactly in every
+managed standalone profile (including web, without a no-upload loader row).
+If the profile carries published dashi-app, its exact provider dependency owns
+the choice; otherwise choose the highest matching registry release, not the
+`latest` dist-tag. Define the lookup once; it prints only the selected version,
+uses the profile's registry configuration, and changes no files:
+
+```sh
+pin_uploads_provider() {
+  node --input-type=module - "$1" "$DSH_BIN" <<'NODE'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+const [directory, bin] = process.argv.slice(2)
+const native = createRequire(join(dirname(realpathSync(bin)), 'dsh-anchor.cjs'))
+const semver = createRequire(realpathSync(native.resolve('@deepseek-ai/dsh-app-boot')))('semver')
+const helper = '@antst/dsh-file-uploads-none', range = '^0.1.0 || ^0.2.0-alpha.1'
+const manifestFile = join(directory, 'package.json')
+const manifest = existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, 'utf8')) : {}
+let pin
+if (manifest.dependencies?.['@antst/dashi-app']) {
+  const appFile = join(directory, 'node_modules/@antst/dashi-app/package.json')
+  if (!existsSync(appFile)) throw new Error(`cannot resolve dashi-app in profile ${directory}`)
+  const app = JSON.parse(readFileSync(appFile, 'utf8'))
+  if (!semver.satisfies(app.version, manifest.dependencies['@antst/dashi-app'])) throw new Error(`dashi-app ${app.version} does not satisfy profile spec ${manifest.dependencies['@antst/dashi-app']}`)
+  pin = app.dependencies?.[helper]
+  if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw new Error('dashi-app must declare an exact matching provider')
+} else {
+  const result = spawnSync('pnpm', ['view', `${helper}@${range}`, 'version', '--json'], {
+    cwd: existsSync(directory) ? directory : dirname(realpathSync(bin)), encoding: 'utf8', timeout: 60_000,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(result.stderr || 'provider lookup failed')
+  const versions = result.stdout.trim() ? JSON.parse(result.stdout) : []
+  pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range)
+  if (!pin) throw new Error('no matching provider release')
+}
+console.log(pin)
+NODE
+}
+```
+
+Expected: no output until invoked; the current registry selection is
+`0.2.0-alpha.1`. Lookup failure stops, with no silent fallback from an app-owned
+pin. Under pnpm defaults a missing peer is auto-installed at a matching version
+under pnpm's preferences (the `latest` tag when it satisfies, e.g. `0.1.3`
+today), not necessarily the highest. This is acceptable, not the strict proof;
+the installer explicitly pins with `maxSatisfying`. Under
+`auto-install-peers=false` and `strict-peer-dependencies=true` it fails instead,
+so the commands below supply the exact pin together with the plugin. Other-base
+prereleases such as `0.2.1-alpha.x` are not admitted by this range. Removing the
+plugin later leaves these profile-owned provider/companion pins untouched.
+Registry queries have a 60 s bound each, use each existing profile's own registry
+context, and propagate native failures without retry or fallback. The installer
+preflights every profile's pin before any profile add or row write; a later native
+package-operation failure can still leave earlier profiles changed.
+
 Install the package in the host project. This supplies the command for the
 daemon's service PATH; the task shell PATH already lets the package-owned
-launcher and installer find their child `dsh`:
+launcher and installer find their child `dsh`. The host project intentionally
+gets its own exact provider pin too, to satisfy the host-installed plugin's peer:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
-pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.17
+UPLOADS_PIN=$(pin_uploads_provider "$DSH_INSTALL_DIR")
+pnpm add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$(node -p 'require(process.argv[1]).version' "$DSH_INSTALL_DIR/node_modules/@sessionbus/kit/package.json")" = 0.5.12
 ```
 
-Expected output reports `@sessionbus/dsh 0.1.0-pre.17` and a nonzero host DSH
+Expected output reports `@sessionbus/dsh 0.1.0-pre.20`, the derived exact provider,
+and a nonzero host DSH
 count at the single version `0.2.1-alpha.2`.
 
 Upgrade the installed sessionbus profile in place. Re-running the installer
@@ -997,7 +1083,8 @@ the dashi profile: the dashi product runs the plugin version that dashi-app
 pins, until dashi-app publishes a newer pin.
 
 ```sh
-"$DSH_BIN" plugin --profile sessionbus add @sessionbus/dsh@0.1.0-pre.17
+UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/sessionbus")
+"$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 optional sessionbus
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
 remove_untracked_nested_packages "$DSH_HOME/profiles/sessionbus"
@@ -1008,7 +1095,7 @@ grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/se
 grep -F 'config: { product: dashi }' "$DSH_HOME/profiles/dashi/node_modules/@antst/dashi-app/cordis.patch.yml"
 ```
 
-Expected output contains `@sessionbus/dsh 0.1.0-pre.17` for the sessionbus
+Expected output contains `@sessionbus/dsh 0.1.0-pre.20` for the sessionbus
 profile and the exact version pinned by dashi-app for the dashi profile, no DSH
 version other than alpha.2 in the lane graph (which may have zero DSH records),
 and these exact rows:
@@ -1026,7 +1113,8 @@ group. Re-check its graph immediately after the package add:
 if [ ! -f "$DSH_HOME/profiles/web/package.json" ]; then
   "$DSH_BIN" --profile web --dump-default-config >"$ROLLBACK_ROOT/web-default-config.yml"
 fi
-"$DSH_BIN" plugin --profile web add @sessionbus/dsh@0.1.0-pre.17
+UPLOADS_PIN=$(pin_uploads_provider "$DSH_HOME/profiles/web")
+"$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.0-pre.20 "@antst/dsh-file-uploads-none@$UPLOADS_PIN"
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 optional web
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
 remove_untracked_nested_packages "$DSH_HOME/profiles/web"
@@ -1714,7 +1802,7 @@ for profile_name in web sessionbus; do
   installer="$DSH_HOME/profiles/$profile_name/node_modules/.bin/sessionbus-dsh-install"
   package="$DSH_HOME/profiles/$profile_name/node_modules/@sessionbus/dsh/package.json"
   installed_version=$(if [ -f "$package" ]; then node -p 'require(process.argv[1]).version' "$package" 2>/dev/null || true; fi)
-  if [ "$installed_version" = '0.1.0-pre.17' ] && [ -x "$installer" ]; then
+  if [ "$installed_version" = '0.1.0-pre.20' ] && [ -x "$installer" ]; then
     pnpm --dir "$DSH_HOME/profiles/$profile_name" exec sessionbus-dsh-install --remove "$profile_name"
   fi
 done

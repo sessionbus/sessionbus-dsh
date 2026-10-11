@@ -162,16 +162,32 @@ if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
 fi
 dsh="$home/node_modules/.bin/dsh"
 export PATH="$home/node_modules/.bin:$PATH"
+uploads_pin=$(pnpm view "@antst/dsh-file-uploads-none@^0.1.0 || ^0.2.0-alpha.1" version --json | node --input-type=module -e '
+import fs from "node:fs"; import {createRequire} from "node:module";
+const native = createRequire(fs.realpathSync(process.argv[1]));
+const semver = createRequire(fs.realpathSync(native.resolve("@deepseek-ai/dsh-app-boot")))("semver");
+let body=""; for await (const chunk of process.stdin) body += chunk;
+const versions=JSON.parse(body), pin=semver.maxSatisfying(Array.isArray(versions)?versions:[versions], "^0.1.0 || ^0.2.0-alpha.1");
+if (!pin) throw new Error("no matching upload provider"); process.stdout.write(pin);
+' "$home/package.json")
 for profile in sessionbus web dashi; do
   mkdir -p "$home/profiles/$profile"
   cp "$work/.pnpmfile.cjs" "$home/profiles/$profile/.pnpmfile.cjs"
 done
 
 DSH_HOME="$home" "$dsh" plugin --profile sessionbus add "$root/.github/fixtures/manifest-keeper-bundle"
+DSH_HOME="$home" "$dsh" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0-pre.19
+echo "W-122 in-place pre.19 lane baseline (before ordinary add; no cleanup)"
+node --input-type=module - "$root" "$home" <<'NODE'
+import {pathToFileURL} from 'node:url';
+const {providerInventory} = await import(pathToFileURL(`${process.argv[2]}/.github/scripts/prove-upload-provider.mjs`));
+console.log(JSON.stringify(providerInventory(`${process.argv[3]}/profiles/sessionbus`)));
+NODE
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "$root/.github/fixtures/bundle-provides-sessionbus"
 for profile in sessionbus web dashi; do
-  DSH_HOME="$home" "$dsh" plugin --profile "$profile" add "$tarball"
+  DSH_HOME="$home" "$dsh" plugin --profile "$profile" add --save-exact "$tarball" "@antst/dsh-file-uploads-none@$uploads_pin"
 done
+for profile in sessionbus web; do node "$root/.github/scripts/prove-upload-provider.mjs" "$home" "$profile"; done
 cp "$home/profiles/sessionbus/package.json" "$work/lane-manifest-before-install.json"
 DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install"
 cmp -s "$work/lane-manifest-before-install.json" "$home/profiles/sessionbus/package.json"
@@ -406,6 +422,7 @@ for (const profile of ["sessionbus", "web", "dashi"]) {
   const manifest = JSON.parse(fs.readFileSync(`${home}/profiles/${profile}/package.json`, "utf8"));
   const patch = fs.readFileSync(`${home}/profiles/${profile}/cordis.patch.yml`, "utf8");
   assert.equal(manifest.dependencies?.["@sessionbus/dsh"], undefined);
+  assert.ok(manifest.dependencies["@antst/dsh-file-uploads-none"], 'uninstall preserves the profile-owned exact provider');
   assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u);
 }
 NODE
