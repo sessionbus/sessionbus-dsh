@@ -9,6 +9,33 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("plain release metadata publishes to latest without a GitHub prerelease flag", t => {
+  const yaml = require("js-yaml");
+  const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));
+  const steps = workflow.jobs.publish.steps;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-plain-release-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const output = path.join(directory, "outputs");
+  const argsFile = path.join(directory, "arguments.jsonl");
+  for (const name of ["gh", "npm"]) fs.writeFileSync(path.join(directory, name), `#!${process.execPath}\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nif (args.includes('view')) process.exit(1);\nfs.appendFileSync(process.env.FAKE_RELEASE_ARGS, JSON.stringify({ name: ${JSON.stringify(name)}, args }) + '\\n');\n`, { mode: 0o755 });
+  const env = { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}`, GITHUB_REF_NAME: `v${packageVersion}`,
+    GITHUB_OUTPUT: output, GITHUB_REPOSITORY: "fixture/fixture", RUNNER_TEMP: directory, FAKE_RELEASE_ARGS: argsFile };
+  const run = (name, extra = {}) => {
+    const result = spawnSync("bash", ["-eu", "-c", steps.find(step => step.name === name).run], { cwd: __dirname, env: { ...env, ...extra }, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  assert.match(packageVersion, /^\d+\.\d+\.\d+$/u);
+  run("Select release metadata");
+  const metadata = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
+  assert.deepEqual(metadata, { version: packageVersion, dist_tag: "latest", prerelease: "false" });
+  run("Create GitHub release", { RELEASE_VERSION: packageVersion, PRERELEASE: metadata.prerelease });
+  run("Publish @sessionbus/dsh", { RELEASE_VERSION: packageVersion, NPM_DIST_TAG: metadata.dist_tag });
+  const recorded = fs.readFileSync(argsFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
+  assert.equal(recorded[0].name, "gh");
+  assert.equal(recorded[0].args.includes("--prerelease"), false);
+  assert.deepEqual(recorded[1], { name: "npm", args: ["publish", "--access", "public", "--provenance", "--tag", "latest"] });
+});
+
 test("package metadata stays rooted in the standalone repository with its own provider entry", () => {
   const manifest = packageManifest;
   assert.deepEqual(manifest.repository, { type: "git", url: "git+https://github.com/sessionbus/sessionbus-dsh.git" });
@@ -63,9 +90,9 @@ test("dashi metadata multiplicity derives from the app pin, never provider physi
     return () => inspectDashiResolution(ctx, { dir }, app.version, candidate);
   }
   assert.equal(fixture()().distinctResolvedCopies, 1);
-  assert.equal(fixture({ candidate: "0.1.0-pre.21", separate: true })().distinctResolvedCopies, 2);
-  for (const options of [{ separate: true }, { candidate: "0.1.0-pre.21" },
-    { candidate: "0.1.0-pre.21", separate: true, wrongBundled: true }, { candidateProvider: true }]) assert.throws(fixture(options), assert.AssertionError);
+  assert.equal(fixture({ candidate: "0.1.0", separate: true })().distinctResolvedCopies, 2);
+  for (const options of [{ separate: true }, { candidate: "0.1.0" },
+    { candidate: "0.1.0", separate: true, wrongBundled: true }, { candidateProvider: true }]) assert.throws(fixture(options), assert.AssertionError);
 });
 
 test("zod pins come from the storage-domain producer, admit separate copies and reject wrong versions", async (t) => {

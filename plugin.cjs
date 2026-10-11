@@ -90,6 +90,7 @@ function captureContext(ctx) {
     context: {
       ...services,
       launchEnvironment,
+      get: ctx.get.bind(ctx),
       on: ctx.on.bind(ctx),
       effect: ctx.effect.bind(ctx),
     },
@@ -145,7 +146,7 @@ class NativeSession {
     this.removeEvents = ctx.on("session/event", (session, event) => this.event(session, event), { global: true });
   }
 
-  async open(request) {
+  async open(request, signal) {
     const options = request.open || {};
     if (options.arguments?.length) throw new Error("open.arguments are not supported by DSH");
     let resolved;
@@ -162,10 +163,37 @@ class NativeSession {
     if (options.cwd !== undefined && agent.session.header.cwd !== options.cwd) throw new Error("DSH resolved a different native cwd");
     await this.ctx.sessionController.rename({ sessionId: agent.id, title: nativeName(request.name) });
     if (options.model !== undefined || options.reasoning_effort !== undefined) {
-      const model = options.model || `${agent.options?.provider || ""}/${agent.options?.model || ""}`;
-      const slash = model.indexOf("/");
-      if (slash < 1 || slash === model.length - 1) throw new Error(`unsupported value model=${model}`);
-      await this.ctx.sessionController.selectModel({ sessionId: agent.id, provider: model.slice(0, slash), model: model.slice(slash + 1), ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) });
+      signal?.throwIfAborted();
+      // Approved alpha.2 non-public holder, documented methods only (controller
+      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). selectModel
+      // also saves the profile default; never fall back to it.
+      const controller = this.ctx.sessionController.agents;
+      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
+      if (missing.length) {
+        const dshVersion = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
+        throw new Error(`sessionController.agents missing ${missing.join(", ")} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
+      }
+      const llm = this.ctx.get("llm");
+      if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
+      await controller.serializeImageAdmission(agent, async () => {
+        signal?.throwIfAborted();
+        let route;
+        if (options.model === undefined) {
+          const current = controller.selectionFor(agent).current;
+          route = { provider: current.provider, model: current.model };
+        } else {
+          const slash = options.model.indexOf("/");
+          if (slash < 1 || slash === options.model.length - 1) throw new Error(`unsupported value model=${options.model}`);
+          route = { provider: options.model.slice(0, slash), model: options.model.slice(slash + 1) };
+        }
+        const resolved = await llm.resolveCallConfig({ ...route, ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, signal);
+        signal?.throwIfAborted();
+        controller.selectForNextRequest(agent, {
+          provider: resolved.provider, model: resolved.model,
+          // Adapter defaults belong to request preparation, not an explicit choice.
+          ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }),
+        });
+      });
     }
     if (options.permission_mode !== undefined) {
       if (!this.ctx.permissionPresets.names.includes(options.permission_mode)) throw new Error(`unsupported value permission_mode=${options.permission_mode}`);
@@ -554,7 +582,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
       launchToken = undefined;
       worker = dependencies.serveWorker({
         hello: () => ({ product: values.product, version, supports_message_run: true, supported_open_fields: ["cwd", "permission_mode", "model", "reasoning_effort"], extra_arguments: [] }),
-        open: (_cancel, request) => native.open(request),
+        open: (cancel, request) => native.open(request, cancel),
         run: (cancel, token, input) => native.run(cancel, token, input),
         interrupt: (cancel, token) => native.interrupt(cancel, token),
         deliver: (cancel, request, _identity, token) => native.laneDeliver(cancel, request, token),

@@ -450,6 +450,8 @@ for profile in sessionbus web; do
   [[ "$provider_output" = "profile=$profile provider=deepseek-official registered" ]]
 done
 
+node "$root/.github/scripts/prove-lane-options.mjs" "$work/lane-options" "[\"$dsh\"]" "$home" "$root" dashi
+
 for profile in sessionbus web; do
   installer_exec --profile "$profile" exec sessionbus-dsh-install --remove "$profile"
   DSH_HOME="$home" "$dsh" plugin --profile "$profile" remove @sessionbus/dsh
