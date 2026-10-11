@@ -31,6 +31,43 @@ test("package metadata stays rooted in the standalone repository", () => {
   assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-loader"], ">=1.0.6-alpha.1");
   assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-timer"], ">=1.1.7-alpha.1");
   assert.equal(manifest.peerDependencies["@deepseek-ai/schemastery"], ">=3.18.5-alpha.1");
+  assert.equal(manifest.peerDependencies.zod, "^4.4.3");
+  assert.equal(manifest.devDependencies.zod, "4.5.4");
+  assert.equal(Object.hasOwn(manifest.dependencies, "zod"), false);
+});
+
+test("zod pins come from the storage-domain producer, admit separate copies and reject wrong versions", async (t) => {
+  const { deriveCliPins, assertPinnedGraph, assertPluginZod } = await import("./.github/scripts/dsh-cli-pins.mjs");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-zod-producer-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const write = (location, pkg) => {
+    fs.mkdirSync(path.dirname(location), { recursive: true });
+    fs.writeFileSync(location, JSON.stringify(pkg));
+    return location;
+  };
+  write(path.join(directory, "node_modules/@deepseek-ai/dsh/package.json"), {
+    name: "@deepseek-ai/dsh", dependencies: { "@deepseek-ai/dsh-storage-domain": "0.2.1-alpha.2" },
+  });
+  write(path.join(directory, "node_modules/@deepseek-ai/dsh-storage-domain/package.json"), {
+    name: "@deepseek-ai/dsh-storage-domain", dependencies: { zod: "^4.4.3" },
+  });
+  const producerZod = write(path.join(directory, "node_modules/@deepseek-ai/dsh-storage-domain/node_modules/zod/package.json"), { name: "zod", version: "4.5.4" });
+  write(path.join(directory, "node_modules/zod/package.json"), { name: "zod", version: "3.25.76" });
+  const pins = deriveCliPins({ "@deepseek-ai/cordis": "^4.0.5-alpha.1" }, directory);
+  assert.equal(pins.zod, "4.5.4", "bare CLI-anchor zod is the wrong producer");
+  const plugin = write(path.join(directory, "node_modules/@sessionbus/dsh/package.json"), { name: "@sessionbus/dsh" });
+  assert.throws(() => assertPluginZod(plugin), /plugin zod version mismatch/u);
+  const separatePlugin = write(path.join(directory, "node_modules/@sessionbus/separate-plugin/package.json"), { name: "@sessionbus/dsh" });
+  const separateZod = write(path.join(path.dirname(separatePlugin), "node_modules/zod/package.json"), { name: "zod", version: "4.5.4" });
+  assert.notEqual(separateZod, producerZod);
+  assert.equal(assertPluginZod(separatePlugin), separateZod, "native domain accepts independent same-version factories");
+  const goodPlugin = write(path.join(directory, "node_modules/@sessionbus/valid-plugin/package.json"), { name: "@sessionbus/dsh" });
+  const link = path.join(path.dirname(goodPlugin), "node_modules/zod");
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.symlinkSync(path.dirname(producerZod), link);
+  assert.equal(assertPluginZod(goodPlugin), producerZod);
+  assert.doesNotThrow(() => assertPinnedGraph("packages:\n  zod@3.25.76:\n  zod@4.5.4:\n", { zod: pins.zod }, "0.2.1-alpha.2"));
+  assert.throws(() => assertPinnedGraph("packages:\n  zod@3.25.76:\n", { zod: pins.zod }, "0.2.1-alpha.2"), /storage-domain zod 4.5.4 is missing/u);
 });
 
 test("the extracted package imports and its real bin performs installation", async (t) => {
@@ -54,9 +91,12 @@ test("the extracted package imports and its real bin performs installation", asy
   const pins = prepared.stdout.trim().split("\n");
   const installed = spawnSync("pnpm", ["add", "--save-exact", `@deepseek-ai/dsh@${dshVersion}`, ...pins, path.join(directory, filename)], { cwd: consumer, encoding: "utf8" });
   assert.equal(installed.status, 0, installed.stderr);
-  const { deriveCliPins, assertPinnedGraph } = await import("./.github/scripts/dsh-cli-pins.mjs");
-  const companionPins = deriveCliPins(JSON.parse(cli.stdout).dependencies);
+  const { deriveCliPins, assertPinnedGraph, assertPluginZod } = await import("./.github/scripts/dsh-cli-pins.mjs");
+  const companionPins = deriveCliPins(JSON.parse(cli.stdout).dependencies, consumer);
+  const zodInstalled = spawnSync("pnpm", ["add", "--save-exact", `zod@${companionPins.zod}`], { cwd: consumer, encoding: "utf8" });
+  assert.equal(zodInstalled.status, 0, zodInstalled.stderr);
   assertPinnedGraph(fs.readFileSync(path.join(consumer, "pnpm-lock.yaml"), "utf8"), companionPins, dshVersion);
+  assertPluginZod(path.join(consumer, "node_modules/@sessionbus/dsh/package.json"));
   const semver = createRequire(path.join(consumer, "node_modules/@deepseek-ai/dsh-app-boot/package.json"))("semver");
   await t.test("file-uploads-none range resolves one provider for pinned stable and prerelease profiles", async () => {
     const helper = "@antst/dsh-file-uploads-none";

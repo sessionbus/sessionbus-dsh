@@ -362,6 +362,15 @@ A profile graph with no DSH records is coherent. It never deletes
 broad dedupe. The embedded closure checker reads only `HOME` and `DSH_HOME`
 from the environment and prints only inventory/result lines:
 
+Pre.19 adds a Zod peer: derive its exact pin from the executing CLI's
+`dsh-storage-domain` producer (4.5.4 in the host inventory; a fresh install may
+resolve a newer version), not from a bare CLI
+anchor that may resolve unrelated Zod 3. Require producer/plugin name/version
+equality, not global Zod uniqueness or equal physical paths: native domain open
+calls the supplied schema's `.parse`, and separate same-version copies work.
+Retain and report other majors and both importer paths. No installer guard is
+added; these are the existing installation and runtime checks.
+
 ```sh
 cat >"$ROLLBACK_ROOT/registry-version.mjs" <<'NODE'
 import { spawnSync } from 'node:child_process'
@@ -391,6 +400,26 @@ const pins = Object.fromEntries(Object.entries(dependencies).flatMap(([name, dec
   if (!floor) throw new Error(`cannot derive CLI minimum for ${name}: ${declaration}`)
   return [[name, floor[1]]]
 }))
+// Zod's owner is storage-domain in the executing CLI closure, not a bare CLI-anchor lookup.
+const pending = [anchor], seen = new Set()
+while (pending.length) {
+  const manifest = pending.shift()
+  if (seen.has(manifest)) continue
+  seen.add(manifest)
+  const pkg = JSON.parse(readFileSync(manifest, 'utf8')), owner = createRequire(manifest)
+  if (pkg.name === '@deepseek-ai/dsh-storage-domain') {
+    const zod = realpathSync(owner.resolve('zod/package.json'))
+    pins.zod = JSON.parse(readFileSync(zod, 'utf8')).version
+    console.log(`storage-domain zod@${pins.zod} -> ${zod}`)
+    break
+  }
+  for (const name of Object.keys({ ...pkg.dependencies, ...pkg.peerDependencies })) {
+    if (!name.startsWith('@deepseek-ai/dsh')) continue
+    try { pending.push(realpathSync(owner.resolve(`${name}/package.json`))) }
+    catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error }
+  }
+}
+if (!pins.zod) throw new Error('executing CLI closure has no storage-domain Zod producer')
 for (const [name, version] of Object.entries(pins)) {
   if (!registryHasVersion(name, version)) throw new Error(`CLI declares absent companion ${name}@${version}; stop, do not substitute a version`)
 }
@@ -403,9 +432,14 @@ import { join } from 'node:path'
 const [root, pinFile] = process.argv.slice(2)
 const pins = JSON.parse(readFileSync(pinFile, 'utf8'))
 const lock = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n', 1)[0]
-const records = [...lock.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)]
+const records = [...lock.matchAll(/^  '?(@deepseek-ai\/[^@']+|zod)@([^':]+)'?:$/gm)]
 for (const [name, pin] of Object.entries(pins)) {
   const versions = records.filter(([, packageName]) => packageName === name).map(([, , version]) => version)
+  if (name === 'zod') {
+    if (!versions.includes(pin)) throw new Error(`storage-domain zod@${pin} missing; found ${versions.join(', ') || 'none'}`)
+    console.log(`storage-domain zod@${pin}: present; other Zod versions ${versions.filter(version => version !== pin).join(', ') || 'none'}: REPORTED`)
+    continue
+  }
   if (versions.length !== 1 || versions[0] !== pin) {
     throw new Error(`${name} must resolve once at CLI minimum ${pin}; found ${versions.join(', ') || 'none'}`)
   }
@@ -475,6 +509,19 @@ try {
     const resolved = packages.packageOf(name, importer)
     assertRuntimeSelection(name, version, resolved)
   }
+  // Native open accepts cross-copy schemas: compare names/versions and report both paths.
+  const storage = packages.packageOf('@deepseek-ai/dsh-storage-domain', importer)
+  if (!storage?.dir) throw new Error('runtime storage-domain producer is missing')
+  const producerZod = realpathSync(createRequire(join(storage.dir, 'package.json')).resolve('zod/package.json'))
+  const plugin = packages.packageOf('@sessionbus/dsh', importer)
+  const pluginManifest = plugin?.dir && JSON.parse(readFileSync(join(plugin.dir, 'package.json'), 'utf8'))
+  if (pluginManifest?.peerDependencies?.zod) {
+    const pluginZod = realpathSync(createRequire(join(plugin.dir, 'plugin.cjs')).resolve('zod/package.json'))
+    const selected = JSON.parse(readFileSync(pluginZod, 'utf8')), expected = JSON.parse(readFileSync(producerZod, 'utf8'))
+    if (selected.name !== expected.name || selected.version !== expected.version) throw new Error(`runtime plugin Zod version mismatch: ${selected.name}@${selected.version} at ${pluginZod} != storage-domain ${expected.name}@${expected.version} at ${producerZod}`)
+    console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
+  }
+  console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
   const entries = packages.current.entries
   let current = 0
   for (const entry of entries) {
@@ -569,7 +616,7 @@ import { pathToFileURL } from 'node:url'
 const [root, target, planFile, companionFile, registryFile] = process.argv.slice(2)
 const { registryHasVersion } = await import(pathToFileURL(registryFile).href)
 const packages = readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').split('\nsnapshots:\n', 1)[0] ?? ''
-const records = [...packages.matchAll(/^  '?(@deepseek-ai\/[^@']+)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
+const records = [...packages.matchAll(/^  '?(@deepseek-ai\/[^@']+|zod)@([^':]+)'?:$/gm)].map(([, name, version]) => ({ name, version }))
 const stale = [...new Set(records.filter(record => record.name.startsWith('@deepseek-ai/dsh') && record.version !== target).map(record => record.name))].sort()
 const pins = [], absent = []
 for (const name of stale) {
@@ -578,7 +625,7 @@ for (const name of stale) {
 }
 for (const [name, pin] of Object.entries(JSON.parse(readFileSync(companionFile, 'utf8')))) {
   const versions = records.filter(record => record.name === name).map(record => record.version)
-  if (versions.length !== 1 || versions[0] !== pin) pins.push(`${name}@${pin}`)
+  if (name === 'zod' ? !versions.includes(pin) : versions.length !== 1 || versions[0] !== pin) pins.push(`${name}@${pin}`)
 }
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const direct = new Set(['dependencies', 'devDependencies', 'optionalDependencies'].flatMap(field => Object.keys(manifest[field] ?? {})))
@@ -724,8 +771,11 @@ CLI companion @deepseek-ai/cordis-plugin-include@1.0.10-alpha.1: one version
 CLI companion @deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1: one version
 CLI companion @deepseek-ai/cordis-plugin-timer@1.1.7-alpha.1: one version
 CLI companion @deepseek-ai/schemastery@3.18.5-alpha.1: one version
+storage-domain zod@<producer version, 4.5.4 in the inventory>: present; other Zod versions <reported versions or none>: REPORTED
 runtime @deepseek-ai/dsh-base@0.2.1-alpha.2 -> <new installation package>: PASS
 <one runtime selection line per CLI companion>
+runtime storage-domain zod@<producer version> -> <producer-resolved package.json>: PASS
+<when the profile has a Zod peer: runtime plugin/storage-domain zod@<same producer version>: PASS; plugin=<package.json>; producer=<possibly separate package.json>>
 profile=headless
 expected=<closure count>
 current=<same closure count>

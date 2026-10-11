@@ -1,0 +1,8 @@
+{
+  "name": "@sessionbus/w120-groups-proof",
+  "version": "1.0.0",
+  "main": "plugin.cjs",
+  "peerDependencies": {
+    "@sessionbus/dsh": "*"
+  }
+}
