@@ -1251,7 +1251,10 @@ function fields(value, path) {
 }
 function entries(list) {
   for (const row of list) {
-    if (!row || typeof row !== 'object') throw new Error('invalid patch row; inspect it privately')
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('invalid patch row; inspect it privately')
+    if (Object.prototype.hasOwnProperty.call(row, 'insert') && !Array.isArray(row.insert)) {
+      throw new Error('invalid patch row; inspect it privately')
+    }
     if (Object.prototype.hasOwnProperty.call(row, 'config') && typeof row.id !== 'string') {
       throw new Error('invalid patch row; inspect it privately')
     }
