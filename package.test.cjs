@@ -23,7 +23,8 @@ test("package metadata stays rooted in the standalone repository", () => {
   assert.equal(manifest.homepage, "https://github.com/sessionbus/sessionbus-dsh#readme");
   assert.deepEqual(manifest.bin, { "sessionbus-dsh": "launcher.mjs", "sessionbus-dsh-install": "bin.mjs" });
   assert.deepEqual(manifest.files, ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs"]);
-  assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], "^0.1.0 || ^0.2.0-alpha.1");
+  assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], undefined);
+  assert.equal(manifest.peerDependencies["@antst/dsh-file-uploads-none"], "^0.1.0 || ^0.2.0-alpha.1");
   assert.match(manifest.dependencies["@sessionbus/kit"], /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
   for (const [name, range] of Object.entries(manifest.peerDependencies)) if (name.startsWith("@deepseek-ai/dsh-")) assert.equal(range, ">=0.2.1-alpha.2");
   assert.equal(manifest.peerDependencies["@deepseek-ai/cordis"], ">=4.0.5-alpha.1");
@@ -127,6 +128,21 @@ test("proof fixture and runbook resolve producer Zod from real manifest anchors,
   });
 });
 
+test("runbook upload-provider pin uses its app owner without requiring a second profile declaration", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "docs/HOST-INSTALL.md"), "utf8");
+  const source = doc.match(/^    const pin = profileManifest.dependencies\?.*\n      .*$/m)?.[0];
+  assert.ok(source, "exercise the actual documented lookup");
+  const lookup = new Function("profileManifest", "packages", "importer", "uploads", `${source}\nreturn pin;`);
+  const helper = "@antst/dsh-file-uploads-none";
+  assert.equal(lookup({ dependencies: { [helper]: "0.1.3" } }, {}, "profile", helper), "0.1.3");
+  assert.equal(lookup({ dependencies: { "@antst/dashi-app": "0.2.0-alpha.2" } }, {
+    packageOf: () => ({ manifest: { dependencies: { [helper]: "0.2.0-alpha.1" } } }),
+  }, "profile", helper), "0.2.0-alpha.1");
+  assert.equal(lookup({ dependencies: { "@antst/dashi-app": "0.2.0-alpha.2", [helper]: "0.1.3" } }, {
+    packageOf: () => undefined,
+  }, "profile", helper), undefined, "broken app ownership must not fall back to a second declaration");
+});
+
 test("the extracted package imports and its real bin performs installation", async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-pack-"));
   const packed = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], { cwd: __dirname, encoding: "utf8" });
@@ -155,9 +171,9 @@ test("the extracted package imports and its real bin performs installation", asy
   assertPinnedGraph(fs.readFileSync(path.join(consumer, "pnpm-lock.yaml"), "utf8"), companionPins, dshVersion);
   assertPluginZod(path.join(consumer, "node_modules/@sessionbus/dsh/package.json"));
   const semver = createRequire(fs.realpathSync(path.join(consumer, "node_modules/@deepseek-ai/dsh-app-boot/package.json")))("semver");
-  await t.test("file-uploads-none range resolves one provider for pinned stable and prerelease profiles", async () => {
+  await t.test("file-uploads-none range resolves one provider for pinned stable and prerelease profiles", async t => {
     const helper = "@antst/dsh-file-uploads-none";
-    const range = packageManifest.dependencies[helper];
+    const range = packageManifest.peerDependencies[helper];
     for (const version of ["0.1.3", "0.2.0-alpha.1", "0.2.0-alpha.2", "0.2.0", "0.2.1"]) assert.equal(semver.satisfies(version, range), true, version);
     for (const version of ["0.2.0-alpha.0", "0.2.1-alpha.1", "0.3.0"]) assert.equal(semver.satisfies(version, range), false, version);
     assert.equal(semver.satisfies("0.2.0-alpha.1", "^0.1.0"), false, "old range rejects the new helper");
@@ -178,7 +194,9 @@ test("the extracted package imports and its real bin performs installation", asy
     const old = path.join(directory, "old-range");
     fs.cpSync(path.join(directory, "package"), old, { recursive: true });
     // Registry package versions are immutable; do not reuse the new version for different old-control bytes.
-    const oldManifest = { ...packageManifest, version: `${packageVersion}.w119-old-range`, dependencies: { ...packageManifest.dependencies, [helper]: "^0.1.0" } };
+    const oldPeers = { ...packageManifest.peerDependencies };
+    delete oldPeers[helper];
+    const oldManifest = { ...packageManifest, version: `${packageVersion}.w119-old-range`, peerDependencies: oldPeers, dependencies: { ...packageManifest.dependencies, [helper]: "^0.1.0" } };
     fs.writeFileSync(path.join(old, "package.json"), JSON.stringify(oldManifest));
     const oldPacked = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", old], { cwd: old, encoding: "utf8" });
     assert.equal(oldPacked.status, 0, oldPacked.stderr);
@@ -208,6 +226,57 @@ test("the extracted package imports and its real bin performs installation", asy
     });
     await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
     try {
+      await t.test("required provider: strict missing-peer failure, exact-pin success, old dependency negative control", async t => {
+        const run = (profile, args) => new Promise((resolve, reject) => {
+          const child = spawn("pnpm", [...args, "--ignore-scripts", "--store-dir", path.join(directory, "strict-store")], { cwd: profile });
+          let output = "";
+          child.stdout.on("data", chunk => { output += chunk; });
+          child.stderr.on("data", chunk => { output += chunk; });
+          child.once("error", reject);
+          child.once("close", code => resolve({ code, output }));
+        });
+        for (const flavour of ["new", "old", "defaults"]) {
+          const profile = fs.mkdtempSync(path.join(directory, "strict-provider-"));
+          const dependencies = {};
+          // Install-contract fixture: actual candidate bytes; all unrelated peers supplied as named/versioned packages. No runtime claim.
+          for (const [name, spec] of Object.entries(packageManifest.peerDependencies)) {
+            if (name === helper) continue;
+            const fixture = path.join(profile, "peers", name);
+            fs.mkdirSync(fixture, { recursive: true });
+            fs.writeFileSync(path.join(fixture, "package.json"), JSON.stringify({ name, version: semver.minVersion(spec).version }));
+            dependencies[name] = `file:${fixture}`;
+          }
+          dependencies["@sessionbus/dsh"] = `file:${flavour === "old" ? negative : path.join(directory, filename)}`;
+          fs.writeFileSync(path.join(profile, "package.json"), JSON.stringify({ private: true, dependencies }));
+          const registry = `http://127.0.0.1:${server.address().port}/${flavour}`;
+          fs.writeFileSync(path.join(profile, ".npmrc"), `node-linker=hoisted\nauto-install-peers=${flavour === "defaults"}\nstrict-peer-dependencies=true\n@antst:registry=${registry}\n@sessionbus:registry=${registry}\n`);
+          const missing = await run(profile, ["install"]);
+          if (flavour === "old") {
+            assert.equal(missing.code, 0, missing.output);
+            t.diagnostic("old dependency declaration supplies the provider: missing-peer refusal does not fire (negative control)");
+            continue;
+          }
+          if (flavour === "defaults") {
+            assert.equal(missing.code, 0, missing.output);
+            const selected = JSON.parse(fs.readFileSync(path.join(profile, "node_modules/@antst/dsh-file-uploads-none/package.json"))).version;
+            assert.equal(semver.satisfies(selected, range), true, "auto-install preference need not be highest; strict missing-peer proof is separate");
+            const { providerInventory } = await import("./.github/scripts/prove-upload-provider.mjs");
+            const inventory = providerInventory(profile);
+            assert.equal(inventory.physical.length, 1);
+            assert.deepEqual(inventory.lockVersions, [selected]);
+            t.diagnostic(`pnpm auto-install observation: ${selected}; exact-pin strict proof remains separate`);
+            continue;
+          }
+          assert.notEqual(missing.code, 0, missing.output);
+          assert.match(missing.output, /ERR_PNPM_PEER_DEP_ISSUES/u);
+          assert.match(missing.output, /missing peer @antst\/dsh-file-uploads-none/u);
+          assert.equal((missing.output.match(/missing peer /gu) ?? []).length, 1, missing.output);
+          const pinned = await run(profile, ["add", "--save-exact", `${helper}@0.2.0-alpha.1`]);
+          assert.equal(pinned.code, 0, pinned.output);
+          assert.equal(JSON.parse(fs.readFileSync(path.join(profile, "package.json"))).dependencies[helper], "0.2.0-alpha.1");
+          t.diagnostic("candidate omitted provider: explicit missing-peer error; exact provider supplied: success");
+        }
+      });
       const cases = [["0.2.0-alpha.1", path.join(directory, filename), 1], ["0.1.3", path.join(directory, filename), 1], ["0.2.0-alpha.1", negative, 2]];
       const scenarios = ["direct", "dashi-app"].flatMap(layout => cases.map(entry => [layout, ...entry]));
       for (const [layout, version, plugin, count] of scenarios) {
@@ -237,7 +306,9 @@ test("the extracted package imports and its real bin performs installation", asy
         const owner = path.join(profile, layout === "direct" ? "package.json" : "node_modules/@antst/dashi-app/package.json");
         const direct = fs.realpathSync(createRequire(fs.realpathSync(owner)).resolve(helper));
         const indirect = fs.realpathSync(createRequire(fs.realpathSync(path.join(profile, "node_modules/@sessionbus/dsh/package.json"))).resolve(helper));
-        assert.equal(JSON.parse(fs.readFileSync(path.join(profile, "node_modules/@sessionbus/dsh/package.json"), "utf8")).dependencies[helper], count === 1 ? range : "^0.1.0");
+        const selectedManifest = JSON.parse(fs.readFileSync(path.join(profile, "node_modules/@sessionbus/dsh/package.json"), "utf8"));
+        assert.equal(selectedManifest.dependencies[helper], count === 1 ? undefined : "^0.1.0");
+        if (count === 1) assert.equal(selectedManifest.peerDependencies[helper], range);
         assert.equal(JSON.parse(fs.readFileSync(path.join(path.dirname(direct), "../package.json"), "utf8")).version, version);
         const lockPackages = fs.readFileSync(path.join(profile, "pnpm-lock.yaml"), "utf8").split("\nsnapshots:\n")[0];
         const records = [...lockPackages.matchAll(/^  '@antst\/dsh-file-uploads-none@([^']+)':$/gm)].map(match => match[1]);
@@ -269,10 +340,19 @@ test("the extracted package imports and its real bin performs installation", asy
   assert.equal(importedInstaller.status, 0, importedInstaller.stderr);
   assert.equal(fs.existsSync(sideEffectHome), false);
 
+  // These three bin/row fixtures declare installed packages rather than installing a CLI profile.
+  // Include the newly profile-owned provider; real add/upgrade is proven by the packed native matrix.
+  const providerLookup = spawnSync("pnpm", ["view", `@antst/dsh-file-uploads-none@${packageManifest.peerDependencies["@antst/dsh-file-uploads-none"]}`, "version", "--json"], { encoding: "utf8" });
+  assert.equal(providerLookup.status, 0, providerLookup.stderr);
+  const available = JSON.parse(providerLookup.stdout);
+  const providerPin = semver.maxSatisfying(Array.isArray(available) ? available : [available], packageManifest.peerDependencies["@antst/dsh-file-uploads-none"]);
+  assert.ok(providerPin);
+  const profileDependencies = { "@sessionbus/dsh": packageVersion, "@antst/dsh-file-uploads-none": providerPin };
+
   const home = path.join(directory, "dsh-home");
   const profile = path.join(home, "profiles", "sessionbus");
   fs.mkdirSync(profile, { recursive: true });
-  fs.writeFileSync(path.join(profile, "package.json"), `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } })}\n`);
+  fs.writeFileSync(path.join(profile, "package.json"), `${JSON.stringify({ dependencies: profileDependencies })}\n`);
   fs.writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
   const rootPatch = "# product-owned peer configuration\n[]\n";
   fs.writeFileSync(path.join(home, "cordis.patch.yml"), rootPatch);
@@ -290,7 +370,7 @@ test("the extracted package imports and its real bin performs installation", asy
   const directHome = path.join(directory, "direct-home");
   const directProfile = path.join(directHome, "profiles", "sessionbus");
   fs.mkdirSync(directProfile, { recursive: true });
-  fs.writeFileSync(path.join(directProfile, "package.json"), `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } })}\n`);
+  fs.writeFileSync(path.join(directProfile, "package.json"), `${JSON.stringify({ dependencies: profileDependencies })}\n`);
   fs.writeFileSync(path.join(directProfile, "cordis.patch.yml"), "[]\n");
   const direct = spawnSync(process.execPath, [path.join(packageRoot, "bin.mjs")], { encoding: "utf8", env: { ...consumerEnv, DSH_HOME: directHome } });
   assert.equal(direct.status, 0, direct.stderr);
@@ -299,7 +379,7 @@ test("the extracted package imports and its real bin performs installation", asy
   const peerHome = path.join(directory, "peer-home");
   const peerProfile = path.join(peerHome, "profiles", "web");
   fs.mkdirSync(peerProfile, { recursive: true });
-  fs.writeFileSync(path.join(peerProfile, "package.json"), `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } })}\n`);
+  fs.writeFileSync(path.join(peerProfile, "package.json"), `${JSON.stringify({ dependencies: profileDependencies })}\n`);
   fs.writeFileSync(path.join(peerProfile, "cordis.patch.yml"), "[]\n");
   const peer = spawnSync(process.execPath, [path.join(packageRoot, "bin.mjs"), "--product", "dsh", "web"], { encoding: "utf8", env: { ...consumerEnv, DSH_HOME: peerHome } });
   assert.equal(peer.status, 0, peer.stderr);

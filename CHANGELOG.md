@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-pre.20 — 2026-10-11
+
+- Move `@antst/dsh-file-uploads-none` from a dependency to a required peer at the unchanged `^0.1.0 || ^0.2.0-alpha.1` range. The installer exact-pins the profile-owned provider in lane, web and custom profiles, using an installed dashi-app's exact dependency when present or the highest matching registry release otherwise. Web never gains a no-upload row; uninstall leaves provider/companion pins intact. Other-base helper prereleases remain excluded. Plugin runtime, launchers and wire behavior are unchanged (W-122).
+- Prove ordinary pre.19 lane upgrade and standalone web each have one physical/lock provider, strict missing-peer refusal with auto-install disabled, and published-dashi coexistence without a one-provider claim. The dashi single-provider in-place proof follows its pre.20 re-pin; real lane/web host acceptance is required before this tag.
+
 ## 0.1.0-pre.19 — 2026-10-11
 
 - Add the native human-only `/sessionbus-groups` command: show, replace with a comma list, or reset with `-` (no explicitly empty override). Overrides persist per native root in DSH storage; forks use defaults and lanes refuse the command. Overlapping attachment replacement preserves non-persistent lane ownership, the private self group, and later delivery. Cancellation ends before the connection attempt; a failed five-second identity check reports change in progress without teardown, awaiting old-peer supersession or candidate terminal rejection. If neither arrives, existing kit close/reconnect semantics apply, with no swap deadline or polling. Post-admission saving failures preserve live groups and the prior stored value; uncertain requests are never replayed. An old reconnect hello already in flight during an outage remains a known shutdown race (W-120).

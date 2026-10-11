@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const marker = "# sessionbus-dsh-install owned";
+const uploads = "@antst/dsh-file-uploads-none";
 const profilePatch = (product) => `- id: system-prompt ${marker}
   config:
     personaPrefix: >-
@@ -167,10 +168,26 @@ function validProfile(name) {
   return name && !name.includes("/") && !name.includes("\\") && name !== "." && name !== ".." && name !== "node_modules";
 }
 
+function providerPin(manifest, manifestFile, range, semver, query) {
+  if (manifest?.dependencies?.["@antst/dashi-app"]) {
+    const directory = packageDir(realpathSync(manifestFile), "@antst/dashi-app");
+    const pin = directory && JSON.parse(readFileSync(path.join(directory, "package.json"))).dependencies?.[uploads];
+    if (!semver.valid(pin) || !semver.satisfies(pin, range)) throw refusal(`dashi-app must declare an exact matching provider ${uploads}`);
+    return pin;
+  }
+  const result = query(["view", `${uploads}@${range}`, "version", "--json"], path.dirname(manifestFile));
+  if (result.status !== 0) throw new Error(String(result.stderr || result.error?.message || "provider registry lookup failed").trim());
+  const versions = JSON.parse(result.stdout);
+  const pin = semver.maxSatisfying(Array.isArray(versions) ? versions : [versions], range);
+  if (!pin) throw refusal(`no matching registry provider for ${uploads}@${range}`);
+  return pin;
+}
+
 export function install(profileNames = [], options = {}) {
   const home = options.home || process.env.DSH_HOME || path.join(os.homedir(), ".dsh");
   const root = options.root || path.dirname(fileURLToPath(import.meta.url));
   const run = options.run || ((args) => spawnSync("dsh", args, { cwd: root, encoding: "utf8" }));
+  const query = options.query || ((args, profile) => spawnSync("pnpm", args, { cwd: existsSync(profile) ? profile : root, encoding: "utf8" }));
   const names = [...new Set(profileNames.length ? profileNames : ["sessionbus"])];
   const laneProduct = options.product ?? "sessionbus-dsh";
   if (options.product !== undefined && (typeof options.product !== "string" || !productPattern.test(options.product))) throw new Error(`invalid product ${JSON.stringify(options.product)}; expected ^[a-z0-9][a-z0-9-]{0,31}$`);
@@ -179,7 +196,8 @@ export function install(profileNames = [], options = {}) {
   const anchor = options.installAnchor || installAnchor();
   if (!anchor) throw refusal("cannot resolve installed DSH; run docs/HOST-INSTALL.md preflight before upgrading");
   const installed = JSON.parse(readFileSync(anchor, "utf8")).version;
-  const required = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).peerDependencies["@deepseek-ai/dsh-agent"];
+  const peers = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).peerDependencies;
+  const required = peers["@deepseek-ai/dsh-agent"];
   const boot = packageDir(anchor, "@deepseek-ai/dsh-app-boot");
   if (!boot) throw refusal("cannot resolve installed DSH app-boot; run docs/HOST-INSTALL.md preflight before upgrading");
   const semver = createRequire(path.join(boot, "package.json"))("semver");
@@ -197,8 +215,10 @@ export function install(profileNames = [], options = {}) {
     const manifestFile = path.join(profile, "package.json");
     const existed = existsSync(manifestFile);
     let manifest = existed ? JSON.parse(readFileSync(manifestFile, "utf8")) : null;
-    if (!manifest?.dependencies?.["@sessionbus/dsh"]) {
-      const result = run(["plugin", "--profile", name, "add", "@sessionbus/dsh"]);
+    const pin = providerPin(manifest, manifestFile, peers[uploads], semver, query);
+    const missingPlugin = !manifest?.dependencies?.["@sessionbus/dsh"];
+    if (missingPlugin || manifest.dependencies[uploads] !== pin) {
+      const result = run(["plugin", "--profile", name, "add", "--save-exact", ...(missingPlugin ? ["@sessionbus/dsh"] : []), `${uploads}@${pin}`]);
       if (result.status !== 0) throw new Error(String(result.stderr || "dsh plugin add failed").trim());
       manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
     }
@@ -210,7 +230,7 @@ export function install(profileNames = [], options = {}) {
     }
     if (!existed) manifest = {
       name: "dsh-profile-sessionbus", private: true,
-      dependencies: { "@sessionbus/dsh": manifest.dependencies["@sessionbus/dsh"] },
+      dependencies: { "@sessionbus/dsh": manifest.dependencies["@sessionbus/dsh"], [uploads]: manifest.dependencies[uploads] },
       dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"], patchReload: "startup" } },
     };
     else {

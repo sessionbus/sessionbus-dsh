@@ -68,6 +68,15 @@ node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$floor" "$work/cli.json" 
 mapfile -t cli_pins < "$work/cli-pins.txt"
 pnpm --dir "$profile" add --save-exact "${cli_pins[@]}"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$floor" "$work/cli.json" "$profile/pnpm-lock.yaml" "$profile"
+# A required peer is now profile-owned; supply it before this non-booting floor/row fixture.
+uploads_pin=$(pnpm view "@antst/dsh-file-uploads-none@^0.1.0 || ^0.2.0-alpha.1" version --json | node -e '
+const fs=require("node:fs"), {createRequire}=require("node:module");
+const semver=createRequire(fs.realpathSync(`${process.argv[1]}/node_modules/@deepseek-ai/dsh-app-boot/package.json`))("semver");
+let body=""; process.stdin.on("data", chunk=>body+=chunk).on("end", ()=>{
+const versions=JSON.parse(body), pin=semver.maxSatisfying(Array.isArray(versions)?versions:[versions], "^0.1.0 || ^0.2.0-alpha.1");
+if (!pin) throw new Error("no matching upload provider"); process.stdout.write(pin);
+});' "$profile")
+pnpm --dir "$profile" add --save-exact "@antst/dsh-file-uploads-none@$uploads_pin"
 PATH="$profile/node_modules/.bin:$PATH" DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --product dsh peer-floor
 DSH_HOME="$work/home" "$profile/node_modules/.bin/sessionbus-dsh-install" --remove peer-floor
 node - "$profile" <<'NODE'
@@ -77,6 +86,7 @@ const profile = process.argv[2]
 const manifest = JSON.parse(fs.readFileSync(`${profile}/package.json`))
 const patch = fs.readFileSync(`${profile}/cordis.patch.yml`, 'utf8')
 assert.equal(manifest.dependencies?.['@sessionbus/dsh'], undefined)
+assert.ok(manifest.dependencies['@antst/dsh-file-uploads-none'], 'profile-owned provider retained')
 assert.doesNotMatch(patch, /id:\s*sessionbus|id:\s*file-uploads-none/u)
 NODE
 echo "DSH $floor compatible-floor install and uninstall: PASS"

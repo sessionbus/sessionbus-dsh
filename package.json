@@ -1,6 +1,6 @@
 {
   "name": "@sessionbus/dsh",
-  "version": "0.1.0-pre.19",
+  "version": "0.1.0-pre.20",
   "type": "commonjs",
   "main": "plugin.cjs",
   "exports": "./plugin.cjs",
@@ -13,13 +13,13 @@
     "test": "node --test plugin.test.cjs install.test.mjs launcher.test.mjs package.test.cjs rename.test.mjs"
   },
   "dependencies": {
-    "@antst/dsh-file-uploads-none": "^0.1.0 || ^0.2.0-alpha.1",
     "@sessionbus/kit": "0.5.12"
   },
   "devDependencies": {
     "zod": "4.5.4"
   },
   "peerDependencies": {
+    "@antst/dsh-file-uploads-none": "^0.1.0 || ^0.2.0-alpha.1",
     "@deepseek-ai/cordis": ">=4.0.5-alpha.1",
     "@deepseek-ai/cordis-plugin-include": ">=1.0.10-alpha.1",
     "@deepseek-ai/cordis-plugin-loader": ">=1.0.6-alpha.1",

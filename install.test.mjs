@@ -5,7 +5,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { install, remove } from "./install.mjs";
+import { install as installProfile, remove } from "./install.mjs";
+const install = (names, options) => installProfile(names, { query: () => ({ status: 0, stdout: '["0.1.3","0.2.0-alpha.1"]' }), ...options });
 
 const packageVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 // Exercise the real semver comparison with an isolated host, never the user's DSH.
@@ -27,6 +28,87 @@ function host(version) {
 }
 const supportedHost = host("0.2.1-alpha.2");
 process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
+
+const uploads = "@antst/dsh-file-uploads-none";
+const uploadsRange = "^0.1.0 || ^0.2.0-alpha.1";
+function providerProfile(t, name, extra = {}) {
+  const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-w122-provider-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const profile = path.join(home, "profiles", name), manifestFile = path.join(profile, "package.json");
+  mkdirSync(profile, { recursive: true });
+  const manifest = { private: true, custom: "preserved", dependencies: { "@sessionbus/dsh": packageVersion, ...extra } };
+  writeFileSync(manifestFile, JSON.stringify(manifest));
+  writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
+  const calls = [];
+  return { home, profile, manifestFile, manifest, calls, run: args => {
+    calls.push(args);
+    const current = JSON.parse(readFileSync(manifestFile));
+    for (const spec of args.slice(4).filter(value => value.startsWith(`${uploads}@`))) current.dependencies[uploads] = spec.slice(uploads.length + 1);
+    writeFileSync(manifestFile, JSON.stringify(current));
+    return { status: 0 };
+  } };
+}
+
+test("W-122 installer pins the highest matching provider in lane, web and custom profiles", async t => {
+  for (const name of ["sessionbus", "web", "custom"]) await t.test(name, t => {
+    const fixture = providerProfile(t, name, { keeper: "1.2.3", [uploads]: "0.1.3" });
+    const queries = [];
+    const options = { ...fixture, product: name === "sessionbus" ? "sessionbus-dsh" : "dsh", query: args => {
+      queries.push(args);
+      return { status: 0, stdout: JSON.stringify(["0.2.1-alpha.1", "0.2.0-alpha.1", "0.1.3", "0.2.0-alpha.0"]) };
+    } };
+    install([name], options);
+    assert.deepEqual(queries, [["view", `${uploads}@${uploadsRange}`, "version", "--json"]]);
+    assert.deepEqual(fixture.calls, [["plugin", "--profile", name, "add", "--save-exact", `${uploads}@0.2.0-alpha.1`]]);
+    assert.deepEqual(JSON.parse(readFileSync(fixture.manifestFile)).dependencies, { ...fixture.manifest.dependencies, [uploads]: "0.2.0-alpha.1" });
+    const patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"), "utf8");
+    assert.equal(patch.includes("file-uploads-none"), name !== "web");
+    install([name], options);
+    assert.equal(fixture.calls.length, 1, "already exact: no second add");
+    assert.equal(readFileSync(path.join(fixture.profile, "cordis.patch.yml"), "utf8"), patch);
+  });
+});
+
+test("W-122 installer takes the app-owned exact provider, never registry fallback", t => {
+  const fixture = providerProfile(t, "custom", { "@antst/dashi-app": "0.2.0-alpha.1" });
+  const app = path.join(fixture.profile, "node_modules/@antst/dashi-app");
+  mkdirSync(app, { recursive: true });
+  const appFile = path.join(app, "package.json");
+  writeFileSync(appFile, JSON.stringify({ name: "@antst/dashi-app", dependencies: { [uploads]: "0.1.3" } }));
+  const options = { ...fixture, product: "dsh", query: () => assert.fail("app owns this fact") };
+  install(["custom"], options);
+  assert.equal(JSON.parse(readFileSync(fixture.manifestFile)).dependencies[uploads], "0.1.3");
+  const before = readFileSync(fixture.manifestFile), patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"));
+  for (const pin of [undefined, "^0.1.3", "0.3.0", "0.2.1-alpha.1"]) {
+    writeFileSync(appFile, JSON.stringify({ dependencies: { [uploads]: pin } }));
+    assert.throws(() => install(["custom"], options), /dashi-app.*exact.*provider/u);
+    assert.deepEqual(readFileSync(fixture.manifestFile), before);
+    assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
+  }
+});
+
+test("W-122 registry or add failure leaves provider rows unwritten", t => {
+  const fixture = providerProfile(t, "web");
+  const before = readFileSync(fixture.manifestFile), patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"));
+  for (const response of [{ status: 1, stderr: "registry unavailable" }, { status: 0, stdout: "[]" }]) {
+    assert.throws(() => install(["web"], { ...fixture, product: "dsh", query: () => response }), /registry unavailable|no matching.*provider/u);
+    assert.deepEqual(readFileSync(fixture.manifestFile), before);
+    assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
+  }
+  assert.throws(() => install(["web"], { ...fixture, product: "dsh", query: () => ({ status: 0, stdout: '"0.1.3"' }), run: () => ({ status: 1, stderr: "package add failed" }) }), /package add failed/u);
+  assert.deepEqual(readFileSync(fixture.manifestFile), before);
+  assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
+});
+
+test("W-122 floor refusal precedes provider registry and package operations", t => {
+  const fixture = providerProfile(t, "web");
+  const before = readFileSync(fixture.manifestFile), patch = readFileSync(path.join(fixture.profile, "cordis.patch.yml"));
+  assert.throws(() => install(["web"], { ...fixture, product: "dsh", installAnchor: host("0.1.5-rc.2").anchor,
+    query: () => assert.fail("no registry lookup before refusal"), run: () => assert.fail("no add before refusal"),
+  }), /does not satisfy/u);
+  assert.deepEqual(readFileSync(fixture.manifestFile), before);
+  assert.deepEqual(readFileSync(path.join(fixture.profile, "cordis.patch.yml")), patch);
+});
 
 test("runbook resolves verified-absent transitive-only lock records without moving unrelated resolutions", () => {
   // Only lock repair is under test: no DSH package is installed or booted here.
@@ -94,7 +176,7 @@ test("installer canonicalises a pnpm wrapper's symlinked CLI anchor before findi
     assert.throws(() => createRequire(path.join(modules, "@deepseek-ai/dsh/package.json")).resolve("@deepseek-ai/dsh-app-boot"), { code: "MODULE_NOT_FOUND" });
     const home = path.join(root, "home"), profile = path.join(home, "profiles/web");
     mkdirSync(profile, { recursive: true });
-    const manifest = JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } });
+    const manifest = JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } });
     const patch = "[]\n";
     writeFileSync(path.join(profile, "package.json"), manifest);
     writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
@@ -136,7 +218,7 @@ test("installer admits newer prereleases but refuses an earlier prerelease", () 
   const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-prerelease-"));
   const profile = path.join(home, "profiles/sessionbus");
   mkdirSync(profile, { recursive: true });
-  const manifest = `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } })}\n`;
+  const manifest = `${JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } })}\n`;
   const patch = "[]\n";
   writeFileSync(path.join(profile, "package.json"), manifest);
   writeFileSync(path.join(profile, "cordis.patch.yml"), patch);
@@ -154,10 +236,10 @@ test("installer creates only the lane profile and leaves the root patch untouche
   let runs = 0;
   const run = (argumentsValue) => {
     runs++;
-    assert.deepEqual(argumentsValue, ["plugin", "--profile", "sessionbus", "add", "@sessionbus/dsh"]);
+    assert.deepEqual(argumentsValue, ["plugin", "--profile", "sessionbus", "add", "--save-exact", "@sessionbus/dsh", `${uploads}@0.2.0-alpha.1`]);
     const profile = path.join(home, "profiles", "sessionbus");
     mkdirSync(profile, { recursive: true });
-    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": "0.0.0" }, dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"] } } }));
+    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": "0.0.0", [uploads]: "0.2.0-alpha.1" }, dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"] } } }));
     writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
     return { status: 0 };
   };
@@ -208,7 +290,7 @@ test("installer creates only the lane profile and leaves the root patch untouche
   assert.deepEqual(JSON.parse(first.manifest), {
     name: "dsh-profile-sessionbus",
     private: true,
-    dependencies: { "@sessionbus/dsh": "0.0.0" },
+    dependencies: { "@sessionbus/dsh": "0.0.0", [uploads]: "0.2.0-alpha.1" },
     dsh: { profile: { bundles: ["@deepseek-ai/dsh-base"], patchReload: "startup" } },
   });
 });
@@ -230,12 +312,13 @@ test("installer preserves an existing lane manifest and its extra bundle", () =>
     runs++;
     const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
     manifest.dependencies["@sessionbus/dsh"] = packageVersion;
+    manifest.dependencies[uploads] = "0.2.0-alpha.1";
     writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
     return { status: 0 };
   };
   install([], { home, run });
   const installed = readFileSync(manifestFile, "utf8");
-  assert.deepEqual(JSON.parse(installed), { ...existing, dependencies: { ...existing.dependencies, "@sessionbus/dsh": packageVersion } });
+  assert.deepEqual(JSON.parse(installed), { ...existing, dependencies: { ...existing.dependencies, "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } });
   install([], { home, run });
   assert.equal(readFileSync(manifestFile, "utf8"), installed);
   assert.equal(runs, 1);
@@ -246,7 +329,7 @@ test("installer adds one profile-local peer row to each named profile", () => {
   for (const name of ["web", "custom"]) {
     const profile = path.join(home, "profiles", name);
     mkdirSync(profile, { recursive: true });
-    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } }));
+    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
     writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
   }
   install(["web", "custom"], { home, root: path.resolve("."), product: "dsh", run: () => assert.fail("dependency already installed") });
@@ -280,7 +363,7 @@ test("installer preserves existing rows with quoted keys", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-native-home-"));
   const dashi = path.join(home, "profiles", "dashi");
   mkdirSync(dashi, { recursive: true });
-  writeFileSync(path.join(dashi, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } }));
+  writeFileSync(path.join(dashi, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
   const patch = "- insert:\n    - { \"id\": \"sessionbus\", name: '@sessionbus/dsh', config: { groups: [native] } }\n    - { \"id\": \"file-uploads-none\", name: '@antst/dsh-file-uploads-none' }\n";
   writeFileSync(path.join(dashi, "cordis.patch.yml"), patch);
   install(["dashi"], { home, root: path.resolve("."), product: "dashi", run: () => assert.fail("dependency already installed") });
@@ -297,7 +380,7 @@ test("installer repairs a block row without changing neighboring text", () => {
   const home = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-repair-home-"));
   const web = path.join(home, "profiles", "web");
   mkdirSync(web, { recursive: true });
-  writeFileSync(path.join(web, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } }));
+  writeFileSync(path.join(web, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
   writeFileSync(path.join(web, "cordis.patch.yml"), "# keep\n- insert:\n    - id: sessionbus\n      name: '@sessionbus/dsh'\n- id: neighboring-row\n  disabled: true\n");
   install(["web"], { home, product: "dsh", run: () => assert.fail("dependency already installed") });
   assert.equal(readFileSync(path.join(web, "cordis.patch.yml"), "utf8"), "# keep\n- insert:\n    - id: sessionbus # sessionbus-dsh-install owned\n      name: '@sessionbus/dsh'\n      config: { product: dsh }\n- id: neighboring-row\n  disabled: true\n");
@@ -317,7 +400,8 @@ test("removal never loads the plugin and preserves every other row", () => {
   const original = "# keep\n- id: system-prompt\n  config: { preserve: true }\n- insert:\n    - { id: keeper, name: keeper }\n";
   install(["broken"], { home, product: "dsh", run: () => {
     mkdirSync(path.join(profile, "node_modules", "@sessionbus", "dsh"), { recursive: true });
-    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ private: true, dependencies: { "@sessionbus/dsh": packageVersion } }));
+    writeFileSync(path.join(profile, "package.json"), JSON.stringify({ private: true, dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
+    writeFileSync(path.join(profile, ".npmrc"), "auto-install-peers=false\n");
     writeFileSync(path.join(profile, "cordis.patch.yml"), original);
     writeFileSync(path.join(profile, "node_modules", "@sessionbus", "dsh", "package.json"), JSON.stringify({ name: "@sessionbus/dsh", version: packageVersion }));
     writeFileSync(path.join(profile, "node_modules", "@sessionbus", "dsh", "plugin.cjs"), "throw new Error('unloadable')\n");
@@ -328,6 +412,7 @@ test("removal never loads the plugin and preserves every other row", () => {
   remove(["broken"], { home });
   assert.equal(readFileSync(path.join(profile, "cordis.patch.yml"), "utf8"), original);
   assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies?.["@sessionbus/dsh"], undefined);
+  assert.equal(JSON.parse(readFileSync(path.join(profile, "package.json"), "utf8")).dependencies[uploads], "0.2.0-alpha.1");
   assert.equal(existsSync(path.join(profile, "node_modules", "@sessionbus", "dsh")), false);
 });
 
@@ -366,7 +451,7 @@ test("installed bin symlink runs the installer", () => {
   const bin = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-bin-"));
   const profile = path.join(home, "profiles", "sessionbus");
   mkdirSync(profile, { recursive: true });
-  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion } }));
+  writeFileSync(path.join(profile, "package.json"), JSON.stringify({ dependencies: { "@sessionbus/dsh": packageVersion, [uploads]: "0.2.0-alpha.1" } }));
   writeFileSync(path.join(profile, "cordis.patch.yml"), "[]\n");
   writeFileSync(path.join(home, "cordis.patch.yml"), "[]\n");
   const command = path.join(bin, "sessionbus-dsh-install");
