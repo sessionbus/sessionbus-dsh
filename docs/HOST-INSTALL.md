@@ -1540,8 +1540,8 @@ for profile_root in "$DSH_HOME"/profiles/* "$DSH_HOME"/profiles/.[!.]* "$DSH_HOM
   profile_name=${profile_root##*/}
   [ "$profile_name" != node_modules ] || continue
   if [ -f "$profile_root/node_modules/dsh-codex/package.json" ]; then
-    grep -Eq '^autoInstallPeers: false[[:space:]]*$' "$profile_root/pnpm-workspace.yaml"
-    node --input-type=module - "$profile_root/pnpm-lock.yaml" "$profile_name" <<'NODE'
+    grep -Eq '^autoInstallPeers: false[[:space:]]*$' "$profile_root/pnpm-workspace.yaml" || exit 1
+    node --input-type=module - "$profile_root/pnpm-lock.yaml" "$profile_name" <<'NODE' || exit 1
 import { readFileSync } from 'node:fs'
 const [lockFile, profile] = process.argv.slice(2)
 const packages = readFileSync(lockFile, 'utf8').split('\nsnapshots:\n', 1)[0]
