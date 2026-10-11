@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import childProcess, { spawnSync } from "node:child_process";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import os from "node:os";
@@ -30,8 +30,11 @@ const supportedHost = host("0.2.1-alpha.2");
 process.env.PATH = `${supportedHost.bin}${path.delimiter}${process.env.PATH}`;
 
 test("runbook and proof lookups use the real CLI owner with an unhoisted app-boot", t => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "sessionbus-cli-owner-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "sessionbus-cli-owner-"));
+  t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }));
+  const directory = path.join(fixtureRoot, "alias"), actual = path.join(fixtureRoot, "actual");
+  mkdirSync(actual);
+  symlinkSync(actual, directory, "dir");
   const installation = path.join(directory, "host"), modules = path.join(installation, "node_modules");
   const virtual = path.join(modules, ".pnpm/cli-generation/node_modules/@deepseek-ai");
   const cli = path.join(virtual, "dsh"), boot = path.join(virtual, "dsh-app-boot"), cordis = path.join(virtual, "cordis");
@@ -87,7 +90,7 @@ test("runbook and proof lookups use the real CLI owner with an unhoisted app-boo
     assert.match(rejected.stderr, /Cannot find module '@deepseek-ai\/dsh-app-boot'/u);
     const accepted = run(prefix);
     assert.equal(accepted.status, 0, accepted.stderr);
-    assert.equal(accepted.stdout.trim(), cliFile);
+    assert.equal(accepted.stdout.trim(), realpathSync(cliFile));
   }
 });
 
