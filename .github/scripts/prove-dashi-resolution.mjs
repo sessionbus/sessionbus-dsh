@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 const [home, appVersion, candidateVersion] = process.argv.slice(2);
 assert.ok(home && appVersion && candidateVersion, 'pass HOME APP_VERSION CANDIDATE_VERSION');
-const native = createRequire(path.join(home, 'package.json'));
+const native = createRequire(fs.realpathSync(path.join(home, 'package.json')));
 const anchor = fs.realpathSync(native.resolve('@deepseek-ai/dsh/package.json'));
 const { Context } = await import(native.resolve('@deepseek-ai/cordis'));
 const { PluginPackages, createRuntimeResolution, loadProfileDirectory } = await import(native.resolve('@deepseek-ai/dsh-app-boot'));
@@ -19,7 +19,7 @@ try {
   const app = ctx.pluginPackages.packageOf('@antst/dashi-app', importer);
   assert.equal(app.version, appVersion);
   const direct = ctx.pluginPackages.packageOf('@sessionbus/dsh', importer);
-  const bundled = ctx.pluginPackages.packageOf('@sessionbus/dsh', pathToFileURL(path.join(app.dir, 'cordis.patch.yml')).href);
+  const bundled = ctx.pluginPackages.packageOf('@sessionbus/dsh', pathToFileURL(fs.realpathSync(path.join(app.dir, 'cordis.patch.yml'))).href);
   assert.equal(direct.version, candidateVersion);
   assert.equal(bundled.version, app.manifest.dependencies['@sessionbus/dsh']);
   const paths = new Set([direct, bundled].map(pkg => fs.realpathSync(pkg.manifestPath)));

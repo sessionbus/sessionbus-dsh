@@ -3,26 +3,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { storageZod } from './dsh-cli-pins.mjs';
 
 const [installation] = process.argv.slice(2);
 assert.ok(installation, 'usage: prove-domain-schema.mjs INSTALL_DIR');
 const native = storageZod(installation);
-const requireNative = createRequire(native.producer);
+const requireNative = createRequire(fs.realpathSync(native.producer));
 const [StorageDomain, Storage, StorageJson, { Context }] = await Promise.all([
   import(pathToFileURL(requireNative.resolve('@deepseek-ai/dsh-storage-domain')).href),
   import(pathToFileURL(requireNative.resolve('@deepseek-ai/dsh-storage')).href),
   import(pathToFileURL(requireNative.resolve('@deepseek-ai/dsh-storage-json')).href),
   import(pathToFileURL(requireNative.resolve('@deepseek-ai/cordis')).href),
 ]);
-const own = createRequire(import.meta.url).resolve('zod/package.json');
+const own = createRequire(fs.realpathSync(fileURLToPath(import.meta.url))).resolve('zod/package.json');
 assert.equal(JSON.parse(fs.readFileSync(own)).version, '4.5.4', 'exact test dev pin');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sessionbus-domain-schema-'));
 const foreignManifest = path.join(root, 'foreign-zod/package.json');
 fs.cpSync(fs.realpathSync(path.dirname(own)), path.dirname(foreignManifest), { recursive: true });
-const foreign = createRequire(foreignManifest)('./index.cjs');
-const producerZod = createRequire(native.producer)('zod');
+const foreign = createRequire(fs.realpathSync(foreignManifest))('./index.cjs');
+const producerZod = requireNative('zod');
 assert.notEqual(foreignManifest, native.zod);
 assert.notEqual(foreign.z.ZodType, producerZod.z.ZodType, 'different physical factories');
 const valid = value => Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0

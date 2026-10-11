@@ -198,7 +198,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 
 const [home, version] = process.argv.slice(2);
-const require = createRequire(`${home}/package.json`);
+const require = createRequire(fs.realpathSync(`${home}/package.json`));
 const readPatch = (profile) => fs.readFileSync(`${home}/profiles/${profile}/cordis.patch.yml`, "utf8");
 const lane = readPatch("sessionbus");
 const web = readPatch("web");

@@ -23,9 +23,9 @@ module.exports = {
       description: "W-120 runtime producer name/version check",
       handler: () => {
         const profile = pathToFileURL(path.join(process.env.DSH_HOME, "profiles/web/cordis.yml")).href;
-        const importer = path.join(ctx.pluginPackages.packageOf("@sessionbus/dsh", profile).dir, "plugin.cjs");
+        const importer = fs.realpathSync(path.join(ctx.pluginPackages.packageOf("@sessionbus/dsh", profile).dir, "plugin.cjs"));
         const plugin = createRequire(importer);
-        const producer = path.join(ctx.pluginPackages.packageOf("@deepseek-ai/dsh-storage-domain", profile).dir, "package.json");
+        const producer = fs.realpathSync(path.join(ctx.pluginPackages.packageOf("@deepseek-ai/dsh-storage-domain", profile).dir, "package.json"));
         const expected = fs.realpathSync(createRequire(producer).resolve("zod/package.json"));
         const actual = fs.realpathSync(plugin.resolve("zod/package.json"));
         const wanted = JSON.parse(fs.readFileSync(expected)), selected = JSON.parse(fs.readFileSync(actual));
