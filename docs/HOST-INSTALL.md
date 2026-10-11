@@ -1252,6 +1252,9 @@ function fields(value, path) {
 function entries(list) {
   for (const row of list) {
     if (!row || typeof row !== 'object') throw new Error('invalid patch row; inspect it privately')
+    if (Object.prototype.hasOwnProperty.call(row, 'config') && typeof row.id !== 'string') {
+      throw new Error('invalid patch row; inspect it privately')
+    }
     if (typeof row.id === 'string') {
       keys.add(row.id)
       fields(row.config, `${row.id}.config`)
@@ -1272,6 +1275,9 @@ This read-only inventory treats absent, blank, comments-only, and `null` patch
 content as zero keys; it does not certify native validity. DSH rejects existing
 non-array patches (`dsh-app-boot/lib/index.js:3714-3723`); use `[]` for a valid
 empty patch. Scalars, maps, and malformed YAML still stop the inventory.
+Config-bearing rows need explicit string ids for this keys-only evidence;
+anonymous rows require private inspection, not silent omission or a claim of
+native invalidity (the Loader can generate ids for inserted entries).
 
 For a staged import, run the chosen profile normally in your own terminal/PTY,
 with diagnostics redirected into the private rollback directory. This web
