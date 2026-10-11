@@ -30,6 +30,7 @@ try {
     distinctResolvedCopies: paths.size,
     overrides: false,
   }));
+  console.log(`dashi coexistence: direct @sessionbus/dsh ${direct.version} beside dashi-app's pinned ${bundled.version}; ${paths.size} resolved copies; candidate-inside-dashi not claimed`);
 } finally {
   await ctx.fiber.dispose();
 }

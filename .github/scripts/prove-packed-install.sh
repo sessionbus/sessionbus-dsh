@@ -4,6 +4,7 @@ set -euo pipefail
 version=${1:?pass the DSH version}
 [[ $# -eq 1 ]] || { echo "usage: prove-packed-install.sh DSH_VERSION" >&2; exit 2; }
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+DASHI_APP_VERSION=${DASHI_APP_VERSION-$(<"$root/.github/dashi-app-version")}
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-dsh-proof.XXXXXX")
 server_pid=
 dsh_pid=
@@ -274,7 +275,7 @@ if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
 DSH_HOME="$home" "$dsh" plugin --profile dashi remove @sessionbus/w090-bundle-row
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "@antst/dashi-app@$DASHI_APP_VERSION"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/profiles/dashi/pnpm-lock.yaml" "$home"
-node "$root/.github/scripts/prove-dashi-resolution.mjs" "$home" "$DASHI_APP_VERSION" "$(node -p "require('./package.json').version")" | tee "$work/dashi-resolution.json"
+node "$root/.github/scripts/prove-dashi-resolution.mjs" "$home" "$DASHI_APP_VERSION" "$(node -p 'require(process.argv[1]).version' "$root/package.json")" | tee "$work/dashi-resolution.log"
 DSH_HOME="$home" "$home/profiles/sessionbus/node_modules/.bin/sessionbus-dsh-install" --product dashi
 grep -q 'config: { mode: lane, product: dashi }' "$home/profiles/sessionbus/cordis.patch.yml"
 socket="$work/dashi-lane.sock"
@@ -291,7 +292,7 @@ if [[ ! -s "$capture" ]] || ! grep -q '"ready":true' "$capture"; then cat "$capt
 assert_permission_proof "$capture" "$work/dashi-lane-sessions" "$token"
 stop_processes
 else
-  not_run='NOT RUN: dashi packed (DASHI_APP_VERSION unset; dashi 0.2.0-alpha.1 not released, W-114)'
+  not_run='NOT RUN: dashi packed (DASHI_APP_VERSION explicitly empty)'
   printf '%s\n' "$not_run"
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then printf '%s\n' "$not_run" >> "$GITHUB_STEP_SUMMARY"; fi
 fi
@@ -409,4 +410,4 @@ for (const profile of ["sessionbus", "web", "dashi"]) {
 }
 NODE
 echo "DSH $version sessionbus-dsh lane, web active/idle/trace delivery, real-Agent boundary, packed install and uninstall: PASS"
-if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS"; fi
+if [[ -n "${DASHI_APP_VERSION:-}" ]]; then echo "dashi $DASHI_APP_VERSION packed: PASS (published launcher lane + installed-app coexistence; candidate-inside-dashi not claimed)"; fi
