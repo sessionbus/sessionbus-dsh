@@ -20,6 +20,11 @@ daemon release artifacts from
 Earlier Sessionbus-dsh prereleases are superseded; pre.3 and pre.5 were never
 published. Do not continue past a failed assertion.
 
+The blocks assume one Bash session with plain `set -eu` enabled before the
+first block. `pipefail` is not required; the package-record, pnpm-output and
+credential-presence assertions also work if it is inherited. This is not a
+blanket guarantee for unrelated pipelines.
+
 Pre.17 is a DSH flag day: upgrade the host graph to alpha.2 before running its
 installer. It refuses a below-floor host before any profile write, naming the
 installed version, `>=0.2.1-alpha.2` and this preflight; a manual `pnpm add`
@@ -820,13 +825,14 @@ remove_untracked_nested_packages() {
 
   install_output=$(pnpm --dir "$profile_root" install --frozen-lockfile 2>&1)
   printf '%s\n' "$install_output"
-  printf '%s\n' "$install_output" | grep -Fqx 'Lockfile is up to date, resolution step is skipped'
-  printf '%s\n' "$install_output" | grep -Fqx 'Already up to date'
+  grep -Fqx 'Lockfile is up to date, resolution step is skipped' <<< "$install_output"
+  grep -Fqx 'Already up to date' <<< "$install_output"
   printf 'untracked nested packages removed: %s\n' "$removed"
 }
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
-if ! sed '/^snapshots:/,$d' "$DSH_INSTALL_DIR/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
+DSH_RECORD_COUNT=$(awk "/^snapshots:/ {exit} /^  '?@deepseek-ai\/dsh[^@']*@/ {count++} END {print count+0}" "$DSH_INSTALL_DIR/pnpm-lock.yaml") || exit 1
+if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
   printf '%s\n' 'host DSH graph has no package records' >&2
   exit 1
 fi
@@ -1012,12 +1018,12 @@ if ! "$DSH_BIN" plugin --profile dashi add @antst/dashi-app@0.2.0-alpha.1; then
 
   first_install=$(pnpm --dir "$DSH_HOME/profiles/dashi" install --frozen-lockfile 2>&1)
   printf '%s\n' "$first_install"
-  printf '%s\n' "$first_install" | grep -Fqx 'Lockfile is up to date, resolution step is skipped'
+  grep -Fqx 'Lockfile is up to date, resolution step is skipped' <<< "$first_install"
 
   second_install=$(pnpm --dir "$DSH_HOME/profiles/dashi" install --frozen-lockfile 2>&1)
   printf '%s\n' "$second_install"
-  printf '%s\n' "$second_install" | grep -Fqx 'Lockfile is up to date, resolution step is skipped'
-  printf '%s\n' "$second_install" | grep -Fqx 'Already up to date'
+  grep -Fqx 'Lockfile is up to date, resolution step is skipped' <<< "$second_install"
+  grep -Fqx 'Already up to date' <<< "$second_install"
 
   remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
   . "$ROLLBACK_ROOT/versions.env"
@@ -1030,7 +1036,8 @@ fi
 remove_untracked_nested_packages "$DSH_HOME/profiles/dashi"
 repair_dsh_graph "$DSH_HOME/profiles/dashi" 0.2.1-alpha.2 required dashi
 test "$?" -eq 0 || exit 1
-if ! sed '/^snapshots:/,$d' "$DSH_HOME/profiles/dashi/pnpm-lock.yaml" | grep -Eq "^  '?@deepseek-ai/dsh[^@']*@"; then
+DSH_RECORD_COUNT=$(awk "/^snapshots:/ {exit} /^  '?@deepseek-ai\/dsh[^@']*@/ {count++} END {print count+0}" "$DSH_HOME/profiles/dashi/pnpm-lock.yaml") || exit 1
+if [ "$DSH_RECORD_COUNT" -eq 0 ]; then
   printf '%s\n' 'dashi profile DSH graph has no package records' >&2
   exit 1
 fi
@@ -1633,7 +1640,7 @@ print a value or a credential file:
 ```sh
 if [ "$MODEL_PROVIDER" = deepseek-official ]; then
   CREDENTIAL_SOURCE=
-  if tr '\0' '\n' < "/proc/$SESSIONBUS_PID/environ" | grep -q '^DEEPSEEK_API_KEY=.'; then
+  if tr '\0' '\n' < "/proc/$SESSIONBUS_PID/environ" | grep '^DEEPSEEK_API_KEY=.' >/dev/null; then
     CREDENTIAL_SOURCE='daemon environment'
   elif [ -f "$DSH_HOME/.credentials.yaml" ] && node --input-type=module - "$DSH_HOME/.credentials.yaml" "$DSH_INSTALL_DIR/node_modules/@deepseek-ai/dsh/package.json" <<'NODE'
 import { readFileSync, realpathSync } from 'node:fs'
