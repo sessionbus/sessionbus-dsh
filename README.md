@@ -159,6 +159,7 @@ by default.
 The lane advertises no native extra arguments. A non-empty `open.arguments`
 request is rejected rather than silently ignored.
 `open.model` and `open.reasoning_effort` apply to that lane's session only, never the profile default; effort alone keeps the session's current model, including on resume.
+Both options must be non-empty strings; an empty model is an error, not a request to use the current model. Models are validated by the provider adapter: an unknown provider fails at open, but a mistyped model accepted by the adapter can fail at the first model request instead.
 
 Remove the rows, then let DSH remove the package:
 

@@ -229,6 +229,8 @@ for (const profile of ['sessionbus', 'web']) {
 }
 fs.writeFileSync(file, JSON.stringify(pins));
 NODE
+DSH_HOME="$home" "$dsh" plugin --profile sessionbus add --save-exact "@deepseek-ai/dsh-llm-replay@$version"
+node "$root/.github/scripts/prove-lane-options-before.mjs" "$work/options-before" "[\"$dsh\"]" "$home" "$root"
 echo 'OPERATIONS-ONLY Linux prepared in-place pre.20 baseline; ordinary upgrade add follows, no cleanup; exact unused provider pin remains'
 DSH_HOME="$home" "$dsh" plugin --profile dashi add "$root/.github/fixtures/bundle-provides-sessionbus"
 for profile in sessionbus web dashi; do

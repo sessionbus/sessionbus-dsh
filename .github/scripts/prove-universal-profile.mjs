@@ -149,6 +149,7 @@ try {
   }
   const optionProof = start([process.execPath, path.join(repo, '.github/scripts/prove-lane-options.mjs'),
     path.join(work, 'lane-options'), JSON.stringify(dsh), home, repo], base, 'lane-options-proof');
+  optionProof.stdout.on('data', bytes => process.stdout.write(bytes));
   assert.deepEqual(await optionProof.ended, { code: 0, signal: null }, optionProof.stderrText);
   assertEmptyGroup(optionProof); children.delete(optionProof);
   console.log('W-126: session-only options and unchanged profile bytes after native open/turn/shutdown: PASS');

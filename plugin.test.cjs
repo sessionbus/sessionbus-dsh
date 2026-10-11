@@ -623,6 +623,89 @@ test("missing selector methods fail with the resolved native version, never a GU
   }
 });
 
+test("missing-seam diagnostics survive real absent or invalid version metadata without leaking paths", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "w126-missing-version-"));
+  return (async () => {
+    try {
+      fs.copyFileSync(path.join(__dirname, "plugin.cjs"), path.join(directory, "plugin.cjs"));
+      fs.copyFileSync(path.join(__dirname, "package.json"), path.join(directory, "package.json"));
+      fs.mkdirSync(path.join(directory, "skills"));
+      fs.copyFileSync(path.join(__dirname, "skills/sessionbus.md"), path.join(directory, "skills/sessionbus.md"));
+      fs.mkdirSync(path.join(directory, "node_modules/@sessionbus"), { recursive: true });
+      fs.symlinkSync(fs.realpathSync(path.join(__dirname, "node_modules/@sessionbus/kit")), path.join(directory, "node_modules/@sessionbus/kit"));
+      const { NativeSession } = require(path.join(directory, "plugin.cjs"));
+      for (const invalidMetadata of [false, true]) {
+        if (invalidMetadata) {
+          const dir = path.join(directory, "node_modules/@deepseek-ai/dsh-api-session-controller");
+          fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "package.json"), "{invalid}");
+        }
+        const ctx = new Context(); agent(ctx); delete ctx.sessionController.agents;
+        const native = new NativeSession(ctx);
+        await assert.rejects(native.open({ name: "missing", open: { model: "vendor/model" } }), error => {
+          assert.match(error.message, /sessionController\.agents missing selectionFor, selectForNextRequest, serializeImageAdmission on DSH unknown version/u);
+          assert.equal(error.message.includes(directory), false);
+          assert.equal(error.message.includes("Require stack"), false);
+          return true;
+        });
+      }
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  })();
+});
+
+test("unknown provider errors are relayed before session selection", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+  const failure = new Error('no adapter registered for provider "unknown"');
+  ctx.llm.resolveCallConfig = async () => { throw failure; };
+  await assert.rejects(deps.callbacks.open(null, { name: "unknown-provider", open: { model: "unknown/model" } }), error => error === failure);
+  assert.deepEqual(native.selection.current, { provider: "provider", model: "default" });
+  assert.equal(ctx.calls.some(([call]) => call === "selection" || call === "model"), false);
+});
+
+test("a permissive resolver accepts an unknown model at open; backend failure belongs to the first turn", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+  await deps.callbacks.open(null, { name: "mistyped", open: { model: "provider/mistyped" } });
+  assert.deepEqual(native.selection.current, { provider: "provider", model: "mistyped" });
+  let turns = 0;
+  native.followup = message => {
+    turns++;
+    ctx.emit("session/event", native.session, { type: "agent/inbox/spliced", data: { inserted: [message] } });
+    ctx.emit("session/event", native.session, { type: "turn/start", data: { turn: 1 } });
+    ctx.emit("session/event", native.session, { type: "user/message", data: { ...message, turn: 1 } });
+    ctx.emit("session/event", native.session, { type: "turn/end", data: { turn: 1, reason: { kind: "error", error: { code: "UNKNOWN", message: "backend rejected mistyped model at first request" } } } });
+  };
+  assert.deepEqual(await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "probe" }), {
+    outcome: "failed", native_stop_reason: "error", result: "",
+  });
+  assert.equal(turns, 1);
+});
+
+test("malformed explicit model routes refuse before the resolver and selection", async () => {
+  for (const model of ["provider", "/model", "provider/"]) {
+    const ctx = new Context(); agent(ctx); const { deps } = lane(ctx);
+    await assert.rejects(deps.callbacks.open(null, { name: "malformed", open: { model } }), { message: `unsupported value model=${model}` });
+    assert.equal(ctx.calls.some(([call]) => ["validate", "selection", "model"].includes(call)), false);
+  }
+});
+
+test("empty and non-string model or effort values have explicit field errors", async () => {
+  for (const field of ["model", "reasoning_effort"]) for (const value of ["", null, 42, {}, []]) {
+    const ctx = new Context(); agent(ctx); const { deps } = lane(ctx);
+    await assert.rejects(deps.callbacks.open(null, { name: "wrong-shape", open: { [field]: value } }), new RegExp(`unsupported value ${field}: expected a non-empty string`, "u"));
+    assert.equal(ctx.calls.some(([call]) => ["validate", "selection", "model"].includes(call)), false);
+  }
+});
+
+test("a context without get retains no-option mount and open", async () => {
+  const ctx = new Context(); agent(ctx); ctx.get = undefined;
+  const deps = dependencies(ctx); deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(ctx.exits.length, 0);
+  ctx.ready();
+  assert.deepEqual(await deps.callbacks.open(null, { name: "default", open: {} }), { session_id: "session-fresh" });
+  await ctx.dispose();
+});
+
 test("an option requiring an absent LLM service fails only that open", async () => {
   const ctx = new Context(); agent(ctx); delete ctx.llm;
   const { deps } = lane(ctx);

@@ -25,6 +25,12 @@ No-option opens do not touch this holder or the optional LLM service.
 
 Before: an unadvertised model was refused at open through the GUI policy; now a
 valid unadvertised exact route is accepted and a wrong route fails natively.
+An unknown provider or adapter-rejected model fails at open. A mistyped model
+id accepted by a permissive adapter is not refused there: it fails at the first
+request if the backend rejects it. The replay adapter itself accepts arbitrary
+ids, so its unadvertised-model control is not a backend rejection proof.
+Empty/non-string model or effort is an explicit unsupported-value error; an
+empty model previously silently selected the current model.
 The public `llm.resolveCallConfig` owns adapter validation and effort rejection;
 catalog membership is advisory (`dsh-llm lib/types/index.d.ts:345-361`). Adapter
 default effort is not an explicit selection; native request preparation records
@@ -119,7 +125,7 @@ plugin hashes and the complete extracted-file comparison. No merge/tag/publish
 is performed by the builder. Post-publish real-host literal registry checks
 remain mandatory; a failure requires patch release 0.1.1, never a tag move.
 
-Local candidate pack SHA256:
+Initial reviewed head 247575c local candidate pack SHA256:
 `86e68ac3c58b3ac803f665c1572256d875e0aa84a509c171cfe42ec6657d17b1`;
 plugin.cjs SHA256:
 `cda4aea990c70e3e9d17257df4d6a9a43dac224a2fda5b6d772b45fd44dad3f5`.
@@ -128,3 +134,37 @@ project installation: PASS (80 s total, options proof 12,362 ms); prepared
 operations regression including published-dashi coexistence and all ten option
 cases: PASS. Hosted exact-head results and timing still belong to the handoff,
 not this preliminary local evidence.
+
+## Independent-review correction
+
+F1: build missing method names before the optional version lookup; a failed
+lookup says `unknown version` without forwarding paths. The added control
+loads an isolated copy through the real Node loader, first with absent metadata
+and then malformed JSON (no Module._load mock). No-option mount/open also works
+when the context lacks get. The resolved-version control remains separately.
+
+F2: added unit cases forward unknown-provider failure unchanged, accept an
+unknown id from a permissive resolver and replay a native first-turn backend
+error, and refuse malformed routes. Empty/non-string model/effort checks happen
+before capability lookup/commit. The backend-error unit is a replayed terminal,
+not a claim of contacting a real provider. Bound-turn terminal rendering is
+unchanged. Selection still commits before permission_mode validation, and a
+failed option-bearing open still leaves the created/renamed session behind.
+
+F3: the prepared leg now runs the SAME options proof against the actually
+installed published pre.20 baseline and requires its specific patch-mutation
+assertion failure (exit 1, different bytes). A separate owned copy prevents its
+intentional native rewrite from corrupting the ordinary upgrade baseline;
+original baseline bytes are also asserted unchanged. Replay acquisition is
+moved earlier, not made a new product prerequisite. Local measured control
+cost including the copy: 1,482 ms. The control does not await a private save
+promise: its required real old write in the same observation window is the
+non-vacuity check. Per-case start/PASS lines stream in universal logs, including
+before failure. Shared owned-group shutdown/interrupt handling remains.
+
+Corrected local suite: 155/155; prepared regression and clean project: PASS.
+Corrected pack SHA256:
+`1fb8e005ceccaa08d3447f5c2c1c0feb541769d0be8229761397d8610814be55`;
+plugin.cjs SHA256:
+`f6e7d925d26262fb00d8f327de0e9bb4474ce4dccf4b80ed4eb0330431dad05d`.
+Fresh hosted matrix/full bot read at this corrected head are still required.

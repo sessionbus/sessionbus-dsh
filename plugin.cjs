@@ -90,7 +90,7 @@ function captureContext(ctx) {
     context: {
       ...services,
       launchEnvironment,
-      get: ctx.get.bind(ctx),
+      get: ctx.get?.bind(ctx),
       on: ctx.on.bind(ctx),
       effect: ctx.effect.bind(ctx),
     },
@@ -164,16 +164,26 @@ class NativeSession {
     await this.ctx.sessionController.rename({ sessionId: agent.id, title: nativeName(request.name) });
     if (options.model !== undefined || options.reasoning_effort !== undefined) {
       signal?.throwIfAborted();
+      for (const field of ["model", "reasoning_effort"]) {
+        if (options[field] !== undefined && (typeof options[field] !== "string" || options[field].length === 0)) throw new Error(`unsupported value ${field}: expected a non-empty string`);
+      }
       // Approved alpha.2 non-public holder, documented methods only (controller
       // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). selectModel
       // also saves the profile default; never fall back to it.
       const controller = this.ctx.sessionController.agents;
       const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
       if (missing.length) {
-        const dshVersion = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
-        throw new Error(`sessionController.agents missing ${missing.join(", ")} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
+        const message = `sessionController.agents missing ${missing.join(", ")}`;
+        let dshVersion = "unknown version";
+        // Diagnostic only: unavailable metadata must not hide the missing seam
+        // or forward a module-resolution error containing host paths.
+        try {
+          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
+          if (typeof value === "string" && value.length) dshVersion = value;
+        } catch {}
+        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
       }
-      const llm = this.ctx.get("llm");
+      const llm = this.ctx.get?.("llm");
       if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
       await controller.serializeImageAdmission(agent, async () => {
         signal?.throwIfAborted();

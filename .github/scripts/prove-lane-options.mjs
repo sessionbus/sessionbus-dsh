@@ -60,6 +60,7 @@ const cases = [
 ];
 try {
   for (const test of cases) {
+    console.log(`W-126 ${test.name}: starting native case`);
     const began = Date.now();
     const capture = path.join(work, `${test.name}-bus.json`), runtime = path.join(work, `${test.name}-native.json`);
     const requestFile = path.join(work, `${test.name}-request.json`), overlay = path.join(work, `${test.name}-overlay.yml`);
