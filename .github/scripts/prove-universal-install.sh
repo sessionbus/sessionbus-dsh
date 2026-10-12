@@ -10,6 +10,7 @@ began=$(date +%s)
 export npm_config_cache="$work/npm-cache"
 export npm_config_store_dir="$work/pnpm-store"
 mkdir -p "$work/pack" "$work/install" "$work/inventory-home"
+node -e 'const fs=require("node:fs"),crypto=require("node:crypto");const file=process.argv[1];console.log(crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex")+"  "+file)' "${BASH_SOURCE[0]}" > "$work/running-source.sha256"
 npm pack "$root" --ignore-scripts --json --pack-destination "$work/pack" >"$work/pack.json"
 candidate="$work/pack/$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1]))[0].filename' "$work/pack.json")"
 
@@ -39,6 +40,8 @@ case "$mode" in
     mkdir -p "$PNPM_HOME" "$global_bin" "$XDG_CONFIG_HOME"
     export PATH="$global_bin:$work/manager/node_modules/.bin:$PATH"
     test "$(pnpm --version)" = "$manager"
+    pnpm --version > "$work/pnpm-version.txt"
+    pnpm config get enableGlobalVirtualStore > "$work/global-virtual-store-before.txt"
     pnpm config set global-bin-dir "$global_bin"
     pnpm config set global-dir "$work/install"
     test "$(pnpm bin --global)" = "$global_bin"
@@ -64,6 +67,8 @@ assert.equal(commands, 'pnpm config set --global --json enableGlobalVirtualStore
 fs.writeFileSync(destination, `set -eu\n${commands}\n`);
 NODE
       bash "$work/pnpm11-remedy.sh" >"$work/pnpm11-remedy.log" 2>&1
+      pnpm config get enableGlobalVirtualStore > "$work/global-virtual-store-after.txt"
+      grep -Fx false "$work/global-virtual-store-after.txt" >/dev/null
       printf '%s\n' 'pnpm11: default native-binding failure observed; documented config/remove/add remedy applied'
     fi
     argv='["dsh"]'

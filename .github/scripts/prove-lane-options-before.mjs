@@ -3,11 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { assertEmptyGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
+import yaml from 'js-yaml';
+import { createHash } from 'node:crypto';
 
 const [work, command, home, repo] = process.argv.slice(2);
 assert.ok(work && command && home && repo);
 const began = Date.now();
 fs.mkdirSync(work, { recursive: true });
+fs.writeFileSync(path.join(work, 'running-source.sha256'), `${createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex')}  ${new URL(import.meta.url).pathname}\n`);
 const controlHome = path.join(work, 'home');
 const baselinePatch = fs.readFileSync(path.join(home, 'profiles/sessionbus/cordis.patch.yml'));
 // The old native editor rewrites the patch. Preserve the in-place-upgrade
@@ -34,6 +37,9 @@ try {
   const original = fs.readFileSync(path.join(work, 'proof/profile-before.patch'));
   const changed = fs.readFileSync(path.join(controlHome, 'profiles/sessionbus/cordis.patch.yml'));
   assert.equal(original.equals(changed), false, 'the expected failure must be the real native async patch write');
+  const saved = yaml.load(changed.toString()).filter(row => row.id === 'agent-default-model').at(-1)?.config;
+  assert.deepEqual(saved, { provider: 'w126', model: 'selected', reasoningEffort: 'high' },
+    'the old write is specifically the Open option selection, not an unrelated patch change');
   assert.deepEqual(fs.readFileSync(path.join(home, 'profiles/sessionbus/cordis.patch.yml')), baselinePatch, 'the original upgrade baseline stays untouched');
   console.log(`W-126 published pre.20 failing-first: native async profile mutation caught by the SAME options proof: PASS (${Date.now() - began} ms)`);
 } catch (error) { primary = error; throw error; }

@@ -53,7 +53,7 @@ function inspectRuntime(ctx, { version, mode }) {
   const provider = ctx.pluginPackages.packageOf(owner.options.name, owner.parent.tree.ctx.baseUrl);
   assert.ok(provider?.manifestPath);
   if (mode === "lane") {
-    assert.equal(owner.options.name, "@sessionbus/dsh/file-uploads-none");
+    assert.equal(owner.options.name, "@sessionbus/dsh/file-uploads-none", "plugin own no-upload provider must own the active service");
     assert.equal(provider.name, "@sessionbus/dsh");
     assert.equal(fs.realpathSync(provider.manifestPath), fs.realpathSync(plugin.manifestPath));
   } else if (mode === "web") {
@@ -68,4 +68,31 @@ function inspectRuntime(ctx, { version, mode }) {
     upload: { row: owner.options.name, importer: owner.parent.tree.ctx.baseUrl, name: provider.name,
       version: provider.version, path: fs.realpathSync(provider.manifestPath), registeredServices: implementations.length } };
 }
-module.exports = { inspectRuntime };
+async function promptUploadRefusal(ctx) {
+  const controller = ctx.sessionController;
+  const { sessionId } = await controller.create({});
+  const resolved = await controller.resolveAgent(sessionId);
+  if (resolved.error) throw resolved.error;
+  const agent = resolved.agent;
+  const request = { sessionId, requestId: require("node:crypto").randomUUID(), mode: "queue",
+    content: [{ type: "file", receiptId: "w128-not-staged" }] };
+  let refusal;
+  try { await controller.prompt(request, new AbortController().signal); }
+  catch (error) { refusal = error; }
+  assert.equal(refusal?.code, "session/attachment-invalid");
+  assert.equal(refusal.message, "File was not uploaded for this session.");
+  assert.equal(refusal.details?.reason, "FILE_NOT_STAGED");
+  assert.equal(agent.session.snapshotEvents().some(event => ["request/header", "turn/start", "user/message"].includes(event.type)), false,
+    "receipt refusal occurs before native model work");
+  return { request, refusal: { code: refusal.code, message: refusal.message, reason: refusal.details.reason } };
+}
+
+async function ownUploadRefusal(ctx, version) {
+  const runtime = inspectRuntime(ctx, { version, mode: "lane" });
+  const owner = [...ctx.loader.entries()].find(entry => entry.options.name === runtime.upload.row);
+  const provider = createRequire(runtime.upload.path)("./file-uploads-none.mjs");
+  assert.equal(owner.moduleNamespace.apply ?? owner.moduleNamespace.default?.apply, provider.apply,
+    "native upload callback is the plugin's actually loaded entry");
+  return { provider: runtime.upload, ...await promptUploadRefusal(ctx) };
+}
+module.exports = { inspectRuntime, ownUploadRefusal, promptUploadRefusal };

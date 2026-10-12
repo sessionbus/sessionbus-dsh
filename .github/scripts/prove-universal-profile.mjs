@@ -15,6 +15,7 @@ const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'))).ver
 const profiles = ['sessionbus', 'web', ...(process.platform === 'linux' && process.env.W125_INSTALL_MODE === 'project' ? ['custom'] : [])];
 const home = path.join(work, 'home'), workspace = path.join(work, 'workspace');
 fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: true });
+fs.writeFileSync(path.join(work, 'running-source.sha256'), `${crypto.createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).digest('hex')}  ${new URL(import.meta.url).pathname}\n`);
 const base = { ...process.env, DSH_HOME: home };
 for (const key of Object.keys(base)) if (key.startsWith('SESSIONBUS_')) delete base[key];
 const children = new Set(), timings = [];
@@ -24,6 +25,7 @@ const sockets = fs.mkdtempSync('/tmp/sb-w125-');
 const redact = value => String(value).replace(/([?&]token=)[^\s]+/gu, '$1<redacted>');
 function start(argv, env, label) {
   beforeSpawn();
+  fs.writeFileSync(path.join(work, `${label}.request.json`), JSON.stringify({ argv, cwd: workspace, time: new Date().toISOString() }));
   const child = spawn(argv[0], argv.slice(1), { cwd: workspace, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child);
   child.stdoutText = ''; child.stderrText = '';
@@ -31,7 +33,7 @@ function start(argv, env, label) {
   child.stderr.on('data', chunk => { child.stderrText += chunk; fs.appendFileSync(path.join(work, `${label}.stderr`), redact(chunk)); });
   child.ended = new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); });
+    child.once('close', (code, signal) => { child.hasEnded = true; fs.writeFileSync(path.join(work, `${label}.exit.json`), JSON.stringify({ code, signal })); resolve({ code, signal }); });
   });
   return child;
 }
@@ -72,6 +74,17 @@ try {
   assert.equal(selected.stdoutText.trim(), '0.2.1-alpha.2');
   // EXACT README order. No hook, cutoff, provider lookup, cleanup or companion preparation.
   for (const profile of profiles) {
+    const upgrade = process.env.W125_INSTALL_MODE?.endsWith('-global');
+    let ownerBytes;
+    if (upgrade) {
+      await operation(['plugin', '--profile', profile, 'add', '--save-exact', '@sessionbus/dsh@0.1.0'], `${profile}-published-baseline-add`, 0, true);
+      await operation(['plugin', '--profile', profile, 'exec', 'sessionbus-dsh-install',
+        ...(profile !== 'sessionbus' ? ['--product', 'dsh', profile] : [])], `${profile}-published-baseline-exec`);
+      const baseline = JSON.parse(fs.readFileSync(path.join(home, 'profiles', profile, 'node_modules/@sessionbus/dsh/package.json')));
+      assert.equal(baseline.version, '0.1.0');
+      ownerBytes = Buffer.from('\n# owner settings, never an installer row\n- id: llm-pi-ai\n  config: { ownerExpression: !!js ctx.owner.route }\n- id: agent-default-model\n  config: { provider: owner, model: owner-default }\n');
+      fs.appendFileSync(path.join(home, 'profiles', profile, 'cordis.patch.yml'), ownerBytes);
+    }
     await operation(['plugin', '--profile', profile, 'add', '--save-exact', candidate], `${profile}-readme-add`, 0, true);
     const packageFile = path.join(home, 'profiles', profile, 'package.json');
     const lockFile = path.join(home, 'profiles', profile, 'pnpm-lock.yaml');
@@ -80,9 +93,14 @@ try {
       ...(profile !== 'sessionbus' ? ['--product', 'dsh', profile] : [])], `${profile}-readme-exec`);
     [packageFile, lockFile].forEach((file, i) => assert.deepEqual(fs.readFileSync(file), before[i], 'installer cannot change package state'));
     const manifest = JSON.parse(fs.readFileSync(packageFile));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'profiles', profile, 'node_modules/@sessionbus/dsh/package.json'))).version, version);
     assert.equal(manifest.dependencies['@antst/dsh-file-uploads-none'], undefined);
     const policy = fs.readFileSync(path.join(home, 'profiles', profile, 'pnpm-workspace.yaml'), 'utf8');
     assert.match(policy, /nodeLinker: hoisted/u); assert.match(policy, /autoInstallPeers: false/u);
+    if (upgrade) {
+      assert.deepEqual(fs.readFileSync(path.join(home, 'profiles', profile, 'cordis.patch.yml')).subarray(-ownerBytes.length), ownerBytes);
+      console.log(`${profile}: published 0.1.0 -> ${version} in-place global upgrade by README commands; owner rows byte-identical: PASS`);
+    }
     console.log(`${profile}: exact README add/exec, native fresh defaults, package bytes preserved: PASS`);
   }
   // Only now add test-only replay/approval fixtures. They are not install prerequisites.
@@ -110,6 +128,9 @@ try {
     const child = start([...dsh, ...args], env, `${mode}-native`);
     await wait(() => { alive(child); return state(runtime); }, `${mode} native runtime oracle`);
     assert.equal(state(runtime).ok, true, JSON.stringify(state(runtime)));
+    assert.equal(state(runtime).uploadRefusal?.refusal?.reason, 'FILE_NOT_STAGED');
+    assert.equal(state(runtime).uploadRefusal?.stockNegative === true, mode === 'web');
+    console.log(`${mode}: own-provider native refusal${mode === 'web' ? ' stock-provider negative control' : ''}: PASS`);
     let rpc, id;
     if (mode === 'web') {
       const url = await wait(() => { alive(child); return /dsh web: (http:\/\/\S+)/u.exec(child.stdoutText)?.[1]; }, 'real web launch');

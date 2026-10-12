@@ -25,6 +25,10 @@ jobs:
           - 0.2.1-alpha.2
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate annotated release tag
+        run: node .github/scripts/release-archive.mjs validate "$GITHUB_REF_NAME"
       - uses: pnpm/action-setup@v6
         with:
           version: 10.28.1
@@ -43,38 +47,34 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@^11.5.1 && npm --version
-      - name: Select release metadata
+      - name: Validate annotated release tag
         id: release
+        run: node .github/scripts/release-archive.mjs validate "$GITHUB_REF_NAME"
+      - run: npm install -g npm@11.12.1 && test "$(npm --version)" = '11.12.1'
+      - name: Check packed archive
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          package_version="$(node -p "require('./package.json').version")"
-          if [[ "$version" != "$package_version" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
-            exit 1
-          fi
-          dist_tag="${version#*-}"
-          if [[ "$dist_tag" == "$version" ]]; then
-            dist_tag=latest
-            prerelease=false
-          else
-            dist_tag="${dist_tag%%.*}"
-            prerelease=true
-          fi
-          {
-            printf 'version=%s\n' "$version"
-            printf 'dist_tag=%s\n' "$dist_tag"
-            printf 'prerelease=%s\n' "$prerelease"
-          } >> "$GITHUB_OUTPUT"
+          npm pack --ignore-scripts --json
+          sha256sum -c .release.sha256
+      - name: Check registry archive
+        id: registry
+        env:
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+        run: node .github/scripts/release-archive.mjs registry "$ARCHIVE"
+      - name: Publish prepared archive
+        if: steps.registry.outputs.state == 'absent'
+        env:
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+        run: npm publish "$ARCHIVE" --access public --provenance --tag latest
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub release $GITHUB_REF_NAME already exists"
@@ -86,9 +86,6 @@ jobs:
             found { print }
           ' CHANGELOG.md)"
           args=(release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME")
-          if [[ "$PRERELEASE" == true ]]; then
-            args+=(--prerelease)
-          fi
           if [[ -n "$notes" ]]; then
             printf '%s\n' "$notes" > "$RUNNER_TEMP/release-notes.md"
             args+=(--notes-file "$RUNNER_TEMP/release-notes.md")
@@ -96,13 +93,3 @@ jobs:
             args+=(--generate-notes)
           fi
           gh "${args[@]}"
-      - name: Publish @sessionbus/dsh
-        env:
-          NPM_DIST_TAG: ${{ steps.release.outputs.dist_tag }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if npm view "@sessionbus/dsh@$RELEASE_VERSION" version >/dev/null 2>&1; then
-            echo "@sessionbus/dsh@$RELEASE_VERSION already published"
-          else
-            npm publish --access public --provenance --tag "$NPM_DIST_TAG"
-          fi

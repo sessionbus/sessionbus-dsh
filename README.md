@@ -58,14 +58,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.1
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.0
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.1
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -75,7 +75,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.0
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.1
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -127,9 +127,11 @@ is idempotent.
 The plugin is tested with DSH's profile defaults (`nodeLinker: hoisted`,
 `autoInstallPeers: false`); its DSH peers come from the DSH installation,
 not packages added to the profile.
+`dsh plugin add` prints pnpm missing-peer warnings for the DSH packages and
+exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.0 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.1.1 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.
@@ -160,6 +162,30 @@ The lane advertises no native extra arguments. A non-empty `open.arguments`
 request is rejected rather than silently ignored.
 `open.model` and `open.reasoning_effort` apply to that lane's session only, never the profile default; effort alone keeps the session's current model, including on resume.
 Both options must be non-empty strings; an empty model is an error, not a request to use the current model. Models are validated by the provider adapter: an unknown provider fails at open, but a mistyped model accepted by the adapter can fail at the first model request instead.
+For fresh lanes, model/effort and permission options are checked before creating
+the session; effort alone uses the profile's current default. The session's actual
+selection is checked again before committing it. A default or capability change,
+cancellation, native setup or storage error between these checks can still leave
+a created session behind. The plugin does not archive
+or delete DSH's sessions. Resume creates no new session, but its rename can
+remain if a later option check fails. A directory left without a log is invisible to DSH's
+session list and cannot be resumed by id; DSH does not automatically remove it.
+A refused open is answered by `spawn_failed` with DSH's reason; `exit_code` in
+its data is the worker's shutdown status after the daemon stopped it and says
+nothing about the refusal.
+
+A turn ending with native reason `error` includes DSH's own code and message
+in its collected result, after any partial assistant text. Other failed stop
+reasons do not carry that diagnostic. In both fields, C0/C1 controls, DEL,
+U+2028 and U+2029 become spaces; the code is bounded at 128 UTF-8 bytes and
+the message at 1024, including a visible truncation mark. This is line discipline,
+not secrecy filtering. Only these two fields are copied, not a separate stack,
+cause object or other fields; DSH's message can itself contain cause text.
+The plugin adds no credential or environment data and makes no promise to
+remove sensitive text a provider put in its message.
+The kit's 1 MiB frame limit still applies to the whole result. Assistant text
+is not truncated here; a result exceeding that limit becomes an unavailable
+record with the kit's reason `native result failed validation`.
 
 Remove the rows, then let DSH remove the package:
 
@@ -209,7 +235,7 @@ loss on the candidate uses the kit's existing reconnect, not a plugin retry. If
 neither terminal signal arrives, the operation remains pending under those same
 kit close/reconnect semantics; there is no swap deadline or polling loop. Show
 remains available; later changes and title updates wait. A failure after the
-progress response has one sanitized `sessionbus:` stderr diagnostic.
+progress response has one flattened `sessionbus:` stderr diagnostic.
 A terminal rejection of the old peer's reconnect also ends the pending change
 and unpublishes it with that diagnostic. A second change queued behind a pending
 one has no progress response of its own; it checks cancellation only once the
@@ -245,6 +271,8 @@ majors are reported, not rewritten.
 
 ## Run results
 
-A DSH error before its input commit returns `failed`, native stop reason `error`, and result `<code>: <message>` verbatim from the durable `turn/end`.
+Both early and user-message-bound native errors return `failed`, native stop
+reason `error`, and the two-field diagnostic described above; any partial
+assistant text is retained and separated from it.
 
 See [Lane without a TUI](docs/LANE-WITHOUT-TUI.md) for the daemon launch contract.

@@ -135,6 +135,23 @@ function terminal(reason) {
   throw new Error(`unknown DSH turn end reason ${JSON.stringify(reason)}`);
 }
 
+// Exactly DSH's native code/message, not a sanitizer or a cause-chain reader.
+function turnError(error) {
+  const field = (value, limit) => {
+    const flat = String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, " ");
+    if (Buffer.byteLength(flat) <= limit) return flat;
+    const mark = " [truncated]";
+    let bounded = "", bytes = 0;
+    for (const character of flat) {
+      const size = Buffer.byteLength(character);
+      if (bytes + size > limit - Buffer.byteLength(mark)) break;
+      bounded += character; bytes += size;
+    }
+    return bounded + mark;
+  };
+  return `${field(error?.code, 128)}: ${field(error?.message, 1024)}`;
+}
+
 class NativeSession {
   constructor(ctx, createUserMessage, ProtocolError) {
     this.ctx = ctx;
@@ -149,6 +166,48 @@ class NativeSession {
   async open(request, signal) {
     const options = request.open || {};
     if (options.arguments?.length) throw new Error("open.arguments are not supported by DSH");
+    if (options.model !== undefined || options.reasoning_effort !== undefined) signal?.throwIfAborted();
+    for (const field of ["model", "reasoning_effort"]) {
+      if (options[field] !== undefined && (typeof options[field] !== "string" || options[field].length === 0)) throw new Error(`unsupported value ${field}: expected a non-empty string`);
+    }
+    if (options.permission_mode !== undefined && !this.ctx.permissionPresets.names.includes(options.permission_mode)) throw new Error(`unsupported value permission_mode=${options.permission_mode}`);
+    let route, llm, controller;
+    if (options.model !== undefined) {
+      const slash = options.model.indexOf("/");
+      if (slash < 1 || slash === options.model.length - 1) throw new Error(`unsupported value model=${options.model}`);
+      route = { provider: options.model.slice(0, slash), model: options.model.slice(slash + 1) };
+    }
+    if (options.model !== undefined || options.reasoning_effort !== undefined) {
+      llm = this.ctx.get?.("llm");
+      if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
+      // Approved alpha.2 non-public holder, documented methods only (controller
+      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). Its presence is
+      // session-independent: refuse before create. selectModel saves the profile
+      // default; never fall back to it.
+      controller = this.ctx.sessionController.agents;
+      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
+      if (missing.length) {
+        const message = `sessionController.agents missing ${missing.join(", ")}`;
+        let dshVersion = "unknown version";
+        // Diagnostic only: unavailable metadata must not hide the missing seam
+        // or forward a module-resolution error containing host paths.
+        try {
+          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
+          if (typeof value === "string" && value.length) dshVersion = value;
+        } catch {}
+        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
+      }
+      if (!request.resume_session_id) {
+        // Public default read is the fresh route at this moment. The serializer
+        // below still reads and validates the session's commit-time selection.
+        const defaultModel = route ? undefined : this.ctx.get?.("agentDefaultModel");
+        const defaults = route ?? (typeof defaultModel?.currentSelection === "function" ? defaultModel.currentSelection() : undefined);
+        if (!defaults) throw new Error("DSH agentDefaultModel.currentSelection is unavailable for fresh lane effort options");
+        await llm.resolveCallConfig({ provider: defaults.provider, model: defaults.model,
+          ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, signal);
+        signal?.throwIfAborted();
+      }
+    }
     let resolved;
     if (request.resume_session_id) {
       resolved = await this.ctx.sessionController.resolveAgent(request.resume_session_id);
@@ -164,39 +223,14 @@ class NativeSession {
     await this.ctx.sessionController.rename({ sessionId: agent.id, title: nativeName(request.name) });
     if (options.model !== undefined || options.reasoning_effort !== undefined) {
       signal?.throwIfAborted();
-      for (const field of ["model", "reasoning_effort"]) {
-        if (options[field] !== undefined && (typeof options[field] !== "string" || options[field].length === 0)) throw new Error(`unsupported value ${field}: expected a non-empty string`);
-      }
-      // Approved alpha.2 non-public holder, documented methods only (controller
-      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). selectModel
-      // also saves the profile default; never fall back to it.
-      const controller = this.ctx.sessionController.agents;
-      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
-      if (missing.length) {
-        const message = `sessionController.agents missing ${missing.join(", ")}`;
-        let dshVersion = "unknown version";
-        // Diagnostic only: unavailable metadata must not hide the missing seam
-        // or forward a module-resolution error containing host paths.
-        try {
-          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
-          if (typeof value === "string" && value.length) dshVersion = value;
-        } catch {}
-        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
-      }
-      const llm = this.ctx.get?.("llm");
-      if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
       await controller.serializeImageAdmission(agent, async () => {
         signal?.throwIfAborted();
-        let route;
+        let currentRoute = route;
         if (options.model === undefined) {
           const current = controller.selectionFor(agent).current;
-          route = { provider: current.provider, model: current.model };
-        } else {
-          const slash = options.model.indexOf("/");
-          if (slash < 1 || slash === options.model.length - 1) throw new Error(`unsupported value model=${options.model}`);
-          route = { provider: options.model.slice(0, slash), model: options.model.slice(slash + 1) };
+          currentRoute = { provider: current.provider, model: current.model };
         }
-        const resolved = await llm.resolveCallConfig({ ...route, ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, signal);
+        const resolved = await llm.resolveCallConfig({ ...currentRoute, ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, signal);
         signal?.throwIfAborted();
         controller.selectForNextRequest(agent, {
           provider: resolved.provider, model: resolved.model,
@@ -206,7 +240,6 @@ class NativeSession {
       });
     }
     if (options.permission_mode !== undefined) {
-      if (!this.ctx.permissionPresets.names.includes(options.permission_mode)) throw new Error(`unsupported value permission_mode=${options.permission_mode}`);
       this.ctx.permissionPresets.set(agent.session, options.permission_mode);
     }
     await this.ctx.sessions.flush(agent.session);
@@ -257,7 +290,7 @@ class NativeSession {
       }
     }
     const run = this.active;
-    if (!run || session !== this.agent?.session) return;
+    if (!run || run.end || run.endError || session !== this.agent?.session) return;
     if (event.type === "turn/start") run.openTurn = event.data.turn;
     if (event.type === "user/message" && event.data.id === run.message.id) {
       if (!Number.isSafeInteger(run.openTurn)) {
@@ -271,7 +304,10 @@ class NativeSession {
     if (event.type === "turn/end" && (run.turn === event.data.turn || earlyError)) {
       try {
         run.end = terminal(event.data.reason);
-        if (earlyError) run.output = `${event.data.reason.error.code}: ${event.data.reason.error.message}`;
+        if (event.data.reason.kind === "error") {
+          const diagnostic = turnError(event.data.reason.error);
+          run.output = run.output ? `${run.output}\n\nDSH turn error: ${diagnostic}` : diagnostic;
+        }
       }
       catch (error) { run.endError = error; }
     }
