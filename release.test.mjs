@@ -30,6 +30,14 @@ test('release validator refuses every second 64-hex token and every carriage ret
   }
 });
 
+test('release checksum line requires the canonical lowercase hash from sha256sum', () => {
+  const lower = 'abcdef0123456789'.repeat(4);
+  assert.equal(metadata('v0.1.1', manifest, `${lower}  ${file}`, 'tag').checksum, `${lower}  ${file}\n`);
+  for (const hash of [lower.toUpperCase(), lower.replace('a', 'A')]) {
+    assert.throws(() => metadata('v0.1.1', manifest, `${hash}  ${file}`, 'tag'), /exactly one/u);
+  }
+});
+
 test('actual validator reads an annotated tag; actual checksum rejects changed packed bytes', t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sessionbus-release-script-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -118,7 +126,8 @@ test('actual registry script replays recorded npm outcomes and emits only verifi
     } else {
       assert.notEqual(result.status, 0); assert.match(result.stderr, error); assert.equal(fs.existsSync(outputs), false);
     }
-    assert.equal(fs.readFileSync(path.join(directory, '.release-view.stdout'), 'utf8'), response.stdout);
+    assert.equal(fs.existsSync(path.join(directory, '.release-view.stdout')), false);
+    assert.equal(fs.existsSync(path.join(directory, '.release-view.stderr')), false);
     assert.deepEqual(fs.readFileSync(archive), bytes);
   }
 });

@@ -10,7 +10,7 @@ export function metadata(tag, manifest, message, type) {
   if (type !== 'tag') throw new Error('release requires an annotated tag');
   if (message.includes('\r')) throw new Error('annotated tag message must not contain a carriage return');
   const hashes = message.match(/(?<![a-f0-9])[a-f0-9]{64}(?![a-f0-9])/giu) ?? [];
-  const lines = message.split('\n').filter(line => /^[a-f0-9]{64}  [a-zA-Z0-9._-]+\.tgz$/iu.test(line));
+  const lines = message.split('\n').filter(line => /^[a-f0-9]{64}  [a-zA-Z0-9._-]+\.tgz$/u.test(line));
   if (hashes.length !== 1 || lines.length !== 1) throw new Error('annotated tag must contain exactly one SHA256 archive line and one 64-hex token');
   const [, archive] = lines[0].split('  ');
   const expected = `${manifest.name.replace(/^@/u, '').replaceAll('/', '-')}-${manifest.version}.tgz`;
@@ -55,8 +55,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
       const integrity = `sha512-${crypto.createHash('sha512').update(fs.readFileSync(value)).digest('base64')}`;
       const result = spawnSync('npm', ['view', `${manifest.name}@${manifest.version}`, 'dist.integrity', '--json'], { encoding: 'utf8' });
-      fs.writeFileSync('.release-view.stdout', result.stdout ?? '');
-      fs.writeFileSync('.release-view.stderr', result.stderr ?? '');
       const state = registryState(result, integrity);
       process.stdout.write(`Registry archive: ${state}\n`);
       if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `state=${state}\n`);

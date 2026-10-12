@@ -49,8 +49,9 @@ The worker Open wrapper/closed chain are unchanged. Refusal code/reason, not
 exit_code, explains the refusal; the native fixture asserts exactly one reply.
 
 D-052: validate an annotated plain-version tag, exactly one 64-hex token whose
-line has the strict checksum/archive form, and no CR anywhere in the message.
-Pack with exact npm **11.12.1**, the packer of the host-proof archive, then actual
+line has the strict lowercase checksum/archive form, and no CR anywhere in the
+message. Pack under **Node 22** with exact npm **11.12.1**, the workflow's
+packer/runtime for the host-proof archive, then actual
 `sha256sum -c` before npm registry/publish or gh release
 operations. The exact verified archive is published with provenance to latest.
 Only npm's JSON E404 means not-found; malformed/auth/network responses fail.
@@ -114,6 +115,24 @@ with the test archive's integrity, and malformed JSON is deliberately damaged
 capture text. These are decision controls, not new registry observations.
 Synthetic auth/error cases are separately labelled by their constructed inputs.
 
+Final unshipped review controls: the canonical-lowercase checksum test fails
+against d835d02, and deletion of the tag-validation step passes the old actual
+workflow test so the deletion-control test fails there. The strengthened test
+requires every compared named step and the npm-install index to exist; actual
+test-body deletion controls cover all six. The new constructed early-error then
+later-completion case passes the corrected plugin and fails the 0.1.0 source;
+it is now an in-repository unit control, not a native feasibility claim.
+The unused registry stdout/stderr files and workflow pack.json are removed;
+workflow command output stays visible in job logs. The candidate residue check
+is unconditional: the published pre.20 negative ends at its first saved-selection
+failure and never reaches the previously exempted invalid-effort branch.
+The first deletion-control harness inherited NODE_TEST_CONTEXT=child-v8;
+Node warned that recursive --test files were skipped and returned 0 with no
+test output. It is not counted as failing-first product evidence. The control
+now removes only that runner context for its standalone child, selects TAP,
+and asserts that the actual workflow test ran with one pass/failure. No workflow
+step body is executed against fake gh/npm commands.
+
 The full maintained options proof keeps the original ten W-126 cases, adds
 fully specified invalid effort, bound provider failure, and settled partial
 assistant text followed by a failing next request. Native terminal code/message,
@@ -141,7 +160,8 @@ request in that same native turn. No raw stream text is claimed as a message.
 ## Gates and coverage
 
 - Local unit suite initially 163/163, then 165/165 with the missing-default and
-  commit-window controls, and 170/170 after the review corrections;
+  commit-window controls, 170/170 after the runtime review corrections and
+  173/173 after the final unshipped controls;
   no skipped/todo/only tests. Existing suite
   plus release script tests runs normally through npm test.
 - Local prepared Linux operations regression and fresh project proof passed;
@@ -185,6 +205,9 @@ Review-corrected archive SHA256:
 `aec194b2639ae9dc04116999e46c86635b43552682c0500fa94785d9eb8aa101`
 (npm 11.12.1, 27,245 bytes); plugin.cjs SHA256
 `cff351981f46a88c84dd7dd85dcd944244a0b1f158712dcc4c74db5d394e2d16`.
+The final unshipped delta repacks identically under Node 22.23.3/npm 11.12.1,
+as well as the local Node 25.9/npm 11.12.1 observation; the release workflow
+selects the Node 22 line. No packed file changes in that delta.
 Packed changes against 0.1.0: package.json (version/test command), README.md and
 plugin.cjs only. Still nine packed files; install.mjs, bin.mjs, launcher.mjs,
 file-uploads-none.mjs, docs/LANE-WITHOUT-TUI.md and skills/sessionbus.md unchanged.

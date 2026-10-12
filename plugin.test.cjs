@@ -877,6 +877,22 @@ test("bound turn errors retain partial text and exactly the two native fields", 
   });
 });
 
+test("an early error remains terminal if the same input completes in a later turn before idle", async () => {
+  const { ctx, native, deps } = await openedLane();
+  native.followup = message => {
+    const emit = (type, data) => ctx.emit("session/event", native.session, { type, data });
+    emit("agent/inbox/spliced", { inserted: [message] });
+    emit("turn/start", { turn: 8 });
+    emit("turn/end", { turn: 8, reason: { kind: "error", error: { code: "EARLY", message: "before bind" } } });
+    emit("turn/start", { turn: 9 }); emit("user/message", message);
+    emit("assistant/message", { turn: 9, message: { content: [{ type: "text", text: "later answer" }] } });
+    emit("turn/end", { turn: 9, reason: { kind: "completed" } });
+  };
+  assert.deepEqual(await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "request" }), {
+    outcome: "failed", native_stop_reason: "error", result: "EARLY: before bind",
+  });
+});
+
 test("native error messages preserve exact UTF-8 boundaries on both associations", async () => {
   const mark = " [truncated]";
   const cases = [

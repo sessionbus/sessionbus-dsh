@@ -108,10 +108,8 @@ try {
       // A rejected open does not close a Worker: kit _open replies spawn_failed
       // and keeps the connection available. Stop our owned runtime normally.
       assert.deepEqual(await stop(child, state(runtime).nativePid), { code: 0, signal: null });
-      if (version !== '0.1.0-pre.20') {
-        const afterFiles = fs.existsSync(logRoot) ? fs.readdirSync(logRoot, { recursive: true }).sort() : [];
-        assert.deepEqual(afterFiles, beforeFiles, 'fresh invalid effort must leave no native session directory or log');
-      }
+      const afterFiles = fs.existsSync(logRoot) ? fs.readdirSync(logRoot, { recursive: true }).sort() : [];
+      assert.deepEqual(afterFiles, beforeFiles, 'fresh invalid effort must leave no native session directory or log');
     } else {
       assert.equal(opened.error, undefined, JSON.stringify(opened));
       const id = opened.result.session_id;

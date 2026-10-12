@@ -16,6 +16,10 @@ test("release workflow validates the tagged archive and publishes it before crea
   assert.equal(workflow.jobs.publish.needs, "verify");
   assert.match(packageVersion, /^\d+\.\d+\.\d+$/u);
   const at = name => steps.findIndex(step => step.name === name);
+  for (const name of ["Validate annotated release tag", "Check packed archive", "Check registry archive", "Publish prepared archive", "Create GitHub release"]) {
+    assert.ok(at(name) >= 0, `missing release step: ${name}`);
+  }
+  assert.ok(steps.findIndex(step => step.run?.includes("npm install")) >= 0, "missing npm install step");
   assert.ok(at("Validate annotated release tag") < steps.findIndex(step => step.run?.includes("npm install")));
   assert.ok(at("Check packed archive") < at("Check registry archive"));
   assert.ok(at("Publish prepared archive") < at("Create GitHub release"));
@@ -30,6 +34,35 @@ test("release workflow validates the tagged archive and publishes it before crea
   assert.match(release, /if gh release view.*then[\s\S]*exit 0[\s\S]*fi/u);
   assert.ok(release.indexOf("gh release view") < release.indexOf("args=(release create"));
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"), /--prerelease|dist_tag/u);
+});
+
+test("release workflow order checks reject deletion of every compared step", t => {
+  const yaml = require("js-yaml");
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-release-order-"));
+  t.after(() => fs.rmSync(fixture, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(fixture, ".github/workflows"), { recursive: true });
+  for (const file of ["package.test.cjs", "package.json"]) fs.copyFileSync(path.join(__dirname, file), path.join(fixture, file));
+  fs.symlinkSync(path.join(__dirname, "node_modules"), path.join(fixture, "node_modules"));
+  const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));
+  const run = steps => {
+    const mutant = structuredClone(workflow); mutant.jobs.publish.steps = steps;
+    fs.writeFileSync(path.join(fixture, ".github/workflows/release.yml"), yaml.dump(mutant));
+    // A new standalone test process must not inherit the parent's runner IPC
+    // context: Node otherwise skips a recursive --test invocation entirely.
+    const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ["--test", "--test-reporter=tap", "--test-name-pattern=^release workflow validates the tagged archive", "package.test.cjs"], { cwd: fixture, encoding: "utf8", env });
+    assert.match(result.stdout, /# Subtest: release workflow validates the tagged archive/u);
+    assert.doesNotMatch(result.stderr, /skipping running files/u);
+    return result;
+  };
+  const positive = run(workflow.jobs.publish.steps);
+  assert.equal(positive.status, 0, positive.stdout + positive.stderr);
+  assert.match(positive.stdout, /# pass 1\n/u);
+  for (const name of ["Validate annotated release tag", "Check packed archive", "Check registry archive", "Publish prepared archive", "Create GitHub release", "npm install"]) {
+    const result = run(workflow.jobs.publish.steps.filter(step => name === "npm install" ? !step.run?.includes("npm install") : step.name !== name));
+    assert.notEqual(result.status, 0, `the actual workflow test must reject missing ${name}`);
+    assert.match(result.stdout, /# fail 1\n/u);
+  }
 });
 
 test("package metadata stays rooted in the standalone repository with its own provider entry", () => {

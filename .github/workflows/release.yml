@@ -59,7 +59,7 @@ jobs:
       - run: npm install -g npm@11.12.1 && test "$(npm --version)" = '11.12.1'
       - name: Check packed archive
         run: |
-          npm pack --ignore-scripts --json > "$RUNNER_TEMP/pack.json"
+          npm pack --ignore-scripts --json
           sha256sum -c .release.sha256
       - name: Check registry archive
         id: registry
