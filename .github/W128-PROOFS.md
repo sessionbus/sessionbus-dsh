@@ -18,20 +18,26 @@ No retry or replay. A terminal is immutable; stale/duplicate events cannot
 rewrite it. The next run starts with its own record; receipts, idle wake,
 active steering, cancellation, capacity and shutdown are otherwise unchanged.
 
-Privacy boundary: exactly native code/message, never stack, cause, details,
-headers, request IDs, credentials or environment. Message NUL/newlines become
-spaces; at most 1024 UTF-8 bytes including ` [truncated]`. This is not a
-sanitizer and does not promise to remove provider-supplied sensitive text.
+Privacy boundary: only the native code/message fields are read, never stack,
+cause, details, headers, request IDs, credentials or environment. The native
+message may itself contain cause text. All C0/C1 controls, DEL, U+2028 and U+2029
+become spaces in both fields: line discipline, not secrecy. Code is bounded at
+128 UTF-8 bytes and message at 1024, including the visible ` [truncated]` mark,
+without splitting a code point. This is not a sanitizer and does not promise
+to remove provider-supplied sensitive text. Assistant text is not truncated;
+the kit's 1 MiB response-frame limit can instead make the record unavailable
+with reason `native result failed validation`.
 
 Fresh Open checks argument shape, permission preset, exact model route and
-effort before create. Explicit model uses the public LLM resolver; effort alone
+effort and selector-method presence before create. Explicit model uses the public LLM resolver; effort alone
 reads public `agentDefaultModel.currentSelection()`, the same read used by a
 fresh controller selection. The existing serializer reads the actual session
 selection and validates again immediately before selection commit: two moments,
 not a retry or cached precedence. No-option opens require neither optional LLM
 nor the private selector. Resume still resolves its controller-owned session
-and uses its current selection. Signals are checked before/after prevalidation
-and before committing; no timer, undo, archive, native-file deletion or new
+and uses its current selection. Option-path signals are checked before/after
+prevalidation and before committing; already-aborted no-option create/resume
+retain 0.1.0 behavior. No timer, undo, archive, native-file deletion or new
 workspace dependency. A changed default/capability, cancellation, native setup
 or storage failure in the remaining window can still leave native residue.
 The shipped README names that limit and DSH's invisible no-log directory.
@@ -42,13 +48,20 @@ DSH requests 0 for SIGTERM; racing a plugin request for 1 would be nondeterminis
 The worker Open wrapper/closed chain are unchanged. Refusal code/reason, not
 exit_code, explains the refusal; the native fixture asserts exactly one reply.
 
-D-052: validate an annotated plain-version tag and exactly one checksum/archive
-line, pack, then actual `sha256sum -c` before npm registry/publish or gh release
+D-052: validate an annotated plain-version tag, exactly one 64-hex token whose
+line has the strict checksum/archive form, and no CR anywhere in the message.
+Pack with exact npm **11.12.1**, the packer of the host-proof archive, then actual
+`sha256sum -c` before npm registry/publish or gh release
 operations. The exact verified archive is published with provenance to latest.
 Only npm's JSON E404 means not-found; malformed/auth/network responses fail.
 An existing version must have identical archive SHA512 integrity. No dist-tag
 move, overwrite, fallback or retry. GitHub release creation is **after** npm
-publish or equal-integrity verification. A provenance/signing failure before
+publish or equal-integrity verification; an existing GitHub release is left
+alone so a complete rerun is green without republishing or recreating it.
+There is no immediate latest-tag assertion: registry propagation makes such a
+check falsely fail after a successful publish. Ops owns the later registry
+integrity/tag/file observation and any mismatch is answered by a patch release.
+A provenance/signing failure before
 the npm PUT leaves neither an npm version nor a GitHub release (the ops-created
 git tag exists already); an uncertain transport failure may leave npm published,
 but no GitHub release. A later gh failure leaves the verified npm version and
@@ -77,6 +90,30 @@ The resume-only test also passes on base: it pins unchanged behavior, not a
 failing-first claim. Existing ordered-open regression gains only the required
 pre-create resolver call; no assertion is deleted.
 
+The review corrections were exercised before changing the implementation at
+initial head `76e4a0f`: five focused plugin controls gave **1 pass / 4 fail**.
+Both missing-seam controls failed because create/rename happened, the expanded
+line-discipline/code-bound control failed, and the no-option aborted-signal
+control failed. The exact UTF-8 boundary control passed the existing correct
+formatter; it is a strengthened regression, not a new defect claim. It requires
+well-formed UTF-8 and exact 1024/1025-byte multi-byte inputs and output lengths
+on both associations, not just an upper bound.
+Measured mutation controls replace the initial formatter with a split-surrogate
+slice or a 10-byte cap; each is rejected by that same strengthened test. The
+first outer control incorrectly expected TAP while Node selected spec output;
+its inner mutation failed correctly. Selecting TAP corrected that harness
+summary assumption without changing the regression assertions.
+
+Six focused release controls at that head gave **4 pass / 2 fail**: an extra
+hash in a deviating line was ignored, and a terminal CR in a real annotated tag
+was trimmed away. The script now rejects both. Successful validation outputs
+are read and asserted; no unused hash output is retained. Registry CLI tests
+replay committed native npm 11.12.1 stdout/status captures for success, E404 and
+unreachable registry; the equal case substitutes only the successful integrity
+with the test archive's integrity, and malformed JSON is deliberately damaged
+capture text. These are decision controls, not new registry observations.
+Synthetic auth/error cases are separately labelled by their constructed inputs.
+
 The full maintained options proof keeps the original ten W-126 cases, adds
 fully specified invalid effort, bound provider failure, and settled partial
 assistant text followed by a failing next request. Native terminal code/message,
@@ -104,7 +141,8 @@ request in that same native turn. No raw stream text is claimed as a message.
 ## Gates and coverage
 
 - Local unit suite initially 163/163, then 165/165 with the missing-default and
-  commit-window controls; no skipped/todo/only tests. Existing suite
+  commit-window controls, and 170/170 after the review corrections;
+  no skipped/todo/only tests. Existing suite
   plus release script tests runs normally through npm test.
 - Local prepared Linux operations regression and fresh project proof passed;
   all 13 native option/error cases passed. Final pushed-head gates remain required.
@@ -121,8 +159,12 @@ request in that same native turn. No raw stream text is claimed as a message.
 - Global pnpm rows record actual manager version and the public virtual-store
   setting; pnpm11 records default failure and literal README remedy as before.
 - Source hash is the first capture in changed proof entry points; command argv,
-  stdout/stderr/exit and lane fixture raw sent/received frames are recorded at
-  call time. Native process-group ownership/empty-group checks are unchanged.
+  stdout/stderr/exit and lane fixture raw sent/received frames are written at
+  call time into their temporary evidence directories. Local runs retain that
+  evidence. The hosted jobs do **not** upload those directories as artifacts:
+  hosted output preserves per-case assertions and final summaries, not replayable
+  raw captures. A host-proof packet separately retains its script and captures.
+  Native process-group ownership/empty-group checks are unchanged.
 - Release tests call the validator script against a real annotated/lightweight
   tag repository and actual sha256sum with changed bytes. Registry result tests
   exercise equal/mismatch/not-found/auth/transport/malformed outcomes. No workflow
@@ -139,6 +181,10 @@ Published baseline archive SHA256:
 `1fb8e005ceccaa08d3447f5c2c1c0feb541769d0be8229761397d8610814be55`.
 Initial candidate archive SHA256:
 `03cfcb8b9fcaa4ee273da97c24d46648d48a970d6a09273f59e8b0924bacf034`.
+Review-corrected archive SHA256:
+`aec194b2639ae9dc04116999e46c86635b43552682c0500fa94785d9eb8aa101`
+(npm 11.12.1, 27,245 bytes); plugin.cjs SHA256
+`cff351981f46a88c84dd7dd85dcd944244a0b1f158712dcc4c74db5d394e2d16`.
 Packed changes against 0.1.0: package.json (version/test command), README.md and
 plugin.cjs only. Still nine packed files; install.mjs, bin.mjs, launcher.mjs,
 file-uploads-none.mjs, docs/LANE-WITHOUT-TUI.md and skills/sessionbus.md unchanged.
@@ -161,10 +207,23 @@ Historical branch proof/host-global-010 commit
 Delete that branch only after this change lands; the commit/hash remain here.
 No code is copied from it into a new product mechanism.
 
+Host-packet lessons (the separate home-project step, not W-128 host acceptance):
+a lockfile-only rehearsal on a bare manifest does not predict an add with the
+installed tree present; pnpm can reuse that tree's existing peer context. A
+prediction used as a stop condition includes the installed-state lock and
+manifest, or asserts the approved consequence class rather than byte equality
+with a bare rehearsal. Capture metadata-only rewrites as well as byte changes:
+the approved home add rewrote 44 other bin wrappers with identical bytes and
+`--ignore-scripts` removed the `ignoredBuilds` state entry for
+`@deepseek-ai/dsh-subprocess-local`. Every command flag is part of its consequence
+analysis. Our scripts never open credential-bearing configuration files, even
+for key names; query only a specific non-secret key through the manager.
+
 Unchanged non-public exception: sessionController.agents.selectionFor,
 selectForNextRequest and serializeImageAdmission, alpha.2 published types
 lib/types/index.d.ts:49 and lib/types/agent.d.ts:101,107,129. Missing methods
 fail only option-bearing opens with a path-free best-effort version diagnostic.
+That presence check is before any create or rename.
 Upstream requests remain: public validated session-only selection with explicit
 routing policy and creation-time options on SessionCreateRequest; add a safe
 public native error surface (this plugin cannot sanitize arbitrary provider text).
@@ -183,3 +242,9 @@ separate gates under the writer slot, not substituted by this matrix. No host
 profile, protected sealed packet, owner process or daemon configuration changed
 during this implementation. The home-project launcher upgrade is a separate
 review/slot and is not part of W-128.
+
+One native-event question remains unproven: whether DSH can emit an early error
+and then complete the same input in a later turn before idle. The unit control
+deliberately constructs that sequence; 0.1.0 returned completed whereas 0.1.1
+keeps the first failed terminal under the reviewed immutability rule. No real
+DSH reproduction is claimed.

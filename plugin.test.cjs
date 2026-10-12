@@ -621,7 +621,7 @@ test("missing selector methods fail with the resolved native version, never a GU
     else delete ctx.sessionController.agents[missing];
     const { deps } = lane(ctx);
     await assert.rejects(deps.callbacks.open(null, { name: "missing", open: { reasoning_effort: "low" } }), /sessionController\.agents.*DSH.*0\.2\.1-alpha\.2/u);
-    assert.equal(ctx.calls.some(([call]) => call === "model" || call === "selection"), false);
+    assert.equal(ctx.calls.some(([call]) => ["create", "rename", "model", "selection"].includes(call)), false);
   }
 });
 
@@ -650,6 +650,7 @@ test("missing-seam diagnostics survive real unexported or invalid version metada
           assert.equal(error.message.includes("Require stack"), false);
           return true;
         });
+        assert.equal(ctx.calls.some(([call]) => ["create", "rename", "model", "selection"].includes(call)), false);
       }
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   })();
@@ -876,21 +877,62 @@ test("bound turn errors retain partial text and exactly the two native fields", 
   });
 });
 
-test("native error messages are bounded in UTF-8 bytes with visible truncation on both associations", async () => {
-  for (const bound of [false, true]) {
+test("native error messages preserve exact UTF-8 boundaries on both associations", async () => {
+  const mark = " [truncated]";
+  const cases = [
+    { input: "é😀".repeat(170) + "😀", bytes: 1024, output: "é😀".repeat(170) + "😀", outputBytes: 1024 },
+    { input: "é😀".repeat(170) + "😀a", bytes: 1025, output: "é😀".repeat(168) + "é" + mark, outputBytes: 1022 },
+    { input: "😀".repeat(256) + "a", bytes: 1025, output: "😀".repeat(253) + mark, outputBytes: 1024 },
+  ];
+  for (const bound of [false, true]) for (const fixture of cases) {
+    assert.equal(Buffer.byteLength(fixture.input), fixture.bytes);
     const { ctx, native, deps } = await openedLane();
     native.followup = message => {
       const emit = (type, data) => ctx.emit("session/event", native.session, { type, data });
       emit("agent/inbox/spliced", { inserted: [message] }); emit("turn/start", { turn: 9 });
       if (bound) emit("user/message", message);
-      emit("turn/end", { turn: 9, reason: { kind: "error", error: { code: "CODE", message: "é😀".repeat(600) } } });
+      emit("turn/end", { turn: 9, reason: { kind: "error", error: { code: "CODE", message: fixture.input } } });
     };
     const result = await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "request" });
     assert.equal(result.outcome, "failed"); assert.equal(result.native_stop_reason, "error");
     assert.match(result.result, /^CODE: /u);
     const message = result.result.slice("CODE: ".length);
-    assert.ok(Buffer.byteLength(message) <= 1024); assert.ok(message.endsWith(" [truncated]"));
-    assert.equal(message.includes("�"), false);
+    assert.equal(Buffer.from(message, "utf8").toString("utf8"), message, "no lone surrogate or split UTF-8 code point");
+    assert.equal(Buffer.byteLength(message), fixture.outputBytes);
+    assert.equal(message, fixture.output);
+  }
+});
+
+test("native error fields enforce all control-character line discipline and the code bound", async () => {
+  const controls = [...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => i + 127), 0x2028, 0x2029].map(code => String.fromCodePoint(code)).join("");
+  for (const bound of [false, true]) for (const fixture of [
+    { code: "C" + controls + "Z", expectedCode: "C" + " ".repeat(controls.length) + "Z", message: "M" + controls + "Z", expectedMessage: "M" + " ".repeat(controls.length) + "Z" },
+    { code: "😀".repeat(32), expectedCode: "😀".repeat(32), message: "native", expectedMessage: "native" },
+    { code: "😀".repeat(32) + "x", expectedCode: "😀".repeat(29) + " [truncated]", message: "native", expectedMessage: "native" },
+  ]) {
+    const { ctx, native, deps } = await openedLane();
+    native.followup = message => {
+      const emit = (type, data) => ctx.emit("session/event", native.session, { type, data });
+      emit("agent/inbox/spliced", { inserted: [message] }); emit("turn/start", { turn: 9 });
+      if (bound) emit("user/message", message);
+      emit("turn/end", { turn: 9, reason: { kind: "error", error: { code: fixture.code, message: fixture.message } } });
+    };
+    const result = await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "request" });
+    assert.equal(result.result, `${fixture.expectedCode}: ${fixture.expectedMessage}`);
+    assert.equal(Buffer.from(result.result, "utf8").toString("utf8"), result.result);
+    assert.ok(Buffer.byteLength(fixture.expectedCode) <= 128);
+  }
+});
+
+test("already-aborted no-option create and resume preserve the original lane open behavior", async () => {
+  for (const resume of [false, true]) {
+    const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+    Object.defineProperty(ctx.sessionController, "agents", { get() { throw new Error("optional selector read"); } });
+    delete ctx.llm;
+    const controller = new AbortController(); controller.abort(new Error("already cancelled"));
+    assert.deepEqual(await deps.callbacks.open(controller.signal, { name: "no-options", ...(resume ? { resume_session_id: native.id } : {}), open: {} }), { session_id: native.id });
+    assert.equal(ctx.calls.some(([call]) => call === "create"), !resume);
+    assert.deepEqual(ctx.calls.at(-1), ["flush", native.id]);
   }
 });
 

@@ -13,6 +13,7 @@ test("release workflow validates the tagged archive and publishes it before crea
   const yaml = require("js-yaml");
   const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));
   const steps = workflow.jobs.publish.steps;
+  assert.equal(workflow.jobs.publish.needs, "verify");
   assert.match(packageVersion, /^\d+\.\d+\.\d+$/u);
   const at = name => steps.findIndex(step => step.name === name);
   assert.ok(at("Validate annotated release tag") < steps.findIndex(step => step.run?.includes("npm install")));
@@ -20,6 +21,14 @@ test("release workflow validates the tagged archive and publishes it before crea
   assert.ok(at("Publish prepared archive") < at("Create GitHub release"));
   assert.match(steps[at("Check packed archive")].run, /sha256sum -c \.release\.sha256/u);
   assert.match(steps[at("Publish prepared archive")].run, /npm publish "\$ARCHIVE" --access public --provenance --tag latest/u);
+  assert.equal(steps[at("Publish prepared archive")].if, "steps.registry.outputs.state == 'absent'");
+  assert.equal(steps[at("Publish prepared archive")].env.ARCHIVE, "${{ steps.release.outputs.archive }}");
+  assert.equal(steps[at("Check registry archive")].env.ARCHIVE, "${{ steps.release.outputs.archive }}");
+  assert.equal(steps[at("Create GitHub release")].env.RELEASE_VERSION, "${{ steps.release.outputs.version }}");
+  assert.ok(steps.some(step => step.run === "npm install -g npm@11.12.1 && test \"$(npm --version)\" = '11.12.1'"));
+  const release = steps[at("Create GitHub release")].run;
+  assert.match(release, /if gh release view.*then[\s\S]*exit 0[\s\S]*fi/u);
+  assert.ok(release.indexOf("gh release view") < release.indexOf("args=(release create"));
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"), /--prerelease|dist_tag/u);
 });
 

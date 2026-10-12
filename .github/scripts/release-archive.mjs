@@ -8,12 +8,14 @@ export function metadata(tag, manifest, message, type) {
   const plain = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
   if (!plain.test(manifest.version) || tag !== `v${manifest.version}`) throw new Error('release tag must match the plain package version (no prerelease or build metadata)');
   if (type !== 'tag') throw new Error('release requires an annotated tag');
-  const lines = message.split('\n').filter(line => /^[a-f0-9]{64}  [a-zA-Z0-9._-]+\.tgz$/u.test(line));
-  if (lines.length !== 1) throw new Error('annotated tag must contain exactly one SHA256 archive line');
-  const [sha256, archive] = lines[0].split('  ');
+  if (message.includes('\r')) throw new Error('annotated tag message must not contain a carriage return');
+  const hashes = message.match(/(?<![a-f0-9])[a-f0-9]{64}(?![a-f0-9])/giu) ?? [];
+  const lines = message.split('\n').filter(line => /^[a-f0-9]{64}  [a-zA-Z0-9._-]+\.tgz$/iu.test(line));
+  if (hashes.length !== 1 || lines.length !== 1) throw new Error('annotated tag must contain exactly one SHA256 archive line and one 64-hex token');
+  const [, archive] = lines[0].split('  ');
   const expected = `${manifest.name.replace(/^@/u, '').replaceAll('/', '-')}-${manifest.version}.tgz`;
   if (archive !== expected) throw new Error(`tag archive must be ${expected}`);
-  return { version: manifest.version, archive, sha256, checksum: `${lines[0]}\n` };
+  return { version: manifest.version, archive, checksum: `${lines[0]}\n` };
 }
 
 export function registryState(result, integrity) {
@@ -33,7 +35,7 @@ export function registryState(result, integrity) {
 function command(argv) {
   const result = spawnSync(argv[0], argv.slice(1), { encoding: 'utf8' });
   if (result.error || result.status !== 0) throw result.error ?? new Error(`${argv[0]} failed: ${result.stderr.trim()}`);
-  return result.stdout.trim();
+  return result.stdout;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -41,7 +43,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     if (mode === 'validate') {
       const ref = `refs/tags/${value}`;
-      const type = command(['git', 'cat-file', '-t', ref]);
+      const type = command(['git', 'cat-file', '-t', ref]).trim();
       const object = command(['git', 'cat-file', '-p', ref]);
       const message = object.slice(object.indexOf('\n\n') + 2);
       const info = metadata(value, JSON.parse(fs.readFileSync('package.json', 'utf8')), message, type);

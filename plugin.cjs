@@ -137,20 +137,19 @@ function terminal(reason) {
 
 // Exactly DSH's native code/message, not a sanitizer or a cause-chain reader.
 function turnError(error) {
-  const message = String(error?.message ?? "").replace(/[\0\r\n]/gu, " ");
-  const mark = " [truncated]";
-  let bounded = message;
-  if (Buffer.byteLength(message) > 1024) {
-    bounded = "";
-    let bytes = 0;
-    for (const character of message) {
+  const field = (value, limit) => {
+    const flat = String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu, " ");
+    if (Buffer.byteLength(flat) <= limit) return flat;
+    const mark = " [truncated]";
+    let bounded = "", bytes = 0;
+    for (const character of flat) {
       const size = Buffer.byteLength(character);
-      if (bytes + size > 1024 - Buffer.byteLength(mark)) break;
+      if (bytes + size > limit - Buffer.byteLength(mark)) break;
       bounded += character; bytes += size;
     }
-    bounded += mark;
-  }
-  return `${String(error?.code ?? "").replace(/[\0\r\n]/gu, " ")}: ${bounded}`;
+    return bounded + mark;
+  };
+  return `${field(error?.code, 128)}: ${field(error?.message, 1024)}`;
 }
 
 class NativeSession {
@@ -167,12 +166,12 @@ class NativeSession {
   async open(request, signal) {
     const options = request.open || {};
     if (options.arguments?.length) throw new Error("open.arguments are not supported by DSH");
-    signal?.throwIfAborted();
+    if (options.model !== undefined || options.reasoning_effort !== undefined) signal?.throwIfAborted();
     for (const field of ["model", "reasoning_effort"]) {
       if (options[field] !== undefined && (typeof options[field] !== "string" || options[field].length === 0)) throw new Error(`unsupported value ${field}: expected a non-empty string`);
     }
     if (options.permission_mode !== undefined && !this.ctx.permissionPresets.names.includes(options.permission_mode)) throw new Error(`unsupported value permission_mode=${options.permission_mode}`);
-    let route, llm;
+    let route, llm, controller;
     if (options.model !== undefined) {
       const slash = options.model.indexOf("/");
       if (slash < 1 || slash === options.model.length - 1) throw new Error(`unsupported value model=${options.model}`);
@@ -181,6 +180,23 @@ class NativeSession {
     if (options.model !== undefined || options.reasoning_effort !== undefined) {
       llm = this.ctx.get?.("llm");
       if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
+      // Approved alpha.2 non-public holder, documented methods only (controller
+      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). Its presence is
+      // session-independent: refuse before create. selectModel saves the profile
+      // default; never fall back to it.
+      controller = this.ctx.sessionController.agents;
+      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
+      if (missing.length) {
+        const message = `sessionController.agents missing ${missing.join(", ")}`;
+        let dshVersion = "unknown version";
+        // Diagnostic only: unavailable metadata must not hide the missing seam
+        // or forward a module-resolution error containing host paths.
+        try {
+          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
+          if (typeof value === "string" && value.length) dshVersion = value;
+        } catch {}
+        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
+      }
       if (!request.resume_session_id) {
         // Public default read is the fresh route at this moment. The serializer
         // below still reads and validates the session's commit-time selection.
@@ -207,22 +223,6 @@ class NativeSession {
     await this.ctx.sessionController.rename({ sessionId: agent.id, title: nativeName(request.name) });
     if (options.model !== undefined || options.reasoning_effort !== undefined) {
       signal?.throwIfAborted();
-      // Approved alpha.2 non-public holder, documented methods only (controller
-      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). selectModel
-      // also saves the profile default; never fall back to it.
-      const controller = this.ctx.sessionController.agents;
-      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
-      if (missing.length) {
-        const message = `sessionController.agents missing ${missing.join(", ")}`;
-        let dshVersion = "unknown version";
-        // Diagnostic only: unavailable metadata must not hide the missing seam
-        // or forward a module-resolution error containing host paths.
-        try {
-          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
-          if (typeof value === "string" && value.length) dshVersion = value;
-        } catch {}
-        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
-      }
       await controller.serializeImageAdmission(agent, async () => {
         signal?.throwIfAborted();
         let currentRoute = route;

@@ -1,0 +1,6 @@
+{
+  "status": 1,
+  "signal": null,
+  "stdout": "{\n  \"error\": {\n    \"code\": \"E404\",\n    \"summary\": \"No match found for version 0.1.1\",\n    \"detail\": \"The requested resource '@sessionbus/dsh@0.1.1' could not be found or you do not have permission to access it.\\n\\nNote that you can also install from a\\ntarball, folder, http url, or git url.\"\n  }\n}\n",
+  "error": null
+}

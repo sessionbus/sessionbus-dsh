@@ -56,7 +56,7 @@ jobs:
       - name: Validate annotated release tag
         id: release
         run: node .github/scripts/release-archive.mjs validate "$GITHUB_REF_NAME"
-      - run: npm install -g npm@^11.5.1 && npm --version
+      - run: npm install -g npm@11.12.1 && test "$(npm --version)" = '11.12.1'
       - name: Check packed archive
         run: |
           npm pack --ignore-scripts --json > "$RUNNER_TEMP/pack.json"
@@ -76,6 +76,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
           notes="$(awk -v heading="## $RELEASE_VERSION" '
             $0 == heading || index($0, heading " ") == 1 { found = 1; next }
             found && /^## / { exit }

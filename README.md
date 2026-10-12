@@ -166,19 +166,26 @@ For fresh lanes, model/effort and permission options are checked before creating
 the session; effort alone uses the profile's current default. The session's actual
 selection is checked again before committing it. A default or capability change,
 cancellation, native setup or storage error between these checks can still leave
-a created session behind; resume failures can too. The plugin does not archive
-or delete DSH's sessions. A directory left without a log is invisible to DSH's
+a created session behind. The plugin does not archive
+or delete DSH's sessions. Resume creates no new session, but its rename can
+remain if a later option check fails. A directory left without a log is invisible to DSH's
 session list and cannot be resumed by id; DSH does not automatically remove it.
 A refused open is answered by `spawn_failed` with DSH's reason; `exit_code` in
 its data is the worker's shutdown status after the daemon stopped it and says
 nothing about the refusal.
 
-A failed turn's collected result includes DSH's own native error code and message,
-after any partial assistant text. The message is flattened to one line and bounded
-at 1024 UTF-8 bytes with a visible truncation mark; no stack, cause chain or other
-fields are copied. This is DSH's error text for that turn, not sanitized provider
-text: the plugin adds no credential or environment data and makes no promise to
+A turn ending with native reason `error` includes DSH's own code and message
+in its collected result, after any partial assistant text. Other failed stop
+reasons do not carry that diagnostic. In both fields, C0/C1 controls, DEL,
+U+2028 and U+2029 become spaces; the code is bounded at 128 UTF-8 bytes and
+the message at 1024, including a visible truncation mark. This is line discipline,
+not secrecy filtering. Only these two fields are copied, not a separate stack,
+cause object or other fields; DSH's message can itself contain cause text.
+The plugin adds no credential or environment data and makes no promise to
 remove sensitive text a provider put in its message.
+The kit's 1 MiB frame limit still applies to the whole result. Assistant text
+is not truncated here; a result exceeding that limit becomes an unavailable
+record with the kit's reason `native result failed validation`.
 
 Remove the rows, then let DSH remove the package:
 
@@ -264,6 +271,8 @@ majors are reported, not rewritten.
 
 ## Run results
 
-A DSH error before its input commit returns `failed`, native stop reason `error`, and result `<code>: <message>` verbatim from the durable `turn/end`.
+Both early and user-message-bound native errors return `failed`, native stop
+reason `error`, and the two-field diagnostic described above; any partial
+assistant text is retained and separated from it.
 
 See [Lane without a TUI](docs/LANE-WITHOUT-TUI.md) for the daemon launch contract.

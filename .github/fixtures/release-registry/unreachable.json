@@ -1,0 +1,6 @@
+{
+  "status": 1,
+  "signal": null,
+  "stdout": "{\n  \"error\": {\n    \"code\": \"ECONNREFUSED\",\n    \"summary\": \"FetchError: request to http://127.0.0.1:9/@sessionbus%2fdsh failed, reason: connect ECONNREFUSED 127.0.0.1:9\",\n    \"detail\": \"If you are behind a proxy, please make sure that the 'proxy' config is set properly.  See: 'npm help config'\"\n  }\n}\n",
+  "error": null
+}
