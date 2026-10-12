@@ -2087,3 +2087,40 @@ test("worker boot failure reports once and exits one before admission", async ()
   assert.deepEqual(deps.errors, ["sessionbus: bad boot line\n"]);
   assert.deepEqual(ctx.exits, [1]);
 });
+
+test("a refused Open suppresses only the expected unopened-close warning", async () => {
+  const ctx = new Context(), failure = new Error("native refusal");
+  ctx.sessionController.create = async () => { throw failure; };
+  const { deps, runtime } = lane(ctx);
+  await assert.rejects(deps.callbacks.open(new AbortController().signal, { open: { cwd: "/workspace" } }), error => error === failure);
+  assert.equal(deps.worker.opened, false);
+  deps.failWorker(new Error("sessionbus connection closed"));
+  await runtime.workerExit;
+  assert.deepEqual(deps.errors, []);
+  assert.deepEqual(ctx.exits, [1], "warning suppression does not decide shutdown status");
+});
+
+test("an unopened close without a refused Open still warns", async () => {
+  const ctx = new Context();
+  const { deps, runtime } = lane(ctx);
+  deps.failWorker(new Error("sessionbus connection closed"));
+  await runtime.workerExit;
+  assert.deepEqual(deps.errors, ["sessionbus: sessionbus connection closed\n"]);
+  assert.deepEqual(ctx.exits, [1]);
+});
+
+test("a pending option Open aborted by transport still warns on unopened close", async () => {
+  const ctx = new Context(), reached = deferred(), aborted = deferred();
+  const controller = new AbortController(), cause = new Error("sessionbus connection closed");
+  controller.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+  ctx.llm.resolveCallConfig = async (_request, signal) => {
+    reached.resolve(); await aborted.promise; signal.throwIfAborted();
+  };
+  const { deps, runtime } = lane(ctx);
+  const rejected = assert.rejects(deps.callbacks.open(controller.signal, { open: { model: "provider/model" } }), error => error === cause);
+  await reached.promise; controller.abort(cause); await rejected;
+  deps.failWorker(cause); await runtime.workerExit;
+  assert.deepEqual(deps.errors, ["sessionbus: sessionbus connection closed\n"]);
+  assert.deepEqual(ctx.exits, [1]);
+  assert.equal(ctx.calls.some(call => call[0] === "create"), false);
+});
