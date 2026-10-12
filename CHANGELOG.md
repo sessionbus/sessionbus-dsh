@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 — 2026-10-12
+
+- Collected bound-turn failures now retain native code and message, just like errors before user-message binding; partial assistant text is kept and clearly separated. Native messages are flattened and bounded at 1024 UTF-8 bytes with a visible truncation mark, not sanitized. No stack, cause chain or extra native fields are copied. A settled terminal cannot be overwritten by stale or duplicate events (W-128).
+- Validate session-independent Open options before fresh session creation, including permission presets and effort-only validation against the public current profile default; the serializer's post-create selection check remains commit-time truth. No session archive, deletion, retry, worker exit-code change or profile-default write is added. The window between validation and setup can still leave native session residue; refusal code/reason, not shutdown exit status, describes a refused Open.
+- Bind releases to the accepted archive checksum in the annotated plain-version tag (D-052). Reject missing/duplicate checksum lines, nonplain or mismatched versions and changed packed bytes before publication; publish that archive with trusted-publisher provenance to latest. An existing registry version must have the same archive integrity; auth/network errors are not absence. Create the GitHub release only after the registry archive is published or verified.
+- Strengthen hosted proof with the actual own-upload provider plus native refusal and the real stock-provider negative control; upgrade published 0.1.0 in place on maintained global-install rows with owner settings preserved. Record running-source hashes, direct command argv/exit and wire requests/results at call time. Drop the one-off mac side-branch procedure after merge; the maintained global matrix owns that regression.
+
 ## 0.1.0 — 2026-10-11
 
 - Lane `open.model` and `open.reasoning_effort` now select only that native session, including effort-only resume; they never save the profile default (W-126). Validate exact adapter routes through the public LLM resolver, accepting valid unadvertised models and refusing unsupported effort natively. Keep controller-owned creation/presets/resume and reuse its session-only selection methods through the explicitly approved alpha.2 non-public holder; absence fails only an option-bearing open, never falls back to the profile-saving GUI API. Cancellation is honored before the native selection commit, without replay or undo.

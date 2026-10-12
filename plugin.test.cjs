@@ -58,6 +58,7 @@ class Context {
       if (request.reasoningEffort === "invalid") throw Object.assign(new Error("unsupported effort invalid"), { code: "UNSUPPORTED_REASONING_EFFORT" });
       return { ...request };
     } };
+    this.agentDefaultModel = { currentSelection: () => ({ provider: "provider", model: "default" }) };
     this.sessionController = {
       agents: {
         selectionFor: (agent) => agent.selection,
@@ -316,6 +317,7 @@ test("lane hello omits groups and session.open carrying daemon groups succeeds",
   });
   assert.deepEqual(result, { session_id: native.id });
   assert.deepEqual(ctx.calls, [
+    ["validate", { provider: "vendor", model: "model/name", reasoningEffort: "high" }],
     ["create", { cwd: "/other" }],
     ["rename", { sessionId: native.id, title: "parent/worker" }],
     ["validate", { provider: "vendor", model: "model/name", reasoningEffort: "high" }],
@@ -623,7 +625,7 @@ test("missing selector methods fail with the resolved native version, never a GU
   }
 });
 
-test("missing-seam diagnostics survive real absent or invalid version metadata without leaking paths", () => {
+test("missing-seam diagnostics survive real unexported or invalid version metadata without leaking paths", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "w126-missing-version-"));
   return (async () => {
     try {
@@ -634,11 +636,12 @@ test("missing-seam diagnostics survive real absent or invalid version metadata w
       fs.mkdirSync(path.join(directory, "node_modules/@sessionbus"), { recursive: true });
       fs.symlinkSync(fs.realpathSync(path.join(__dirname, "node_modules/@sessionbus/kit")), path.join(directory, "node_modules/@sessionbus/kit"));
       const { NativeSession } = require(path.join(directory, "plugin.cjs"));
-      for (const invalidMetadata of [false, true]) {
-        if (invalidMetadata) {
-          const dir = path.join(directory, "node_modules/@deepseek-ai/dsh-api-session-controller");
-          fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, "package.json"), "{invalid}");
-        }
+      const dir = path.join(directory, "node_modules/@deepseek-ai/dsh-api-session-controller");
+      fs.mkdirSync(dir, { recursive: true });
+      // An owned unexported manifest shadows ancestors, even with TMPDIR under
+      // a DSH installation. This tests real resolution, not physical absence.
+      for (const metadata of [JSON.stringify({ name: "@deepseek-ai/dsh-api-session-controller", exports: { ".": "./index.js" } }), "{invalid}"]) {
+        fs.writeFileSync(path.join(dir, "package.json"), metadata);
         const ctx = new Context(); agent(ctx); delete ctx.sessionController.agents;
         const native = new NativeSession(ctx);
         await assert.rejects(native.open({ name: "missing", open: { model: "vendor/model" } }), error => {
@@ -659,6 +662,7 @@ test("unknown provider errors are relayed before session selection", async () =>
   await assert.rejects(deps.callbacks.open(null, { name: "unknown-provider", open: { model: "unknown/model" } }), error => error === failure);
   assert.deepEqual(native.selection.current, { provider: "provider", model: "default" });
   assert.equal(ctx.calls.some(([call]) => call === "selection" || call === "model"), false);
+  assert.equal(ctx.calls.some(([call]) => call === "create"), false);
 });
 
 test("a permissive resolver accepts an unknown model at open; backend failure belongs to the first turn", async () => {
@@ -674,7 +678,7 @@ test("a permissive resolver accepts an unknown model at open; backend failure be
     ctx.emit("session/event", native.session, { type: "turn/end", data: { turn: 1, reason: { kind: "error", error: { code: "UNKNOWN", message: "backend rejected mistyped model at first request" } } } });
   };
   assert.deepEqual(await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "probe" }), {
-    outcome: "failed", native_stop_reason: "error", result: "",
+    outcome: "failed", native_stop_reason: "error", result: "UNKNOWN: backend rejected mistyped model at first request",
   });
   assert.equal(turns, 1);
 });
@@ -722,6 +726,62 @@ test("open signal cancels native validation before commit, without replay", asyn
   assert.equal(supplied, cancellation.signal);
   assert.deepEqual(native.selection.current, { provider: "provider", model: "default" });
   assert.equal(ctx.calls.some(([call]) => call === "selection"), false);
+  assert.equal(ctx.calls.some(([call]) => call === "create"), false);
+});
+
+test("session-independent refusals leave a fresh open uncreated", async () => {
+  for (const open of [
+    { model: "provider/model", reasoning_effort: "invalid" },
+    { reasoning_effort: "invalid" }, { permission_mode: "invalid" },
+    { model: "provider/" }, { model: null }, { reasoning_effort: "" },
+  ]) {
+    const ctx = new Context(); agent(ctx); const { deps } = lane(ctx);
+    await assert.rejects(deps.callbacks.open(new AbortController().signal, { name: "refused", open }), /unsupported/u);
+    assert.equal(ctx.calls.some(([call]) => ["create", "rename", "selection", "permission", "flush"].includes(call)), false);
+  }
+});
+
+test("fresh effort checks default before create and current selection under serialization", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+  ctx.agentDefaultModel.currentSelection = () => ({ provider: "before", model: "default" });
+  ctx.sessionController.create = async request => {
+    ctx.calls.push(["create", request]);
+    native.selection.current = { provider: "after", model: "changed" };
+    return { sessionId: native.id };
+  };
+  await deps.callbacks.open(new AbortController().signal, { name: "two-moments", open: { reasoning_effort: "low" } });
+  assert.deepEqual(ctx.calls.filter(([call]) => call === "validate").map(([, request]) => request), [
+    { provider: "before", model: "default", reasoningEffort: "low" },
+    { provider: "after", model: "changed", reasoningEffort: "low" },
+  ]);
+  assert.ok(ctx.calls.findIndex(([call]) => call === "validate") < ctx.calls.findIndex(([call]) => call === "create"));
+  assert.deepEqual(native.selection.current, { provider: "after", model: "changed", reasoningEffort: "low" });
+});
+
+test("resume effort does not read the profile default or create", async () => {
+  const ctx = new Context(), native = agent(ctx, "resumed"), { deps } = lane(ctx);
+  ctx.agentDefaultModel.currentSelection = () => { throw new Error("profile default read on resume"); };
+  await deps.callbacks.open(new AbortController().signal, { name: "resumed", resume_session_id: native.id, open: { reasoning_effort: "low" } });
+  assert.equal(ctx.calls.filter(([call]) => call === "validate").length, 1);
+  assert.equal(ctx.calls.some(([call]) => call === "create"), false);
+});
+
+test("a missing public default read refuses only fresh effort options before create", async () => {
+  const ctx = new Context(); agent(ctx); delete ctx.agentDefaultModel; const { deps } = lane(ctx);
+  await assert.rejects(deps.callbacks.open(new AbortController().signal, { name: "no-default-read", open: { reasoning_effort: "low" } }), /agentDefaultModel\.currentSelection.*unavailable/u);
+  assert.equal(ctx.calls.some(([call]) => call === "create"), false);
+  assert.deepEqual(await deps.callbacks.open(null, { name: "ordinary", open: {} }), { session_id: "session-fresh" });
+});
+
+test("a capability change between validation moments refuses commit without deleting the created session", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+  let validations = 0;
+  const failure = new Error("capability changed after create");
+  ctx.llm.resolveCallConfig = async request => { if (++validations === 2) throw failure; return request; };
+  await assert.rejects(deps.callbacks.open(new AbortController().signal, { name: "window", open: { reasoning_effort: "high" } }), error => error === failure);
+  assert.equal(ctx.calls.filter(([call]) => call === "create").length, 1);
+  assert.equal(ctx.calls.some(([call]) => call === "selection"), false);
+  assert.equal(ctx.byID.get(native.id), native);
 });
 
 test("effort-only reads the current selection after native serialization admits the operation", async () => {
@@ -796,6 +856,42 @@ test("pre-commit turn error returns the durable DSH failure", async () => {
   assert.deepEqual(await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "never committed" }), {
     outcome: "failed", native_stop_reason: "error", result: "UNKNOWN: turn-start fixture failed",
   });
+});
+
+test("bound turn errors retain partial text and exactly the two native fields", async () => {
+  const { ctx, native, deps } = await openedLane();
+  native.followup = message => {
+    const emit = (type, data) => ctx.emit("session/event", native.session, { type, data });
+    emit("agent/inbox/spliced", { inserted: [message] });
+    emit("turn/start", { turn: 8 }); emit("user/message", message);
+    emit("assistant/message", { turn: 8, message: { content: [{ type: "text", text: "partial answer" }] } });
+    emit("turn/end", { turn: 8, reason: { kind: "error", error: { code: "NATIVE", message: "provider\r\nmessage\0tail", stack: "DO_NOT_COPY", details: { secret: "DO_NOT_COPY" } } } });
+    // Neither stale events nor a duplicate terminal can mutate the result.
+    emit("turn/end", { turn: 7, reason: { kind: "error", error: { code: "STALE", message: "wrong" } } });
+    emit("turn/end", { turn: 8, reason: { kind: "completed" } });
+    emit("assistant/message", { turn: 8, message: { content: [{ type: "text", text: "late" }] } });
+  };
+  assert.deepEqual(await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "request" }), {
+    outcome: "failed", native_stop_reason: "error", result: "partial answer\n\nDSH turn error: NATIVE: provider  message tail",
+  });
+});
+
+test("native error messages are bounded in UTF-8 bytes with visible truncation on both associations", async () => {
+  for (const bound of [false, true]) {
+    const { ctx, native, deps } = await openedLane();
+    native.followup = message => {
+      const emit = (type, data) => ctx.emit("session/event", native.session, { type, data });
+      emit("agent/inbox/spliced", { inserted: [message] }); emit("turn/start", { turn: 9 });
+      if (bound) emit("user/message", message);
+      emit("turn/end", { turn: 9, reason: { kind: "error", error: { code: "CODE", message: "é😀".repeat(600) } } });
+    };
+    const result = await deps.callbacks.run(new AbortController().signal, { Native: null, Interrupted: () => false }, { text: "request" });
+    assert.equal(result.outcome, "failed"); assert.equal(result.native_stop_reason, "error");
+    assert.match(result.result, /^CODE: /u);
+    const message = result.result.slice("CODE: ".length);
+    assert.ok(Buffer.byteLength(message) <= 1024); assert.ok(message.endsWith(" [truncated]"));
+    assert.equal(message.includes("�"), false);
+  }
 });
 
 test("input consumed outside a turn fails truthfully only after idle", async () => {

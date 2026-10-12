@@ -9,31 +9,18 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
-test("plain release metadata publishes to latest without a GitHub prerelease flag", t => {
+test("release workflow validates the tagged archive and publishes it before creating the GitHub release", () => {
   const yaml = require("js-yaml");
   const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));
   const steps = workflow.jobs.publish.steps;
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-plain-release-"));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const output = path.join(directory, "outputs");
-  const argsFile = path.join(directory, "arguments.jsonl");
-  for (const name of ["gh", "npm"]) fs.writeFileSync(path.join(directory, name), `#!${process.execPath}\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nif (args.includes('view')) process.exit(1);\nfs.appendFileSync(process.env.FAKE_RELEASE_ARGS, JSON.stringify({ name: ${JSON.stringify(name)}, args }) + '\\n');\n`, { mode: 0o755 });
-  const env = { ...process.env, PATH: `${directory}${path.delimiter}${process.env.PATH}`, GITHUB_REF_NAME: `v${packageVersion}`,
-    GITHUB_OUTPUT: output, GITHUB_REPOSITORY: "fixture/fixture", RUNNER_TEMP: directory, FAKE_RELEASE_ARGS: argsFile };
-  const run = (name, extra = {}) => {
-    const result = spawnSync("bash", ["-eu", "-c", steps.find(step => step.name === name).run], { cwd: __dirname, env: { ...env, ...extra }, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-  };
   assert.match(packageVersion, /^\d+\.\d+\.\d+$/u);
-  run("Select release metadata");
-  const metadata = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
-  assert.deepEqual(metadata, { version: packageVersion, dist_tag: "latest", prerelease: "false" });
-  run("Create GitHub release", { RELEASE_VERSION: packageVersion, PRERELEASE: metadata.prerelease });
-  run("Publish @sessionbus/dsh", { RELEASE_VERSION: packageVersion, NPM_DIST_TAG: metadata.dist_tag });
-  const recorded = fs.readFileSync(argsFile, "utf8").trim().split("\n").map(line => JSON.parse(line));
-  assert.equal(recorded[0].name, "gh");
-  assert.equal(recorded[0].args.includes("--prerelease"), false);
-  assert.deepEqual(recorded[1], { name: "npm", args: ["publish", "--access", "public", "--provenance", "--tag", "latest"] });
+  const at = name => steps.findIndex(step => step.name === name);
+  assert.ok(at("Validate annotated release tag") < steps.findIndex(step => step.run?.includes("npm install")));
+  assert.ok(at("Check packed archive") < at("Check registry archive"));
+  assert.ok(at("Publish prepared archive") < at("Create GitHub release"));
+  assert.match(steps[at("Check packed archive")].run, /sha256sum -c \.release\.sha256/u);
+  assert.match(steps[at("Publish prepared archive")].run, /npm publish "\$ARCHIVE" --access public --provenance --tag latest/u);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"), /--prerelease|dist_tag/u);
 });
 
 test("package metadata stays rooted in the standalone repository with its own provider entry", () => {

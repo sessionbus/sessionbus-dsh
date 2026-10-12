@@ -156,7 +156,8 @@ installed published pre.20 baseline and requires its specific patch-mutation
 assertion failure (exit 1, different bytes). A separate owned copy prevents its
 intentional native rewrite from corrupting the ordinary upgrade baseline;
 original baseline bytes are also asserted unchanged. Replay acquisition is
-moved earlier, not made a new product prerequisite. Local measured control
+added earlier, not made a new product prerequisite; the lane baseline carries
+the replay packages at the moment of the in-place upgrade. Local measured control
 cost including the copy: 1,482 ms. The control does not await a private save
 promise: its required real old write in the same observation window is the
 non-vacuity check. Per-case start/PASS lines stream in universal logs, including
