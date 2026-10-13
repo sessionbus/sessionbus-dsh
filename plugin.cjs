@@ -418,6 +418,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
   const peers = new Map();
   const publicationErrors = new WeakSet();
   let worker;
+  let refusedOpen = false;
   let workerExit = Promise.resolve();
   let ready = false;
   let warned = false;
@@ -628,7 +629,10 @@ function createRuntime(ctx, config, dependencies, prepared) {
       launchToken = undefined;
       worker = dependencies.serveWorker({
         hello: () => ({ product: values.product, version, supports_message_run: true, supported_open_fields: ["cwd", "permission_mode", "model", "reasoning_effort"], extra_arguments: [] }),
-        open: (cancel, request) => native.open(request, cancel),
+        open: async (cancel, request) => {
+          try { return await native.open(request, cancel); }
+          catch (error) { if (!cancel?.aborted) refusedOpen = true; throw error; }
+        },
         run: (cancel, token, input) => native.run(cancel, token, input),
         interrupt: (cancel, token) => native.interrupt(cancel, token),
         deliver: (cancel, request, _identity, token) => native.laneDeliver(cancel, request, token),
@@ -637,7 +641,11 @@ function createRuntime(ctx, config, dependencies, prepared) {
       workerExit = worker.closed.then(async () => {
         const failure = await worker.serving?.catch((error) => error);
         if (!active()) return;
-        if (failure && !worker.opened) { warn(failure); ctx.appExit(1); } else ctx.appExit(0);
+        if (failure && !worker.opened) {
+          // Closing after our own refused Open is expected; other unopened losses still warn.
+          if (!refusedOpen) warn(failure);
+          ctx.appExit(1);
+        } else ctx.appExit(0);
       });
     } else {
       for (const agent of ctx.agents.roots()) present(agent);

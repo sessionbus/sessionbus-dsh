@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 — 2026-10-12
+
+- Suppress the expected unopened-worker connection-close warning after this plugin's own Open callback refuses. Other unopened losses still warn; the native refusal, shutdown status and kit are unchanged (W-134).
+- Keep one profile-only host-proof runner with an explicit package operation (archive upgrade, registry re-pin or none) and a separate explicit choice to run acceptance. Call-time disk captures, native lane predicates and replay of a public recorded fixture replace one-off proof scripts. It does not update an owner's personal project or retry a stopped proof.
+
 ## 0.1.1 — 2026-10-12
 
 - Collected bound-turn failures now retain native code and message; both early and bound native errors use the same formatter, keeping partial assistant text clearly separated. Both fields replace C0/C1 controls, DEL and Unicode line/paragraph separators with spaces; code is bounded at 128 and message at 1024 UTF-8 bytes including a visible truncation mark. Other native error text is not redacted. No separate stack, cause object or extra fields are copied, although the native message can contain cause text. Assistant text is not truncated; the kit's 1 MiB frame limit can make a result unavailable with `native result failed validation`. A settled terminal cannot be overwritten by stale or duplicate events (W-128).

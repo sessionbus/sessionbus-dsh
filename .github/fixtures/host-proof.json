@@ -1,0 +1,35 @@
+{
+  "record": "Reduced 0.1.1 registry-lane API envelopes and native event shapes. Session/run/host identities, route and text are replaced; irrelevant native events and roster peers are omitted. Observation sequence labels are test expectations; the real observer builds its facts on disk, never from mock flags. No private packet is included.",
+  "observations": [
+    ["boot", "source"],
+    ["snapshot", "before"],
+    ["command", "add"],
+    ["command", "install"],
+    ["snapshot", "installed"],
+    ["snapshot", "before-open"],
+    ["native", "turn"],
+    ["settled", "after-close"],
+    ["snapshot", "final"],
+    ["report", "report"],
+    ["seal", "seal"]
+  ],
+  "bus": [
+    ["describe", {"product":"sessionbus-dsh","host":"fixture"}, {"supports_message_run":true,"product":"sessionbus-dsh","version":"0.1.1","supported_open_fields":["cwd","permission_mode","model","reasoning_effort"],"extra_arguments":[]}],
+    ["spawn", {"product":"sessionbus-dsh","host":"fixture","name":"host-proof","open":{"cwd":"/fixture/packet/workspace"},"notify":false}, {"policy":{"persistent":false,"auto_close_ms":60000,"notify":false,"owner_session_id":"parent@fixture","trace":"off"},"session_id":"session-fixture@fixture"}],
+    ["list", {"session_id":"session-fixture@fixture"}, {"self_info":{"session_id":"parent@fixture","product":"codex-peer","groups":["fixture"]},"sessions":[{"session_id":"session-fixture@fixture","kind":"lane","product":"sessionbus-dsh","connected":true,"running":false}],"hosts":[{"host":"fixture","products":["sessionbus-dsh"]}]}],
+    ["send", {"target":"session-fixture@fixture","message":"Reply with HOST_PROOF_OK"}, {"message_id":"message-fixture","deliveries":[{"target":"session-fixture@fixture","session_id":"session-fixture@fixture","delivery_id":"delivery-fixture","disposition":"injected"}]}],
+    ["wait", {"session_id":"session-fixture@fixture","timeout_ms":60000}, {"session_id":"session-fixture@fixture","run_id":"run-fixture/1","state":"done","result":{"outcome":"completed","result":"HOST_PROOF_OK","native_stop_reason":"completed"}}],
+    ["ack", {"session_id":"session-fixture@fixture","run_id":"run-fixture/1"}, {}],
+    ["close", {"session_id":"session-fixture@fixture","forget":true}, {}],
+    ["list", {"session_id":"session-fixture@fixture"}, {"code":-32001,"message":"unknown_session"}]
+  ],
+  "events": [
+    {"type":"turn/start","data":{"turn":1}},
+    {"type":"user/message","data":{"id":"message-fixture","source":{"kind":"plugin:sessionbus-dsh","form":"relay"},"content":[{"type":"text","text":"<cross-session-message>Reply with HOST_PROOF_OK</cross-session-message>"}]}},
+    {"type":"user/message","data":{"source":{"kind":"runtime-context"},"content":[{"type":"text","text":"fixture runtime context"}]}},
+    {"type":"user/message","data":{"source":{"kind":"skill-catalog"},"content":[{"type":"text","text":"fixture skills"}]}},
+    {"type":"request/header","data":{"header":{"config":{"provider":"fixture-provider","model":"fixture-model"}}}},
+    {"type":"assistant/message","data":{"turn":1,"message":{"content":[{"type":"text","text":"HOST_PROOF_OK"}]}}},
+    {"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}
+  ]
+}

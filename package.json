@@ -1,6 +1,6 @@
 {
   "name": "@sessionbus/dsh",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "commonjs",
   "main": "plugin.cjs",
   "exports": { ".": "./plugin.cjs", "./file-uploads-none": "./file-uploads-none.mjs" },
@@ -10,7 +10,7 @@
   },
   "files": ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"],
   "scripts": {
-    "test": "node --test plugin.test.cjs install.test.mjs universal-install.test.mjs launcher.test.mjs package.test.cjs rename.test.mjs release.test.mjs"
+    "test": "node --test plugin.test.cjs install.test.mjs universal-install.test.mjs launcher.test.mjs package.test.cjs rename.test.mjs release.test.mjs host-proof.test.cjs"
   },
   "dependencies": {
     "@sessionbus/kit": "0.5.12",
