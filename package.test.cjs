@@ -9,6 +9,74 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("private pending-input daemon checks hosted and platform socket limits before starting", () => {
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-peer-pending-input.mjs"), "utf8");
+  const start = source.indexOf("\nfunction checkDaemonSocketPaths(");
+  const end = source.indexOf("\nfunction daemonSocketReady(", start);
+  assert.ok(start >= 0 && end > start, "actual socket preflight must be present");
+  const check = new Function("assert", "path", "Buffer",
+    source.slice(start, end) + "\nreturn checkDaemonSocketPaths;")(assert, path, Buffer);
+  const hosted = "/home/runner/work/_temp/sessionbus-dsh-proof.mjxX0b/peer-pending-input/bus.sock";
+  assert.throws(() => check(hosted, "linux"), /derived lane socket path is 114 bytes; Linux limit is 107 bytes/u);
+  const parent = check(path.join(path.dirname(path.dirname(hosted)), "pending-peer.sock"), "linux");
+  assert.equal(parent.lane.bytes, 95);
+  assert.equal(parent.limit, 107);
+  assert.equal(check("/" + "a".repeat(62) + "/bus.sock", "linux").lane.bytes, 107);
+  assert.throws(() => check("/" + "a".repeat(63) + "/bus.sock", "linux"), /108 bytes; Linux limit is 107 bytes/u);
+  assert.throws(() => check("/" + "a".repeat(107), "linux"), /main socket path is 108 bytes; Linux limit is 107 bytes/u);
+  assert.throws(() => check("/tmp/bus.sock", "darwin"), /Linux-only proof; socket limit is not established for darwin/u);
+  assert.doesNotMatch(source.slice(start, end), /spawn/u);
+  const preflight = source.indexOf("save('daemon-socket-paths.json', checkDaemonSocketPaths(");
+  assert.ok(preflight >= 0 && preflight < source.indexOf("spawnSync(daemonBin"));
+});
+
+test("private pending-input daemon readiness reports an exited child and its stderr immediately", () => {
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-peer-pending-input.mjs"), "utf8");
+  const start = source.indexOf("\nfunction daemonSocketReady(");
+  const end = source.indexOf("\nconst [dshManifest", start);
+  assert.ok(start >= 0 && end > start, "actual daemon readiness predicate must be present");
+  const read = new Function("fs", source.slice(start, end) + "\nreturn daemonSocketReady;")({
+    existsSync: file => file === "ready.sock" || file === "daemon.stderr",
+    readFileSync: () => "x".repeat(3000) + "\nrefused derived socket\n",
+  });
+  assert.equal(read({ hasEnded: false }, "ready.sock", "daemon.stderr"), true);
+  assert.equal(read({ hasEnded: false }, "absent.sock", "daemon.stderr"), false);
+  assert.throws(() => read({ hasEnded: true, exitCode: 1, signalCode: null }, "ready.sock", "daemon.stderr"), error =>
+    error.message.includes("private released daemon exited during readiness: code=1 signal=null")
+    && error.message.endsWith("refused derived socket\n") && error.message.length < 2300);
+  assert.ok(source.includes("await until(() => daemonSocketReady(daemon, env.SESSIONBUS_SOCKET,"));
+  const cleanup = source.slice(source.indexOf("const result = await stopOwnedChild(child);"));
+  assert.ok(cleanup.indexOf("children.delete(child);") < cleanup.indexOf("assert.equal(result.code, 0)"),
+    "forget the proved-empty group before checking exit status");
+});
+
+test("known-gap proof names an upstream wake improvement but not unexplained input loss", () => {
+  // Exercise the actual driver oracle, not a second copy of its assertions.
+  // Native effects are proved separately by the private DSH/daemon integration.
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-peer-pending-input.mjs"), "utf8");
+  const start = source.indexOf("\nfunction knownGap(");
+  const end = source.indexOf("\nfunction reported(", start);
+  assert.ok(start >= 0 && end > start, "actual known-gap oracle must be present");
+  const branch = source.slice(source.indexOf("const ended = await quiet(agent, 'after-primary-end')"));
+  const gapCheck = branch.indexOf("if (gap) knownGap(");
+  const endCheck = branch.indexOf("assert.equal(ended.events.filter(");
+  assert.ok(gapCheck >= 0 && endCheck > gapCheck,
+    "an upstream recovery may finish; name its wake before checking the last terminal reason");
+  const oracle = requests => new Function("assert", "requests", "current",
+    source.slice(start, end) + "\nreturn knownGap;")(assert, () => requests, "oracle-unit");
+  const pending = { id: "pending-relay", content: [{ type: "text", text: "original input" }] };
+  const idle = { status: "idle", phase: { kind: "idle" }, nextStep: [pending], nextTurn: [], turnStarts: 1, events: [] };
+  oracle([{}])(idle, pending, 1, 1, "an error-ended turn");
+  for (const ending of ["an error-ended turn", "keepInbox cancellation", "retry exhaustion"]) {
+    const woken = { ...idle, nextStep: [], turnStarts: 2, events: [{ type: "user/message", data: { id: pending.id } }] };
+    assert.throws(() => oracle([{}, {}])(woken, pending, 1, 1, ending), error =>
+      error.message.includes(`Upstream DSH now wakes pending input after ${ending}`)
+      && error.message.includes("update this known-gap assertion and documentation, not the plugin scheduler"));
+  }
+  assert.throws(() => oracle([{}])({ ...idle, nextStep: [] }, pending, 1, 1, "an error-ended turn"), error =>
+    error.message.includes("known-gap pending state changed") && !error.message.includes("Upstream DSH now wakes"));
+});
+
 test("release workflow validates the tagged archive and publishes it before creating the GitHub release", () => {
   const yaml = require("js-yaml");
   const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));

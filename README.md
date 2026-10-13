@@ -58,14 +58,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.2
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.3
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.2
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.3
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -75,7 +75,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.2
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.3
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -131,7 +131,7 @@ not packages added to the profile.
 exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.2 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.1.3 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.
@@ -206,6 +206,23 @@ pins are left for their owners.
 
 `SESSIONBUS_GROUPS` configures peer identities only. Lane membership is owned
 by the daemon; the plugin accepts and does not consume groups in `session.open`.
+
+## Message receipts
+
+A send returns a receipt for each recipient. `injected` means the message was
+admitted into the recipient's inbox, not that it was read or answered.
+In an interactive DSH or dashi session, a message delivered while the recipient's
+turn is running is taken at that turn's next step. If the turn ends in an error
+or is cancelled before taking it, the message stays waiting: nothing starts a
+new turn for it until another message arrives or the user types a prompt. You
+can therefore see a delivered message with no answer, then both messages appear
+when the next message or prompt wakes the session. Send another message or
+prompt that session; do not resend the already-admitted message just because
+it has no answer. Fewer error-ended turns (for example a provider timeout that
+fits how long your model takes to answer) make this less frequent, but do not
+guarantee an answer.
+DSH has discussions about [error-ended turns](https://github.com/deepseek-ai/deepseek-harness/discussions/4952)
+and [retained input after cancellation](https://github.com/deepseek-ai/deepseek-harness/discussions/4832).
 
 ## Per-session groups
 
