@@ -57,7 +57,7 @@ async function replay(t, options = {}, implementation = api) {
     archive: root + "/candidate/archive.tgz",
     sessionsDir: home + "/sessions",
     cacheDir: home + "/storages/session_projcache/sessions",
-    protected: [{ path: root + "/protected" }],
+    protected: [{ path: root + "/protected" }, { path: home + "/profiles/bystander" }],
     product: profile === "web" ? "dsh" : "sessionbus-dsh",
     host: "fixture",
     input: "Reply with HOST_PROOF_OK",
@@ -77,7 +77,7 @@ async function replay(t, options = {}, implementation = api) {
     candidate,
     p.profileDir + "/.plugin-manager",
     p.profileDir + "/node_modules/.bin",
-    p.protected[0].path,
+    ...p.protected.map((entry) => entry.path),
     p.sessionsDir,
     p.cacheDir,
   ])
@@ -133,13 +133,26 @@ async function replay(t, options = {}, implementation = api) {
       !(p.acceptance === false && ["before-open", "turn", "after-close"].includes(label)),
   );
   let cursor = 0,
-    workers = 0;
+    workers = options.workers ?? 0,
+    pending;
+  if (options.retained) {
+    p.retained = ["retained@fixture"];
+    bus.unshift([
+      "list",
+      { session_id: p.retained[0] },
+      { sessions: [{ session_id: p.retained[0], connected: false, running: false }] },
+    ]);
+    bus.push(
+      ["close", { session_id: p.retained[0], forget: true }, {}],
+      ["list", { session_id: p.retained[0] }, { code: -32001, message: "unknown_session" }],
+    );
+  }
   if (options.refusal)
     p.refusals = [{ name: "case-1", open: { model: "missing/model" }, reason: "unknown provider missing" }];
   const extras = (label) =>
     ({
       source: { source: fs.readFileSync(source, "utf8") },
-      before: { initial: true },
+      before: {},
       add: {
         argv: [
           ...p.dsh,
@@ -223,23 +236,38 @@ async function replay(t, options = {}, implementation = api) {
       if (kind !== "seal") assert.deepEqual(extra, extras(label));
       if (kind !== "seal" && !label.includes("case-1")) assert.deepEqual(expected[cursor++].slice(0, 2), [kind, label]);
       await options.before?.({ kind, label, p, events, calls });
-      if (options.throwObservation === label) throw new Error("tool threw " + label);
-      if (options.failSeal && kind === "seal") throw new Error("seal failed");
+      if (options.throwObservation === label || (options.failSeal && kind === "seal"))
+        throw Object.hasOwn(options, "throwValue") ? options.throwValue : new Error("tool threw " + label);
       const result = await implementation.observeCommand(kind, p, label, extra, system);
       if (kind !== "seal" && (kind !== "boot" || result.created)) {
         const file = p.packet + "/" + label + ".observation.json";
         assert.equal(api.local().hash(fs.readFileSync(file)), result.sha256, "observer capture is required");
       }
-      return {
+      const response = {
         exit_code: options.failedObservation === label ? 1 : 0,
         output: options.malformedObservation === label ? "not JSON" : JSON.stringify(result),
       };
+      if (!options.poll) return response;
+      const split = Math.floor(response.output.length / 2);
+      pending = { ...response, output: response.output.slice(split) };
+      return { session_id: 77, output: response.output.slice(0, split) };
     },
-    write_stdin: async () => {
-      throw new Error("no polling in the synchronous recorded fixture");
+    write_stdin: async (request) => {
+      assert.deepEqual(request, { session_id: 77, chars: "", yield_time_ms: 1000, max_output_tokens: 4096 });
+      assert.ok(pending, "each observation result is consumed once");
+      calls.push({ poll: true });
+      const response = pending;
+      pending = undefined;
+      return response;
     },
     mcp__sessionbus__sessionbus: async (request) => {
-      calls.push({ action: request.action });
+      const call = { action: request.action, request: clone(request) };
+      calls.push(call);
+      const response = (raw) => {
+        options.onBus?.(raw, request, p);
+        call.raw = clone(raw);
+        return raw;
+      };
       const key = "bus-" + request.action;
       counts[key] = (counts[key] ?? 0) + 1;
       if (options.throwBus === request.action) {
@@ -248,7 +276,7 @@ async function replay(t, options = {}, implementation = api) {
       }
       if (request.action === "spawn" && request.arguments.name === "case-1") {
         workers = options.refusal === "opens" ? 1 : 0;
-        return {
+        return response({
           structuredContent:
             options.refusal === "opens"
               ? { session_id: "unexpected-lane@fixture" }
@@ -259,7 +287,7 @@ async function replay(t, options = {}, implementation = api) {
                     data: { exit_code: 0, stderr_tail: [p.refusals[0].reason] },
                   },
                 },
-        };
+        });
       }
       const record = bus.shift();
       assert.ok(record, "no repeated bus call");
@@ -268,7 +296,7 @@ async function replay(t, options = {}, implementation = api) {
       );
       assert.deepEqual(request, { action: translated[0], arguments: translated[1] });
       if (request.action === "spawn") workers = 1;
-      if (request.action === "close") workers = 0;
+      if (request.action === "close") workers = options.leakWorker ? 1 : 0;
       if (request.action === "wait") {
         const key = "--" + (p.packet + "/workspace").replace(/^\/+/, "").replace(/\/+/gu, "-").slice(0, 251) + "--";
         const dir = p.sessionsDir + "/" + key + "/session-fixture";
@@ -276,8 +304,8 @@ async function replay(t, options = {}, implementation = api) {
         fs.writeFileSync(dir + "/session.v4.jsonl.zstd", events.map((e) => JSON.stringify(e)).join("\n") + "\n");
       }
       if (options.badRoster && request.action === "list" && counts[key] === 2)
-        return { structuredContent: { sessions: [{ session_id: "session-fixture@fixture" }] } };
-      return { structuredContent: translated[2].code ? { error: translated[2] } : translated[2] };
+        return response({ structuredContent: { sessions: [{ session_id: "session-fixture@fixture" }] } });
+      return response({ structuredContent: translated[2].code ? { error: translated[2] } : translated[2] });
     },
   };
   return {
@@ -299,6 +327,7 @@ test("real observer replay covers archive/lane, registry/peer and both independe
     { operation: "none", acceptance: false },
     { operation: "none" },
     { refusal: "refuses" },
+    { retained: true, poll: true },
   ]) {
     const r = await replay(t, options),
       result = await r.run();
@@ -318,6 +347,20 @@ test("real observer replay covers archive/lane, registry/peer and both independe
     assert.ok(json(r.p.packet + "/REPORT.json").references.length);
     for (const { label } of r.calls.filter((x) => x.kind && x.kind !== "seal"))
       assert.ok(fs.existsSync(r.p.packet + "/" + label + ".transport.json"));
+    r.calls
+      .filter((x) => x.action)
+      .forEach((call, index) => {
+        const stem = fs
+          .readdirSync(r.p.packet)
+          .find((f) => f.startsWith(`bus-${String(index + 1).padStart(3, "0")}-`) && f.endsWith(".request.json"));
+        assert.deepEqual(json(r.p.packet + "/" + stem).request, call.request);
+        assert.deepEqual(json(r.p.packet + "/" + stem.replace(".request.", ".result.")).raw, call.raw);
+      });
+    if (options.retained)
+      assert.ok(r.calls.some((x) => x.request?.arguments.session_id === "retained@fixture" && x.action === "close"));
+    if (options.poll)
+      for (const { label } of r.calls.filter((x) => x.kind && x.kind !== "seal"))
+        assert.equal(json(r.p.packet + "/" + label + ".transport.json").responses.length, 2);
   }
 });
 test("wrong inputs STOP before consuming a tool, including profile correspondence and case labels", async (t) => {
@@ -332,6 +375,8 @@ test("wrong inputs STOP before consuming a tool, including profile correspondenc
     (p) => (p.packet = p.profileDir + "/packet"),
     (p) => (p.mode = "other"),
     (p) => (p.dsh = []),
+    ...["dshHome", "profileDir", "sessionsDir", "cacheDir"].map((key) => (p) => (p.protected = [{ path: p[key] }])),
+    ...["profileDir", "sessionsDir", "cacheDir"].map((key) => (p) => (p.protected = [{ path: p[key] + "/nested" }])),
     (p) => {
       p.operation = "none";
       p.acceptance = false;
@@ -358,6 +403,10 @@ test("failed calls retain captures without retry; seal failure is unsealed STOP"
     { throwBus: "send" },
     { failSeal: true },
     { throwObservation: "report" },
+    { throwObservation: "add", throwValue: null },
+    { throwObservation: "add", throwValue: undefined },
+    { failSeal: true, throwValue: null },
+    { failSeal: true, throwValue: undefined },
   ]) {
     const r = await replay(t, options),
       result = await r.run();
@@ -375,22 +424,90 @@ test("failed calls retain captures without retry; seal failure is unsealed STOP"
       manifest(r.p.packet);
       const name = failed === "send" ? "bus-004-send.throw.json" : failed + ".transport.json";
       assert.ok(fs.existsSync(r.p.packet + "/" + name));
-      if (options.throwObservation) assert.ok(json(r.p.packet + "/" + name).thrown.includes("tool threw"));
+      if (options.throwObservation)
+        assert.equal(
+          json(r.p.packet + "/" + name).thrown,
+          Object.hasOwn(options, "throwValue") ? String(options.throwValue) : "Error: tool threw " + failed,
+        );
       if (options.failedObservation) assert.equal(json(r.p.packet + "/" + name).responses[0].exit_code, 1);
       if (options.malformedObservation) assert.equal(json(r.p.packet + "/" + name).responses[0].output, "not JSON");
     }
   }
 });
-test("unexpected accepted refusal and bad post-forget roster are terminal and name unclosed lanes", async (t) => {
+test("unexpected accepted refusal is terminal and names its unclosed lane", async (t) => {
   const opened = await replay(t, { refusal: "opens" }),
     a = await opened.run();
   assert.equal(a.result, "STOP");
   assert.deepEqual(a.stopped.liveLanes, ["unexpected-lane@fixture"]);
   assert.equal(a.stopped.phase, "refuse-case-1");
-  const roster = await replay(t, { badRoster: true }),
-    b = await roster.run();
-  assert.equal(b.result, "STOP");
-  assert.deepEqual(b.stopped.liveLanes, ["session-fixture@fixture"]);
+});
+test("real-observer bus adverse cases stop once at the owning boundary", async (t) => {
+  for (const [action, change, phase, reason, extra] of [
+    [
+      "spawn",
+      (v) => v.error.data.stderr_tail.unshift("connection closed"),
+      "refuse-case-1",
+      "exactly one line",
+      { refusal: "refuses" },
+    ],
+    [
+      "spawn",
+      (v) => (v.error.data.stderr_tail[0] = "different reason"),
+      "refuse-case-1",
+      "expected text",
+      { refusal: "refuses" },
+    ],
+    ["send", (v) => (v.deliveries[0].disposition = "rejected"), "send", "send uncertain"],
+    [
+      "list",
+      (v) => {
+        if (v.error) v.error.code = -32003;
+      },
+      "absent",
+      "unexpected roster RPC error",
+    ],
+    ["wait", (v) => (v.result.outcome = "failed"), "collect", "turn failed"],
+    ["wait", (v) => (v.result.result = "wrong answer"), "collect", "answer/run mismatch"],
+  ]) {
+    const r = await replay(t, {
+      ...extra,
+      onBus: (raw, request) => {
+        if (request.action === action && (action !== "spawn" || request.arguments.name === "case-1"))
+          change(raw.structuredContent);
+      },
+    });
+    const result = await r.run();
+    assert.equal(result.result, "STOP");
+    assert.equal(result.stopped.phase, phase);
+    assert.ok(result.stopped.message.includes(reason), result.stopped.message);
+    assert.equal(r.counts["bus-send"], 1);
+    if (phase === "send") assert.equal(r.counts["bus-wait"], undefined);
+    manifest(r.p.packet);
+  }
+  for (const [options, phase] of [
+    [{ workers: 1 }, "before"],
+    [{ leakWorker: true }, "after-close"],
+  ]) {
+    const r = await replay(t, options),
+      result = await r.run();
+    assert.equal(result.result, "STOP");
+    assert.equal(result.stopped.phase, phase);
+  }
+});
+test("registry archive directory names are not archive-reference tokens; marker admits punctuation", async (t) => {
+  for (const name of ["dsh", version]) {
+    const r = await replay(t, {
+      onBus: (raw, request) => {
+        if (request.action === "wait") raw.structuredContent.result.result += ".";
+      },
+    });
+    const dir = path.dirname(r.p.packet) + "/archives/" + name;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.renameSync(r.p.archive, dir + "/archive.tgz");
+    r.p.archive = dir + "/archive.tgz";
+    assert.equal((await r.run()).result, "PASS");
+    manifest(r.p.packet);
+  }
 });
 test("real observer rejects changed bytes/owner/patch, bad logs and refusal residue", async (t) => {
   const cases = [
@@ -404,6 +521,14 @@ test("real observer rejects changed bytes/owner/patch, bad logs and refusal resi
       },
     },
     { label: "turn", edit: (p) => fs.utimesSync(p.profileDir + "/cordis.patch.yml", new Date(0), new Date(0)) },
+    { label: "installed", edit: (p) => fs.writeFileSync(p.protected[0].path + "/owner-file", "changed") },
+    { label: "turn", edit: (p) => fs.chmodSync(p.protected[0].path + "/host.key", 0o400) },
+    {
+      label: "installed",
+      operation: "archive",
+      edit: (p) => fs.appendFileSync(p.profileDir + "/cordis.patch.yml", "# owner comment outside spans\n"),
+    },
+    { label: "source", edit: (p) => fs.appendFileSync(p.references[0].file, "changed") },
     {
       label: "after-case-1",
       refusal: "refuses",
@@ -585,11 +710,22 @@ test("the same real-observer probes kill the required capture, predicate, retry 
   }
 });
 test(
-  "large command capture is full on disk and never signals an observed-exited child",
+  "large/env/group-drain captures and protected special files never open or signal after exit",
   {
     skip: process.platform === "win32" ? "Owned POSIX process groups require POSIX ps/negative group IDs" : false,
   },
   async (t) => {
+    const fifo = await replay(t),
+      file = fifo.p.protected[0].path + "/named-pipe";
+    assert.equal(spawnSync("mkfifo", [file]).status, 0);
+    const probe = spawnSync(
+      process.execPath,
+      ["-e", `console.log(JSON.stringify(require(${JSON.stringify(source)}).local().tree(${JSON.stringify(file)})))`],
+      { encoding: "utf8", timeout: 2000 },
+    );
+    assert.equal(probe.status, 0, "a special file must not block on read");
+    assert.equal(JSON.parse(probe.stdout).metadata[""].type, "fifo");
+    assert.equal((await fifo.run()).result, "PASS");
     const r = await replay(t);
     fs.mkdirSync(r.p.packet);
     fs.copyFileSync(
@@ -611,6 +747,24 @@ test(
       );
       assert.equal(fs.statSync(stdout).size, 2 ** 20);
       assert.equal(fs.statSync(r.p.packet + "/large.stderr").size, 2 ** 18);
+      assert.deepEqual(signals, []);
+      for (const label of ["add", "install"]) {
+        const result = await api.observeCommand("command", r.p, label, {
+          argv: [process.execPath, "-e", "console.log(process.env.DSH_HOME)"],
+        });
+        assert.equal(result.ok, true);
+        assert.equal(fs.readFileSync(r.p.packet + "/" + label + ".stdout", "utf8").trim(), r.p.dshHome);
+      }
+      await api.captureCommand(
+        r.p,
+        "drain",
+        [
+          process.execPath,
+          "-e",
+          'require("child_process").spawn(process.execPath,["-e","setTimeout(()=>{},300)"],{stdio:"ignore"}).unref();',
+        ],
+        60000,
+      );
       assert.deepEqual(signals, []);
     } finally {
       process.kill = kill;

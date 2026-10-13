@@ -81,6 +81,10 @@ function validate(p) {
     insist(
       absolute(entry.path) &&
         !inside(p.packet, entry.path) &&
+        !inside(p.dshHome, entry.path) &&
+        [p.profileDir, p.sessionsDir, p.cacheDir].every(
+          (mutable) => !inside(mutable, entry.path) && !inside(entry.path, mutable),
+        ) &&
         (entry.metadataOnly === undefined || typeof entry.metadataOnly === "boolean"),
       "invalid protected root",
     );
@@ -205,7 +209,7 @@ async function runProof(p, tools) {
   try {
     validate(p); // No tool, package mutation or send precedes complete input validation.
     await observe("boot", "source", { source: executingSource });
-    const before = await observe("snapshot", "before", { initial: true });
+    const before = await observe("snapshot", "before");
     insist(before.workers === 0, "worker already running");
     for (const id of p.retained ?? []) roster(await bus("retained", "list", { session_id: id }), id, false);
     if (p.operation !== "none") {
@@ -271,7 +275,12 @@ async function runProof(p, tools) {
           record.result.native_stop_reason === "completed",
         "turn failed; never retry",
       );
-      insist(record.result.result.trim() === p.answer && typeof record.run_id === "string", "answer/run mismatch");
+      insist(
+        typeof record.result.result === "string" &&
+          record.result.result.includes(p.answer) &&
+          typeof record.run_id === "string",
+        "answer/run mismatch",
+      );
       await observe("native", "turn", { id: live, baseline: "installed" });
       await bus("ack", "ack", { session_id: live, run_id: record.run_id });
       await bus("close", "close", { session_id: live, forget: true });
@@ -305,17 +314,15 @@ async function runProof(p, tools) {
           "expected one spawn_failed refusal",
         );
         const tail = value.error.data?.stderr_tail;
-        insist(
-          Array.isArray(tail) && tail.length === 1 && tail[0] === refusal.reason,
-          "refusal tail is not the reason alone",
-        );
+        insist(Array.isArray(tail) && tail.length === 1, "refusal tail must contain exactly one line");
+        insist(tail[0] === refusal.reason, "refusal reason differs from expected text");
         await observe("refusal-state", "after-" + refusal.name, { name: refusal.name, baseline: "installed" });
       }
     }
     await observe("snapshot", "final", { baseline: "installed", validate: true, noWorkers: true });
     await observe("report", "report");
   } catch (error) {
-    stopped = { phase, message: String(error.message), liveLanes: [...liveLanes] };
+    stopped = { phase, message: String(error?.message ?? error), liveLanes: [...liveLanes] };
   }
   // Sealing is independent of report formatting. No retry or close after a stop.
   if (!ownedPacket) return { packet: p?.packet, result: "STOP", stopped, sealed: false };
@@ -328,7 +335,7 @@ async function runProof(p, tools) {
       result: "STOP",
       stopped: stopped ?? { phase: "seal", liveLanes: [...liveLanes] },
       sealed: false,
-      sealError: String(error.message),
+      sealError: String(error?.message ?? error),
     };
   }
 }
@@ -362,7 +369,15 @@ function local() {
   const meta = (file) => {
     const s = fs.lstatSync(file, { bigint: true });
     return {
-      type: s.isDirectory() ? "directory" : s.isSymbolicLink() ? "symlink" : s.isFile() ? "file" : "special",
+      type: s.isDirectory()
+        ? "directory"
+        : s.isSymbolicLink()
+          ? "symlink"
+          : s.isFile()
+            ? "file"
+            : s.isFIFO()
+              ? "fifo"
+              : "special",
       inode: String(s.ino),
       links: String(s.nlink),
       size: String(s.size),
@@ -395,7 +410,7 @@ function local() {
         bytes[name] =
           m.type === "symlink"
             ? { link: m.link }
-            : metadataOnly || privateFile(file)
+            : m.type !== "file" || metadataOnly || privateFile(file)
               ? { metadataOnly: m }
               : { sha256: hash(read(file)) };
     }
@@ -602,6 +617,8 @@ async function captureCommand(p, label, argv, milliseconds) {
     result = await child.ended;
     clearTimeout(bound);
     clearTimeout(hard);
+    const end = Date.now() + 1000; // Observation-only drain; no signal after the parent's exit.
+    while (!group.emptyGroup(child) && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 25));
     group.assertEmptyGroup(child);
   } catch (e) {
     error = e;
@@ -653,18 +670,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
     walk(root);
     return map;
   }
-  function inventory(root) {
-    if (!fs.existsSync(root)) return [];
-    const map = [],
-      visit = (file, name) => {
-        const s = meta(file);
-        map.push({ path: name, type: s.type });
-        if (s.type === "directory")
-          for (const n of fs.readdirSync(file).sort()) visit(path.join(file, n), name + "/" + n);
-      };
-    visit(root, "");
-    return map;
-  }
   function snap() {
     const manifest = read(path.join(p.profileDir, "package.json")),
       lock = read(path.join(p.profileDir, "pnpm-lock.yaml"));
@@ -684,7 +689,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
     put(out(`${label}-profile.json`), profile);
     put(out(`${label}-manager.json`), manager);
     const records = {};
-    let store;
     for (const name of ["node_modules/.modules.yaml", "node_modules/.pnpm-workspace-state-v1.json", "cordis.yml"]) {
       const file = path.join(p.profileDir, name);
       if (!fs.existsSync(file)) continue;
@@ -709,17 +713,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
           ignoredBuilds: value.ignoredBuilds ?? null,
           pendingBuilds: value.pendingBuilds ?? null,
         };
-        if (typeof value.storeDir === "string") {
-          const names = inventory(value.storeDir),
-            file = out(`${label}-store-names.json`);
-          put(file, names);
-          store = {
-            file,
-            sha256: hash(read(file)),
-            entries: names.length,
-            coverage: "names/types only, no shared-store contents",
-          };
-        }
       }
       // Open schema: capture, never assume a summary lists every key.
       records[name] = { ...facts(file), keys, builds };
@@ -733,7 +726,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
       records,
       ...system.processes(p),
       managerHash: hash(JSON.stringify(manager.bytes)),
-      residue: { sessions: inventory(p.sessionsDir), cache: inventory(p.cacheDir), store },
       profileMap: out(`${label}-profile.json`),
     };
     if (fs.existsSync(path.join(p.profileDir, "node_modules/.bin")))
@@ -817,15 +809,7 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
     put(out("helper-source.json"), { sha256: hash(bytes) });
     // Explicit DSH data-home operand, not an inferred CLI install location. The
     // public DSH_HOME choice must address the same profile we observe.
-    insist(
-      path.isAbsolute(p.dshHome) &&
-        typeof p.profile === "string" &&
-        p.profile &&
-        !/[\/\\]/u.test(p.profile) &&
-        ![".", "..", "node_modules"].includes(p.profile) &&
-        fs.realpathSync(p.profileDir) === fs.realpathSync(path.join(p.dshHome, "profiles", p.profile)),
-      "DSH_HOME/profile observation target mismatch",
-    );
+    insist(fs.statSync(p.profileDir).isDirectory(), "profile directory missing");
     put(out("parameters.json"), p);
     fs.mkdirSync(out("workspace"));
     const references = (p.references ?? []).map((reference) => {
@@ -834,8 +818,8 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
     });
     put(out("references.json"), references); // Hash anchors only; never rerun or import old calls.
     insist(hash(read(p.archive)) === p.archiveSha256, "archive checksum mismatch");
-    for (const executable of [p.zstd, p.dsh[0]])
-      insist(selectExecutable(executable, p.packet), "required executable not found");
+    const selected = selectExecutable(p.dsh[0], p.packet);
+    insist(selected && selectExecutable(p.zstd, p.packet), "required executable not found");
     await system.command(p, "unpack", ["tar", "-xzf", p.archive, "-C", p.packet], 10000);
     const candidate = path.join(p.packet, "package"),
       files = packageMap(candidate);
@@ -845,8 +829,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
       integrity: "sha512-" + require("node:crypto").createHash("sha512").update(read(p.archive)).digest("base64"),
     });
     const version = await system.command(p, "dsh-version", [...p.dsh, "--version"]); // Cold npx may acquire packages.
-    const selected = selectExecutable(p.dsh[0], p.packet);
-    insist(selected, "direct argv executable not found");
     put(out("executable.json"), { argv: p.dsh, executable: fs.realpathSync(selected), ...facts(selected) });
     return {
       sourceSha256: hash(source),
@@ -902,7 +884,7 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
         "lock candidate integrity mismatch",
       );
       if (p.operation === "registry") {
-        const tokens = [p.archive, path.basename(p.archive), path.basename(path.dirname(p.archive))],
+        const tokens = [p.archive, path.basename(p.archive)],
           files = [out(`${label}-manifest`), out(`${label}-lock`)];
         const walk = (dir) => {
           for (const n of fs.readdirSync(dir)) {
@@ -951,7 +933,6 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
       mode: p.mode,
       result: "PASS",
       patch: final.patch.file,
-      residue: final.residue,
       references: json(out("references.json")),
       limits: [
         "Profile proof only; without acceptance no fresh native lane/runtime observation is claimed.",
@@ -1027,7 +1008,7 @@ async function observeCommand(kind, p, label, extra, system) {
   try {
     result = { ok: true, facts: await observation(kind, p, label, extra, system) };
   } catch (error) {
-    result = { ok: false, error: String(error.message) };
+    result = { ok: false, error: String(error?.message ?? error) };
   }
   // No file is added after sealing. Other observations have a complete artifact
   // and return only its digest/size plus named facts (never the map or native text).
@@ -1049,8 +1030,7 @@ async function cli() {
   const result = await observeCommand(kind, JSON.parse(config), label, JSON.parse(more));
   process.stdout.write(JSON.stringify(result) + "\n");
 }
-if (typeof module !== "undefined")
-  module.exports = { runProof, local, observation, observeCommand, captureCommand, roster, validate };
+if (typeof module !== "undefined") module.exports = { runProof, local, observeCommand, captureCommand };
 if (typeof require !== "undefined" && require.main === module)
   cli().catch(() => {
     process.exitCode = 1;

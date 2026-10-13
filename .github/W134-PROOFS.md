@@ -136,6 +136,9 @@ login shell or reading any process environment.
 The complete parameter check runs before any tool call. Lane is exactly the
 `sessionbus` profile; peer is a different profile. Paths are canonical explicit
 absolute operands; the packet is outside the DSH data home and protected roots.
+Protected roots must not contain the DSH home or overlap the active profile,
+session or cache root; separate bystander profiles beneath the same home remain
+valid. These checks precede every tool call and mutation.
 Only the stock alpha.2 session root (`dshHome/sessions`) and projection-cache
 root (`dshHome/storages/session_projcache/sessions`) are supported; custom backend
 paths are refused, not inferred. Required argv/product/decoder/version/checksum,
@@ -153,6 +156,10 @@ open/reason pairs from the brief; each requires one
 spawn_failed with the reason-alone tail and no new native directory.
 An unexpectedly accepted refusal is a STOP that names its live lane too.
 
+`answer` names a distinctive marker requested in `input`, not an exact sentence;
+the collected answer must contain it, so harmless punctuation does not stop a
+completed real turn. Refusal tails distinguish an extra/missing line from a
+different one-line reason (the latter is a wrong expectation in the brief).
 Native acceptance reads the settled V4 log: one relay input by
 `plugin:sessionbus-dsh`/`relay` source, one bound completed turn, one request
 header on the literal owner's profile default, no selection event. The two
@@ -168,9 +175,12 @@ a stop follows native policy; its identity is recorded for a later brief.
 The STOP names the failing step and every lane started but not observed gone.
 A failed observer response, including nonzero exit or malformed output, is
 captured before validating it. A failed seal returns an explicitly unsealed STOP
-and never throws or retries. The final seal's own response remains outside its
+and never throws or retries, including null/undefined tool rejections.
+The final seal's own response remains outside its
 self-referential manifest, as stated above. An observed-exited command is removed
 from the signal registry immediately; no later group signal is sent to it.
+The command gets an observation-only one-second group-drain margin after exit,
+as before; it never kills a still-draining group member.
 
 ## Replay and limits
 
@@ -187,6 +197,12 @@ identities/route/text substituted; its sequence labels are expectations, not
 mocked PASS facts. Every real call argument is checked and each recorded call
 is consumed once. Archive/lane, registry/peer and both independent none choices
 are covered. The earlier order-only/mock-flag cases were removed.
+The restored properties use real observer cases: exact bus request/result
+captures, refusal-tail shape and text, uncertain send without resend, unrelated
+RPC errors, protected bytes and credential metadata, sealed-reference hashes,
+failed/wrong acceptance answers, live workers, DSH_HOME in actual add/install
+children, unmarked bytes on installer-changing upgrades, retained-lane forget
+and multi-response tool polling. Every split response remains in the transport.
 
 The same probes kill eleven required mutations: lost thrown-bus, transport or
 observer capture; an accepting roster predicate; allowing changed profile bytes,
@@ -225,37 +241,41 @@ An owned group leak fails; after the parent exit is observed the runner never
 signals that group and reports the failure rather than risk a recycled pid.
 Protected process identity and ordinary tree bytes/links must hold;
 ordinary metadata changes are separately disclosed, including bin rewrites,
-pnpm workspace/install records and cordis.yml timestamps. Native history/cache
-and pnpm-store entries are listed, not deleted; shared-store inventory covers
-names/types only. Credential-bearing names and explicitly marked paths are
+pnpm workspace/install records and cordis.yml timestamps. Native acceptance logs
+and refusal-directory names are captured; unused recursive session/cache/store
+inventories were removed rather than presented as a check. No complete residue
+inventory is claimed and native history is never deleted.
+Credential-bearing names and explicitly marked paths are
 metadata-only, never opened; an unclassified sensitive file must be marked by
 the brief. A same-size rewrite with restored times can escape metadata-only
 coverage (ctime makes that hard without privilege). No daemon environment read.
 
+Non-regular protected entries are lstat metadata only, never opened (including
+named pipes); ordinary regular files remain byte-hashed.
 The test process lister is replaced, and a spy rejects any `/proc` content read.
 No test inspects real machine command lines. One actual stdout/stderr/group
-capture control starts its own Node child and uses the approved POSIX helper's
+capture control starts its own Node children and uses the approved POSIX helper's
 `ps` group-ID check, not command lines. That one test is explicitly skipped on
-Windows (negative POSIX group IDs/ps are unavailable); the runner's native use
+Windows (POSIX groups/ps and the FIFO fixture are unavailable); the runner's native use
 is Linux-only. Linux and macOS unit fixtures use POSIX paths; Windows replay is
 not claimed. Native DSH/registry/global coverage is the hosted matrix, not this
 stand-in or its mocked delay/process listing.
 
 ## Pack and gates
 
-The maintained runner is 1057 lines / 44,769 bytes and its test is 619 lines /
-25,402 bytes, both at a maximum of 120 columns (ceilings: 1100 and 650 lines).
+The maintained runner is 1037 lines / 44,071 bytes and its test is 773 lines /
+31,910 bytes, both at a maximum of 120 columns (ceilings: 1100 and 780 lines).
 The earlier mock-flag cases and the one-call quote/bus-value/hash helpers were
 removed. The runner's six parts account for every line:
 
 | Part | Lines | Past stop or reviewer finding answered |
 | --- | ---: | --- |
-| Parameters and lifecycle predicate | 118 | Refuses wrong profile, omitted inputs, unsafe labels and packet placement before any tool call. |
-| Call-time runner and terminal STOP | 219 | Preserves failed calls, identifies all live lanes, distinguishes retained from forgotten rows and never retries a mutation or send. |
-| Disk maps, owned spans and native-log predicates | 225 | Fixes the parser anchor, three-user-message assumption and owner-span boundary while keeping credential files metadata-only. |
-| Owned command capture | 72 | Keeps large output off tool stdout, observes exit before signalling and gives the row installer a loaded-host margin. |
-| Real observer | 346 | Records open-schema pnpm state, bin/cordis metadata, source ownership and report/seal results instead of replaying invented PASS flags. |
-| Direct argv, native process boundary and CLI | 77 | Identifies the command that actually runs, never reads environ and permits tests to replace process observations without inspecting the host. |
+| Parameters and lifecycle predicate | 122 | Refuses wrong profile, overlapping protected roots, omitted inputs, unsafe labels and packet placement before any tool call. |
+| Call-time runner and terminal STOP | 222 | Preserves failed calls, identifies live lanes, distinguishes retained/forgotten rows and null rejections without retry; model punctuation no longer causes a false failure. |
+| Disk maps, owned spans and native-log predicates | 233 | Fixes parser/relay/span assumptions; credential and special files are metadata-only and cannot block on a FIFO. |
+| Owned command capture | 74 | Keeps large output off stdout, permits one-second drain without post-exit signals and gives the installer a loaded-host margin. |
+| Real observer | 312 | Records open-schema install metadata and real source/report/seal evidence; unused full inventories and duplicate boot checks removed. |
+| Direct argv, native process boundary and CLI | 74 | Identifies actual argv without environ, permits replaced process observations and exposes only exercised APIs. |
 
 Pack on Linux x64 with npm 11.12.1. Expected packed deltas against the proven
 0.1.1 archive: README.md, package.json, plugin.cjs only; other six files
