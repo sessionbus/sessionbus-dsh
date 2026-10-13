@@ -9,6 +9,33 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("known-gap proof names an upstream wake improvement but not unexplained input loss", () => {
+  // Exercise the actual driver oracle, not a second copy of its assertions.
+  // Native effects are proved separately by the private DSH/daemon integration.
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-peer-pending-input.mjs"), "utf8");
+  const start = source.indexOf("\nfunction knownGap(");
+  const end = source.indexOf("\nfunction reported(", start);
+  assert.ok(start >= 0 && end > start, "actual known-gap oracle must be present");
+  const branch = source.slice(source.indexOf("const ended = await quiet(agent, 'after-primary-end')"));
+  const gapCheck = branch.indexOf("if (gap) knownGap(");
+  const endCheck = branch.indexOf("assert.equal(ended.events.filter(");
+  assert.ok(gapCheck >= 0 && endCheck > gapCheck,
+    "an upstream recovery may finish; name its wake before checking the last terminal reason");
+  const oracle = requests => new Function("assert", "requests", "current",
+    source.slice(start, end) + "\nreturn knownGap;")(assert, () => requests, "oracle-unit");
+  const pending = { id: "pending-relay", content: [{ type: "text", text: "original input" }] };
+  const idle = { status: "idle", phase: { kind: "idle" }, nextStep: [pending], nextTurn: [], turnStarts: 1, events: [] };
+  oracle([{}])(idle, pending, 1, 1, "an error-ended turn");
+  for (const ending of ["an error-ended turn", "keepInbox cancellation", "retry exhaustion"]) {
+    const woken = { ...idle, nextStep: [], turnStarts: 2, events: [{ type: "user/message", data: { id: pending.id } }] };
+    assert.throws(() => oracle([{}, {}])(woken, pending, 1, 1, ending), error =>
+      error.message.includes(`Upstream DSH now wakes pending input after ${ending}`)
+      && error.message.includes("update this known-gap assertion and documentation, not the plugin scheduler"));
+  }
+  assert.throws(() => oracle([{}])({ ...idle, nextStep: [] }, pending, 1, 1, "an error-ended turn"), error =>
+    error.message.includes("known-gap pending state changed") && !error.message.includes("Upstream DSH now wakes"));
+});
+
 test("release workflow validates the tagged archive and publishes it before creating the GitHub release", () => {
   const yaml = require("js-yaml");
   const workflow = yaml.load(fs.readFileSync(path.join(__dirname, ".github/workflows/release.yml"), "utf8"));

@@ -36,6 +36,17 @@ jobs:
         env:
           DSH_TEST_VERSION: ${{ matrix.dsh }}
       - run: .github/scripts/prove-packed-install.sh "${{ matrix.dsh }}"
+        env:
+          KEEP_PROOF: '1'
+      - name: Keep synthetic peer pending-input captures
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: peer-pending-input-${{ matrix.dsh }}
+          path: ${{ runner.temp }}/sessionbus-dsh-proof.*/peer-pending-input/**
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   peer-floor:
     name: Native DSH alpha.1 refusal below alpha.2 floor
