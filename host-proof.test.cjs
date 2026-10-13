@@ -44,6 +44,8 @@ async function replay(t, options = {}, implementation = api) {
   const p = {
     operation: "registry",
     acceptance: true,
+    acceptanceWaitMs: 60000,
+    acceptanceWaitSliceMs: 45000,
     mode: "lane",
     version,
     packet: root + "/packet",
@@ -70,6 +72,7 @@ async function replay(t, options = {}, implementation = api) {
   }
   if (options.operation) p.operation = options.operation;
   if (options.acceptance !== undefined) p.acceptance = options.acceptance;
+  if (p.acceptance === false) for (const key of ["acceptanceWaitMs", "acceptanceWaitSliceMs"]) delete p[key];
   const installed = p.profileDir + "/node_modules/@sessionbus/dsh",
     candidate = root + "/candidate/package";
   for (const dir of [
@@ -127,6 +130,19 @@ async function replay(t, options = {}, implementation = api) {
     counts = {},
     bus = p.acceptance ? clone(fixture.bus) : [],
     events = clone(fixture.events);
+  const waitIndex = bus.findIndex(([action]) => action === "wait");
+  if (waitIndex !== -1) {
+    const original = bus[waitIndex],
+      waits = (options.waitStates ?? ["done"]).map((state, index) => {
+        const entry = clone(original),
+          timeout = Math.min(p.acceptanceWaitSliceMs, p.acceptanceWaitMs - index * p.acceptanceWaitSliceMs);
+        entry[1].timeout_ms = timeout;
+        if (state !== "done") entry[2] = { session_id: original[2].session_id, run_id: original[2].run_id, state };
+        if (state === "unavailable") entry[2].reason = "fixture unavailable";
+        return entry;
+      });
+    bus.splice(waitIndex, 1, ...waits);
+  }
   const expected = fixture.observations.filter(
     ([kind, label]) =>
       !(p.operation === "none" && kind === "command") &&
@@ -270,8 +286,7 @@ async function replay(t, options = {}, implementation = api) {
       };
       const key = "bus-" + request.action;
       counts[key] = (counts[key] ?? 0) + 1;
-      if (options.throwBus === request.action) {
-        assert.equal(counts[key], 1);
+      if (options.throwBus === request.action && counts[key] === (options.throwWaitAt ?? 1)) {
         throw new Error("bus threw " + key);
       }
       if (request.action === "spawn" && request.arguments.name === "case-1") {
@@ -328,18 +343,14 @@ test("real observer replay covers archive/lane, registry/peer and both independe
     { operation: "none" },
     { refusal: "refuses" },
     { retained: true, poll: true },
+    ...[60001, 600000, 900000].map((acceptanceWaitMs) => ({ parameters: { acceptanceWaitMs } })),
+    ...[5000, 60000].map((acceptanceWaitSliceMs) => ({ parameters: { acceptanceWaitSliceMs } })),
+    { waitStates: ["running", "running", "done"], parameters: { acceptanceWaitMs: 600000 } },
   ]) {
     const r = await replay(t, options),
       result = await r.run();
-    assert.equal(
-      result.result,
-      "PASS",
-      JSON.stringify({
-        options,
-        result,
-        error: result.stopped && json(r.p.packet + "/" + result.stopped.phase + ".observation.json"),
-      }),
-    );
+    assert.equal(r.counts["bus-wait"] ?? 0, options.waitStates?.length ?? Number(r.p.acceptance));
+    assert.equal(result.result, "PASS", JSON.stringify({ options, result }));
     assert.equal(result.sealed, true);
     assert.equal(r.completed(), true);
     assert.equal(r.bus.length, 0);
@@ -363,10 +374,35 @@ test("real observer replay covers archive/lane, registry/peer and both independe
         assert.equal(json(r.p.packet + "/" + label + ".transport.json").responses.length, 2);
   }
 });
+test("native route compares effort only when the profile owns it", async (t) => {
+  for (const [rowEffort, field, value, pass] of [
+    [undefined, "reasoningEffort", "high", true],
+    ["high", "reasoningEffort", "low", false],
+    [undefined, "provider", "other", false],
+    [undefined, "model", "other", false],
+  ]) {
+    const r = await replay(t),
+      file = r.p.profileDir + "/cordis.patch.yml";
+    if (rowEffort)
+      fs.writeFileSync(
+        file,
+        fs.readFileSync(file, "utf8").replace("fixture-model }", `fixture-model, reasoningEffort: ${rowEffort} }`),
+      );
+    r.events.find((x) => x.type === "request/header").data.header.config[field] = value;
+    const result = await r.run();
+    assert.equal(result.result, pass ? "PASS" : "STOP");
+    if (pass) assert.equal(json(r.p.packet + "/native-request-effort.json").reasoningEffort, value);
+    else assert.equal(result.stopped.phase, "turn");
+  }
+});
 test("wrong inputs STOP before consuming a tool, including profile correspondence and case labels", async (t) => {
   const r = await replay(t);
   const invalid = [
     (p) => delete p.acceptance,
+    (p) => delete p.acceptanceWaitMs,
+    ...[null, "60000", 59999, 900001, 60000.5, NaN, Infinity].map((value) => (p) => (p.acceptanceWaitMs = value)),
+    (p) => delete p.acceptanceWaitSliceMs,
+    ...[null, "45000", 4999, 60001, 5000.5, NaN, Infinity].map((value) => (p) => (p.acceptanceWaitSliceMs = value)),
     (p) => delete p.product,
     (p) => delete p.zstd,
     (p) => delete p.operation,
@@ -407,6 +443,7 @@ test("failed calls retain captures without retry; seal failure is unsealed STOP"
     { failedObservation: "add" },
     { malformedObservation: "add" },
     { throwBus: "send" },
+    { throwBus: "wait", throwWaitAt: 2, waitStates: ["running", "done"] },
     { failSeal: true },
     { throwObservation: "report" },
     { throwObservation: "add", throwValue: null },
@@ -423,12 +460,14 @@ test("failed calls retain captures without retry; seal failure is unsealed STOP"
       options.malformedObservation ??
       options.throwBus ??
       "seal";
-    assert.equal(result.stopped.phase, failed);
-    assert.equal(r.counts[failed === "send" ? "bus-send" : failed], 1);
+    assert.equal(result.stopped.phase, failed === "wait" ? "collect" : failed);
+    assert.equal(r.counts[options.throwBus ? "bus-" + failed : failed], options.throwWaitAt ?? 1);
     if (options.failSeal) assert.equal(result.sealed, false);
     else {
       manifest(r.p.packet);
-      const name = failed === "send" ? "bus-004-send.throw.json" : failed + ".transport.json";
+      const name = options.throwBus
+        ? fs.readdirSync(r.p.packet).find((f) => f.endsWith(".throw.json"))
+        : failed + ".transport.json";
       assert.ok(fs.existsSync(r.p.packet + "/" + name));
       if (options.throwObservation)
         assert.equal(
@@ -437,6 +476,8 @@ test("failed calls retain captures without retry; seal failure is unsealed STOP"
         );
       if (options.failedObservation) assert.equal(json(r.p.packet + "/" + name).responses[0].exit_code, 1);
       if (options.malformedObservation) assert.equal(json(r.p.packet + "/" + name).responses[0].output, "not JSON");
+      if (failed === "wait")
+        assert.deepEqual([r.counts["bus-wait"], r.counts["bus-ack"], r.counts["bus-close"]], [2, undefined, undefined]);
     }
   }
 });
@@ -473,6 +514,14 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
       "unexpected roster RPC error",
     ],
     ["wait", (v) => (v.result.outcome = "failed"), "collect", "turn failed"],
+    ["wait", () => {}, "collect", "turn failed", { waitStates: ["unavailable"] }],
+    ...[60000, 600000].map((acceptanceWaitMs) => [
+      "wait",
+      () => {},
+      "collect",
+      `turn still running at acceptance wait bound (${acceptanceWaitMs} ms); lane session-fixture@fixture`,
+      { waitStates: Array(Math.ceil(acceptanceWaitMs / 45000)).fill("running"), parameters: { acceptanceWaitMs } },
+    ]),
     ["wait", (v) => (v.result.result = "wrong answer"), "collect", "answer/run mismatch"],
   ]) {
     const r = await replay(t, {
@@ -488,6 +537,14 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
     assert.ok(result.stopped.message.includes(reason), result.stopped.message);
     assert.equal(r.counts["bus-send"], 1);
     if (phase === "send") assert.equal(r.counts["bus-wait"], undefined);
+    if (phase === "collect") {
+      assert.equal(result.stopped.message.includes("turn failed"), reason === "turn failed");
+      assert.equal(result.stopped.message.includes("turn still running"), reason.startsWith("turn still running"));
+      assert.equal(r.counts["bus-wait"], extra?.waitStates?.length ?? 1);
+      assert.equal(r.counts["bus-ack"], undefined);
+      assert.equal(r.counts["bus-close"], undefined);
+      assert.deepEqual(json(r.p.packet + "/STOP.json").liveLanes, ["session-fixture@fixture"]);
+    }
     manifest(r.p.packet);
   }
   for (const [options, phase] of [
@@ -499,8 +556,7 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
       result = await r.run();
     assert.equal(result.result, "STOP");
     assert.equal(result.stopped.phase, phase);
-    if (phase === "absent")
-      assert.deepEqual(json(r.p.packet + "/STOP.json").liveLanes, ["session-fixture@fixture"]);
+    if (phase === "absent") assert.deepEqual(json(r.p.packet + "/STOP.json").liveLanes, ["session-fixture@fixture"]);
   }
 });
 test("unopened leaves tolerate only link metadata churn at both comparison boundaries", async (t) => {

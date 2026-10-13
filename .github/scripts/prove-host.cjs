@@ -103,8 +103,19 @@ function validate(p) {
   insist(Array.isArray(p.retained ?? []) && (p.retained ?? []).every(string), "retained must be session IDs");
   insist(Array.isArray(p.refusals ?? []), "refusals must be an array");
   insist(p.acceptance || !(p.retained?.length || p.refusals?.length), "native cases require acceptance");
-  if (p.acceptance)
+  if (p.acceptance) {
     for (const key of ["host", "input", "answer"]) insist(string(p[key]), `${key} is required for acceptance`);
+    insist(
+      Number.isInteger(p.acceptanceWaitMs) && p.acceptanceWaitMs >= 60000 && p.acceptanceWaitMs <= 900000,
+      "acceptanceWaitMs must be an integer from 60000 to 900000 for acceptance",
+    );
+    insist(
+      Number.isInteger(p.acceptanceWaitSliceMs) &&
+        p.acceptanceWaitSliceMs >= 5000 &&
+        p.acceptanceWaitSliceMs <= p.acceptanceWaitMs,
+      "acceptanceWaitSliceMs must be an integer from 5000 to acceptanceWaitMs for acceptance",
+    );
+  }
   const names = new Set();
   for (const item of p.refusals ?? []) {
     insist(/^case-[1-9]\d*$/u.test(item.name) && !names.has(item.name), "refusal names must be unique case-N labels");
@@ -268,7 +279,17 @@ async function runProof(p, tools) {
           ["written", "injected", "queued_for_next_turn"].includes(sent.deliveries[0].disposition),
         "send uncertain; never replay",
       );
-      const record = await bus("collect", "wait", { session_id: live, timeout_ms: 60000 });
+      let record,
+        remaining = p.acceptanceWaitMs;
+      do {
+        const timeout = Math.min(p.acceptanceWaitSliceMs, remaining);
+        record = await bus("collect", "wait", { session_id: live, timeout_ms: timeout });
+        remaining -= timeout;
+      } while (record.state === "running" && remaining > 0);
+      insist(
+        record.state !== "running",
+        `turn still running at acceptance wait bound (${p.acceptanceWaitMs} ms); lane ${live}; never retry`,
+      );
       insist(
         record.state === "done" &&
           record.result?.outcome === "completed" &&
@@ -561,8 +582,10 @@ function local() {
       "one header and no selection required",
     );
     const selected = headers[0].data.header.config;
-    for (const key of ["provider", "model", "reasoningEffort"])
+    for (const key of ["provider", "model"])
       insist(selected[key] === route[key], "native request changed profile default");
+    if (Object.hasOwn(route, "reasoningEffort"))
+      insist(selected.reasoningEffort === route.reasoningEffort, "native request changed profile default");
     insist(
       JSON.stringify(events.filter((x) => x.type === "assistant/message")).includes(answer),
       "answer missing from native log",
@@ -924,7 +947,11 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
       typeof defaults?.provider === "string" && typeof defaults.model === "string",
       "literal owner default required for this proof",
     );
-    return native(events, p.input, p.answer, defaults);
+    const proof = native(events, p.input, p.answer, defaults);
+    put(out("native-request-effort.json"), {
+      reasoningEffort: events.find((x) => x.type === "request/header").data.header.config.reasoningEffort ?? null,
+    });
+    return proof;
   }
   if (kind === "report") {
     const final = json(out("final.snapshot.json"));

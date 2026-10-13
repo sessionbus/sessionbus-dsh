@@ -126,7 +126,11 @@ the data home and target (`dshHome`, `profileDir`, `profile`), package
 (`version`, `archive`, `archiveSha256`), explicit new `packet`, and `source`.
 Also supply `product`, `protected: [{path, metadataOnly?}]`, `sessionsDir`, `cacheDir`,
 `zstd`; optionally protected `ownerPid`/`daemonPid`. Lane acceptance additionally
-names `host`, `input`, `answer`. For peer installer arguments name
+names `host`, `input`, `answer`, `acceptanceWaitMs` (integer milliseconds,
+60000 through 900000 inclusive) and `acceptanceWaitSliceMs` (integer milliseconds,
+5000 through acceptanceWaitMs inclusive). Both waits are required with acceptance
+true and have no default.
+For peer installer arguments name
 its peer product (normally `dsh`). The archive operand must already be durable;
 the script never moves or edits it. `DSH_HOME` selects the same named profile
 whose files are observed; it is not an inferred executing-CLI installation.
@@ -236,7 +240,9 @@ and no peer delivery. Those remain existing native CI/host-driver evidence, not
 an inferred claim from nine installed files. Acquisition has no per-command
 deadline; the version command also allows cold npx acquisition under that outer
 limit. Installer work retains a 60-second bound (rather than 10 seconds on a
-loaded host); decode/unpack keep 10 seconds and the native result wait 60 seconds.
+loaded host); decode/unpack keep 10 seconds. Native result reads use the operator's
+explicit `acceptanceWaitMs` budget and `acceptanceWaitSliceMs` per-call slice.
+The sole acceptance loop repeats non-consuming reads, never a send or mutation.
 An owned group leak fails; after the parent exit is observed the runner never
 signals that group and reports the failure rather than risk a recycled pid.
 Protected process identity and ordinary tree bytes/links must hold;
@@ -293,6 +299,86 @@ and the settle delay are additional. These are a cost estimate from one measured
 walk, not a full-run timing or a deadline. No snapshot bound is added; the
 observer's one-second polling yield is not a timeout.
 
+### Real-turn wait correction (third W-134 pull request)
+
+The first maintained-runner host proof at main `8c865c2` upgraded the lane to the
+candidate cleanly, then its fixed 60000 ms wait returned running. Its old generic
+`turn failed` STOP was not a native failure. The lane subsequently completed with
+the marker: relay to terminal 160.314 s, request to first recorded model output
+156.437 s. The owner explained that the model server was overloaded. No tight
+real-turn wait is inferred from an earlier fast sample; latency is weather.
+
+The operator chooses the acceptance budget and per-call slice before the run.
+The client's effective per-call limit is not the runner's to know; the first
+real run established only that its 60-second call was not cut. A required slice
+below that client's limit avoids relying on an unverified ten-minute call.
+One sequence reads the same lane without consuming, resending or reconnecting:
+each request spends its exact timeout from the total budget, with the last
+timeout equal to the remainder. Running continues only while budget remains;
+done ends the sequence, unavailable/failed stops, and any RPC error or thrown
+call stops immediately with no next slice. The sum of requested timeouts, not
+a wall clock, owns the budget so replay is exact. Existing captures own every
+slice's request and result. No package operation, shutdown or other wait changes.
+
+The first lane's native log also exposed a false route refusal: the profile row
+had provider and model but no reasoningEffort, while the request carried all
+three. Provider and model remain equalities; effort is compared only when the
+row owns that field. Otherwise the request's effort is an observed fact, not a
+new default. A supplied effort mismatch or changed provider/model still stops.
+
+The operator chooses the acceptance wait before the run from the model's behavior.
+It must be an explicitly supplied integer in [60000, 900000] whenever acceptance
+is true, with a required integer slice in [5000, acceptanceWaitMs]. There is no
+default or inferred value; acceptance false needs neither field and performs no
+wait. Invalid values refuse at input with zero tools. The slice, or the remaining
+budget if smaller, is passed to each Sessionbus wait as timeout_ms; all other
+acquisition, installer, decode, settle and group waits remain unchanged.
+
+A wait returning running now has its own STOP message naming the bound and live
+lane: `turn still running at acceptance wait bound (...)`. Actual failed turns
+and unavailable results keep the separate failure message. Both preserve the raw
+response and live lane in STOP and make no ack, close, retry, interrupt or further
+wait. A longer bound does not reserve an ended lane's result forever or change
+its retirement policy.
+
+The lane retires itself sixty seconds after its terminal record. When the runner
+stops at the bound it no longer collects; after that retirement the uncollected
+result is lost. Choose the wait so the runner is still waiting when the turn ends.
+On this host the separately authorized status then answered unknown_session;
+the native log showed completed and no worker remained. The architect ruled the
+operator action closed: nothing was acknowledged or closed after that error.
+The later authorized by-ID list found its retained row disconnected and not
+running: status unknown_session was not evidence that the resume row was absent.
+The sealed STOP and separate operator captures remain unchanged. The continuation
+will use a 600000 ms budget and 45000 ms slice only under a new go, with operation
+none, acceptance true, that lane under retained, the original referenced archive
+path and a fresh packet/marker; it is not started by this correction.
+
+Real-observer replay supplies 60000, 60001, 600000 and 900000 budgets and minimum,
+ordinary and whole-budget slices, checking each wait's exact request and capture.
+Three waits with a middle done result stop reading immediately. Running through
+600000/45000 makes fourteen waits, the last 15000; a thrown second slice makes
+exactly two calls and no ack/close. Missing, null, string, fractional, non-finite
+and out-of-range values refuse with no tool call. Running, failed and unavailable
+replies assert mutually exclusive messages, sealed live-lane identity and no
+ack/close. Before this delta, on the exact merged base runner, all three selected
+control groups failed for the intended causes: hardcoded
+60000 rather than 600000, missing input validation and the generic running-turn
+message. The first test diagnostic tried an observer file for a bus failure;
+the final control instead asserts the actual forwarded wait value directly.
+The running reply is also exercised at 600000 ms. A display-only mutation that
+hardcodes 60000 passes the earlier controls but fails this added real-observer
+case; the forwarding, no-result reply shape and STOP lane guards remain checked.
+The real observer passes a request effort when the row has none, writes that
+effort to native-request-effort.json without printing it, and refuses a different
+explicit row effort, provider or model. The old real lane fails only that absent-
+effort equality; all other native predicates pass after the conditional fix.
+Four further real-observer mutations fail: accepting only round-minute budgets,
+dropping the explicit row-effort comparison, hardcoding the displayed bound to
+60000, and calling unavailable a running turn. Against 8391f67 the sliced replay
+rejects its old one-shot request; the original unconditional route predicate
+independently fails on the preserved real native log, not a mock flag.
+
 Non-regular protected entries are lstat metadata only, never opened (including
 named pipes); ordinary regular files remain byte-hashed.
 The test process lister is replaced, and a spy rejects any `/proc` content read.
@@ -306,18 +392,19 @@ stand-in or its mocked delay/process listing.
 
 ## Pack and gates
 
-The maintained runner is 1039 lines / 44,305 bytes and its test is 844 lines /
-35,646 bytes, both at a maximum of 120 columns (ceilings: 1100 and 860 lines).
+The maintained runner is 1066 lines / 45,508 bytes and its test is 900 lines /
+39,236 bytes, both formatter-clean at a maximum of 120 columns
+(ceilings: 1100 and 900 lines).
 The earlier mock-flag cases and the one-call quote/bus-value/hash helpers were
 removed. The runner's six parts account for every line:
 
 | Part | Lines | Past stop or reviewer finding answered |
 | --- | ---: | --- |
-| Parameters and lifecycle predicate | 122 | Refuses wrong profile, overlapping protected roots, omitted inputs, unsafe labels and packet placement before any tool call. |
-| Call-time runner and terminal STOP | 222 | Preserves failed calls, identifies live lanes, distinguishes retained/forgotten rows and null rejections without retry; model punctuation no longer causes a false failure. |
-| Disk maps, owned spans and native-log predicates | 235 | Fixes parser/relay/span assumptions; unopened leaves stay unread and permit shared-store link/ctime churn without losing the remaining metadata predicates. |
+| Parameters and lifecycle predicate | 133 | Refuses wrong profile, overlapping protected roots, omitted inputs including both explicit acceptance waits, unsafe labels and packet placement before any tool call. |
+| Call-time runner and terminal STOP | 232 | Captures each non-consuming slice, names a still-running turn separately, identifies live lanes and distinguishes retained/forgotten rows without retry. |
+| Disk maps, owned spans and native-log predicates | 237 | Fixes parser/relay/span assumptions and optional default effort; unopened leaves stay unread and permit shared-store link/ctime churn without losing the remaining metadata predicates. |
 | Owned command capture | 74 | Keeps large output off stdout, permits one-second drain without post-exit signals and gives the installer a loaded-host margin. |
-| Real observer | 312 | Records open-schema install metadata and real source/report/seal evidence; unused full inventories and duplicate boot checks removed. |
+| Real observer | 316 | Records request effort privately, open-schema install metadata and real source/report/seal evidence; unused full inventories and duplicate boot checks removed. |
 | Direct argv, native process boundary and CLI | 74 | Identifies actual argv without environ, permits replaced process observations and exposes only exercised APIs. |
 
 Pack on Linux x64 with npm 11.12.1. Expected packed deltas against the proven
