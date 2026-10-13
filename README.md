@@ -176,7 +176,7 @@ nothing about the refusal.
 With daemon v0.5.12 the refusal tail contains captured worker stderr followed
 by the reason. This plugin no longer prints its expected connection-close warning
 after refusing Open. With diagnostic tracing off, the tail is the reason alone
-unless DSH itself prints something.
+unless Node, DSH, another loaded plugin or the kit also writes to stderr.
 
 A turn ending with native reason `error` includes DSH's own code and message
 in its collected result, after any partial assistant text. Other failed stop

@@ -12,6 +12,7 @@ assert.ok(work && commandJSON && candidate && repo, 'usage: prove-universal-prof
 const dsh = JSON.parse(commandJSON);
 assert.ok(Array.isArray(dsh) && dsh.length && dsh.every(arg => typeof arg === 'string'));
 const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'))).version;
+const publishedVersion = '0.1.1'; // Newest published baseline; move with each release.
 const profiles = ['sessionbus', 'web', ...(process.platform === 'linux' && process.env.W125_INSTALL_MODE === 'project' ? ['custom'] : [])];
 const home = path.join(work, 'home'), workspace = path.join(work, 'workspace');
 fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: true });
@@ -77,11 +78,11 @@ try {
     const upgrade = process.env.W125_INSTALL_MODE?.endsWith('-global');
     let ownerBytes;
     if (upgrade) {
-      await operation(['plugin', '--profile', profile, 'add', '--save-exact', '@sessionbus/dsh@0.1.0'], `${profile}-published-baseline-add`, 0, true);
+      await operation(['plugin', '--profile', profile, 'add', '--save-exact', `@sessionbus/dsh@${publishedVersion}`], `${profile}-published-baseline-add`, 0, true);
       await operation(['plugin', '--profile', profile, 'exec', 'sessionbus-dsh-install',
         ...(profile !== 'sessionbus' ? ['--product', 'dsh', profile] : [])], `${profile}-published-baseline-exec`);
       const baseline = JSON.parse(fs.readFileSync(path.join(home, 'profiles', profile, 'node_modules/@sessionbus/dsh/package.json')));
-      assert.equal(baseline.version, '0.1.0');
+      assert.equal(baseline.version, publishedVersion);
       ownerBytes = Buffer.from('\n# owner settings, never an installer row\n- id: llm-pi-ai\n  config: { ownerExpression: !!js ctx.owner.route }\n- id: agent-default-model\n  config: { provider: owner, model: owner-default }\n');
       fs.appendFileSync(path.join(home, 'profiles', profile, 'cordis.patch.yml'), ownerBytes);
     }
@@ -99,7 +100,7 @@ try {
     assert.match(policy, /nodeLinker: hoisted/u); assert.match(policy, /autoInstallPeers: false/u);
     if (upgrade) {
       assert.deepEqual(fs.readFileSync(path.join(home, 'profiles', profile, 'cordis.patch.yml')).subarray(-ownerBytes.length), ownerBytes);
-      console.log(`${profile}: published 0.1.0 -> ${version} in-place global upgrade by README commands; owner rows byte-identical: PASS`);
+      console.log(`${profile}: published ${publishedVersion} -> ${version} in-place global upgrade by README commands; owner rows byte-identical: PASS`);
     }
     console.log(`${profile}: exact README add/exec, native fresh defaults, package bytes preserved: PASS`);
   }

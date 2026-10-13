@@ -1,17 +1,17 @@
 {
-  "record": "Reduced 0.1.1 registry-lane API envelopes and native event shapes. Session/run/host identities, route and text are replaced; irrelevant native events and roster peers are omitted. Observation summaries are synthetic replay inputs, not live host measurements. No private packet is included.",
+  "record": "Reduced 0.1.1 registry-lane API envelopes and native event shapes. Session/run/host identities, route and text are replaced; irrelevant native events and roster peers are omitted. Observation sequence labels are test expectations; the real observer builds its facts on disk, never from mock flags. No private packet is included.",
   "observations": [
-    ["boot", "source", {"sourceSha256":"fixture", "dshVersion":"0.2.1-alpha.2", "packedFiles":9}],
-    ["snapshot", "before", {"workers":0}],
-    ["command", "add", {"command":"add"}],
-    ["command", "install", {"command":"install"}],
-    ["snapshot", "installed", {"workers":0}],
-    ["snapshot", "before-open", {"workers":0}],
-    ["native", "turn", {"relay":1,"userSources":["plugin:sessionbus-dsh","runtime-context","skill-catalog"],"turns":1}],
-    ["settled", "after-close", {"workers":0}],
-    ["snapshot", "final", {"workers":0}],
-    ["report", "report", {"report":"REPORT.json"}],
-    ["seal", "seal", {"manifestSha256":"fixture-seal","entries":40}]
+    ["boot", "source"],
+    ["snapshot", "before"],
+    ["command", "add"],
+    ["command", "install"],
+    ["snapshot", "installed"],
+    ["snapshot", "before-open"],
+    ["native", "turn"],
+    ["settled", "after-close"],
+    ["snapshot", "final"],
+    ["report", "report"],
+    ["seal", "seal"]
   ],
   "bus": [
     ["describe", {"product":"sessionbus-dsh","host":"fixture"}, {"supports_message_run":true,"product":"sessionbus-dsh","version":"0.1.1","supported_open_fields":["cwd","permission_mode","model","reasoning_effort"],"extra_arguments":[]}],
@@ -29,7 +29,7 @@
     {"type":"user/message","data":{"source":{"kind":"runtime-context"},"content":[{"type":"text","text":"fixture runtime context"}]}},
     {"type":"user/message","data":{"source":{"kind":"skill-catalog"},"content":[{"type":"text","text":"fixture skills"}]}},
     {"type":"request/header","data":{"header":{"config":{"provider":"fixture-provider","model":"fixture-model"}}}},
-    {"type":"assistant/message","data":{"turn":1,"message":[{"type":"text","text":"HOST_PROOF_OK"}]}},
+    {"type":"assistant/message","data":{"turn":1,"message":{"content":[{"type":"text","text":"HOST_PROOF_OK"}]}}},
     {"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}
   ]
 }
