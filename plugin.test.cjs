@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const Module = require("node:module");
+const { format } = require("node:util");
 const { connectPeer, serveWorker } = require("@sessionbus/kit");
 const { ACTIONS, activate, apply, createRuntime, settings, terminal } = require("./plugin.cjs");
 const packageVersion = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
@@ -30,10 +31,14 @@ class Context {
   constructor() {
     this.fiber = { uid: 1 };
     this.logs = [];
+    this.logArguments = [];
     this.loggers = [];
     this.logger = (name) => {
       const logger = Object.fromEntries(["warn", "error", "debug"].map(level =>
-        [level, (message) => this.logs.push({ name, level, message })]));
+        [level, (...args) => {
+          this.logArguments.push(args);
+          this.logs.push({ name, level, message: format(...args) });
+        }]));
       this.loggers.push(logger);
       return logger;
     };
@@ -253,6 +258,60 @@ test("W-146 trace off preserves explicit host logger levels", () => {
     assert.equal(ctx.logs[0].level, "error");
     runtime.close();
   }
+});
+
+test("W-146 diagnostic text is an argument, never a logger format string", async () => {
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  const reason = "daemon %s %d %% /path/%s";
+  const runtime = await activate(ctx, { product: "dashi" }, deps);
+  try {
+    ctx.ready();
+    deps.peers[0].finish(new Error(reason));
+    await new Promise(setImmediate);
+    assert.deepEqual(ctx.logArguments, [["%s", `sessionbus: ${reason}`]]);
+    assert.equal(ctx.logs[0].message, `sessionbus: ${reason}`);
+  } finally { await runtime.close(); }
+});
+
+test("W-146 apply carries the logger through capture into a running peer", async (t) => {
+  const output = [];
+  t.mock.method(process.stderr, "write", line => { output.push(line); return true; });
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  deps.stderr = line => process.stderr.write(line);
+  root.steer = message => ctx.emit("session/event", root.session, { type: "agent/inbox/spliced", data: { inserted: [message] } });
+  apply(ctx, { product: "dashi" }, deps);
+  try {
+    await new Promise(setImmediate);
+    assert.deepEqual(ctx.exits, [], "captured context must start, not fail activation");
+    assert.equal(typeof ctx.ready, "function");
+    ctx.ready();
+    assert.equal(deps.peers.length, 1);
+    const receipt = await deps.peers[0].deliver(null, delivery("captured peer delivery"));
+    assert.equal(receipt.disposition, "injected");
+    deps.peers[0].finish(new Error("captured-context diagnostic"));
+    await new Promise(setImmediate);
+    assert.deepEqual(ctx.logs.map(record => record.message), ["sessionbus: captured-context diagnostic"]);
+    assert.deepEqual(output, []);
+    assert.deepEqual(ctx.exits, []);
+    assert.equal(root.session.id, "session-fresh");
+  } finally { await ctx.dispose(); }
+});
+
+test("W-146 capture first preserves startup without a live launch-environment service", async () => {
+  const ctx = new Context(), deps = dependencies(ctx);
+  agent(ctx);
+  Object.defineProperty(ctx, "launchEnvironment", { get() { throw new Error("service unavailable"); } });
+  ctx.get = () => undefined;
+  apply(ctx, { product: "dashi" }, deps);
+  try {
+    await new Promise(setImmediate);
+    assert.deepEqual(ctx.exits, []);
+    assert.deepEqual(deps.errors, []);
+    assert.equal(typeof ctx.ready, "function");
+    ctx.ready();
+    assert.equal(deps.peers.length, 1);
+    assert.deepEqual(ctx.logs, []);
+  } finally { await ctx.dispose(); }
 });
 
 function agent(ctx, id = "session-fresh") {
@@ -551,7 +610,11 @@ test("a rejected peer hello is reported and a later title republishes", async ()
   }
 });
 
-test("W-146 socket retries log once per outage, recover and show last-attempt state without any RPC", async (t) => {
+for (const isTTY of [true, false]) {
+test(`W-146 socket retries log once per outage with ${isTTY ? "terminal" : "service"} stderr`, async (t) => {
+  const descriptor = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+  Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: isTTY });
+  t.after(() => { if (descriptor) Object.defineProperty(process.stderr, "isTTY", descriptor); else delete process.stderr.isTTY; });
   const output = [];
   t.mock.method(process.stderr, "write", (line) => { output.push(line); return true; });
   const malformed = new Context();
@@ -585,7 +648,7 @@ test("W-146 socket retries log once per outage, recover and show last-attempt st
     const held = deferred();
     t.after(() => held.resolve());
     while (scheduled.length === 0) await new Promise(setImmediate);
-    assert.deepEqual(output, [], "the real first socket failure must not reach stderr");
+    assert.deepEqual(output, isTTY ? [] : [`${ctx.logs[0].message}\n`], "connection stderr follows the stream's own TTY state");
     runtime.peers.get(root).rehello = held.promise;
     const failed = await show();
     assert.match(failed.text, /^\[\]\nLast connection attempt failed; sessionbus is not connected: connect ENOENT /u);
@@ -593,6 +656,7 @@ test("W-146 socket retries log once per outage, recover and show last-attempt st
     while (scheduled.length === 0) await new Promise(setImmediate);
     assert.equal(runtime.peers.get(root).peer, peer);
     assert.equal(ctx.logs.length, 1);
+    assert.equal(output.length, isTTY ? 0 : 1, "several retries produce only one service line");
     assert.match(ctx.logs[0].message, /^sessionbus: connect ENOENT /u);
     assert.deepEqual(await show(), failed);
 
@@ -624,6 +688,7 @@ test("W-146 socket retries log once per outage, recover and show last-attempt st
     scheduled.shift()();
     while (scheduled.length === 0) await new Promise(setImmediate);
     assert.equal(ctx.logs.length, 2, "the same failure is logged again after transport recovery");
+    assert.equal(output.length, isTTY ? 0 : 2, "a recovered session's second outage produces one more line");
     assert.deepEqual(await show(), failed);
     fs.mkdirSync(socket);
     scheduled.shift()();
@@ -636,7 +701,7 @@ test("W-146 socket retries log once per outage, recover and show last-attempt st
     scheduled.shift()();
     await new Promise(setImmediate);
     assert.equal(ctx.logs.length, 3, "shutdown does not schedule a new publication or log stale errors");
-    assert.deepEqual(output, []);
+    assert.deepEqual(output, isTTY ? [] : ctx.logs.map(record => `${record.message}\n`));
     assert.deepEqual(malformed.logs.map(record => record.message), ["sessionbus: DSH root identity is incomplete"]);
     assert.deepEqual(badDeps.errors, []);
   } finally {
@@ -646,6 +711,7 @@ test("W-146 socket retries log once per outage, recover and show last-attempt st
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+}
 
 test("W-146 socket errors from disposed and superseded roots are not logged", async (t) => {
   const output = [];

@@ -82,9 +82,10 @@ function readConfiguration(ctx, config = {}, ambient = process.env, onMode) {
 }
 function diagnostic(ctx, mode, stderr = (line) => process.stderr.write(line), tracing = false) {
   const logger = mode === "lane" ? undefined : Object.assign(ctx.logger(name), tracing ? { level: 3 } : {});
-  return mode === "lane" ? stderr : (line, trace, fatal) => {
-    if (fatal) stderr(line);
-    logger[trace ? "debug" : "error"](line.trimEnd());
+  const socketStderr = process.stderr.isTTY !== true;
+  return mode === "lane" ? stderr : (line, trace, fatal, connection) => {
+    if (fatal || connection && socketStderr) stderr(line);
+    logger[trace ? "debug" : "error"]("%s", line.trimEnd());
   };
 }
 
@@ -449,7 +450,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
   };
   const connectionError = (agent, error, record) => {
     const message = clean(error);
-    if (active() && peers.get(agent) === record && record.connectionError !== message) report(`sessionbus: ${message}\n`);
+    if (active() && peers.get(agent) === record && record.connectionError !== message) report(`sessionbus: ${message}\n`, false, false, true);
     record.connectionError = message;
   };
   const connect = (agent, current, tail = Promise.resolve(), previous) => {
@@ -703,8 +704,8 @@ async function activate(ctx, config = {}, dependencies = {}, prepared) {
 function apply(ctx, config = {}, dependencies = {}) {
   let captured, prepared, report;
   try {
-    prepared = readConfiguration(ctx, config, dependencies.ambient, (mode) => { report = diagnostic(ctx, mode, dependencies.stderr); });
     captured = captureContext(ctx);
+    prepared = readConfiguration(captured.context, config, dependencies.ambient, (mode) => { report = diagnostic(captured.context, mode, dependencies.stderr); });
   } catch (error) {
     (report || diagnostic(ctx, "peer", dependencies.stderr))(`sessionbus: ${clean(error)}\n`, false, true);
     try { ctx.appExit(1); } catch {}

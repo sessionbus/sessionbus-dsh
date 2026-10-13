@@ -9,8 +9,10 @@ host's terminal. The prior reconnect test even required two such stderr lines.
 
 Peer-mode diagnostics now use the published named Cordis logger, including
 configuration, context capture, activation, publication, title updates, deferred
-groups failures and opt-in debug traces. Non-fatal diagnostics have no stderr or
-console fallback. The two fatal startup paths retain exactly their former one
+groups failures and opt-in debug traces. Non-fatal diagnostics never write to a
+terminal or console. The connection diagnostic also goes to non-terminal stderr
+once per outage for each session, retaining service-journal visibility. The two
+fatal startup paths retain exactly their former one
 stderr line before exit 1, and also log at error: a launch that ends must say why.
 The published `@deepseek-ai/cordis@4.0.5-alpha.1` API is
 `lib/types/context.d.ts:26-27` and `lib/types/logger.d.ts:77-101`; its default
@@ -24,15 +26,20 @@ export (`lib/index.js:473-474`). Only when the existing trace option is on does
 the named facade set its public `level` to 3 for debug records; trace off leaves
 it untouched. An exporter's explicit level filter still takes precedence. No
 global logger or exporter is changed, and no plugin diagnostic uses warn.
+Every logger call passes the literal text as the argument to `%s`, not as a
+format string. DSH alpha.2 buffers the record but supplies no presentation;
+the session's no-argument command is the terminal user's visibility surface.
 
 Launch mode is selected once from the immutable launch snapshot when available,
-before validating the product or capturing the remaining services. The one
+after capturing the services and before validating the product. Capture keeps
+0.1.3's tolerance for an unavailable live launch-environment service. The one
 synchronous mode callback selects the startup diagnostic sink; it does not add
 a second token read or a lifecycle observer. Invalid peer activation still
 requests exit 1 with its original stderr reason and an error log. Invalid lane
 activation still
 writes the same stderr text and requests the same exit. A failure before mode
-can be read has no authority to assume a lane and has no terminal fallback.
+can be read uses the peer fatal path: one stderr reason and an ERROR record,
+never an assumption that the host is a lane.
 
 An existing peer record holds only its last failed socket attempt's flattened
 message. Equal errors are logged once until the socket connects; a different
@@ -54,8 +61,8 @@ inbound/outbound delivery, active/idle wake, native identity, terminal results
 and later valid delivery are unchanged. No send is added or replayed, no pending
 input is discarded, and there is no backoff, polling, new dependency or process.
 
-The production diff against 37d1e97 is exactly +27/-16 lines in `plugin.cjs`
-(43 diff lines, 11 net), granted for the fatal exception. It is not compressed
+The production diff against 37d1e97 is exactly +28/-16 lines in `plugin.cjs`
+(44 diff lines, 12 net), within the granted 46-line ceiling. It is not compressed
 into a new framework. Other runtime
 files and the lock/dependency graph do not change. The universal driver's plain
 published baseline moves from 0.1.2 to 0.1.3, the newest published release.
@@ -70,11 +77,17 @@ activation, publication, terminal publication, title, deferred groups and trace.
 Trace records require debug; other diagnostics require error. The startup control
 reads the token once even with invalid configuration, and retains exact lane
 stderr and exit behavior.
+The apply-to-running-peer control exercises the captured logger through delivery
+and a later diagnostic; removing that captured service must fail. Another
+control pins capture-first startup when the live launch-environment getter
+throws. Literal percent forms stay unchanged and arrive as logger arguments.
 
 The real-kit socket control covers repeated ENOENT attempts, the unchanged
 2000 ms schedule, recovery with the same peer object, a second outage, a distinct
 socket failure, immediate last-attempt output while serialized work is pending,
-zero calls from show, and shutdown. Actual late socket errors from disposed and
+zero calls from show, and shutdown, with both terminal and non-terminal stderr.
+The former receives zero lines; the latter exactly one across retries and one
+more after recovery and another outage. Actual late socket errors from disposed and
 superseded roots cannot log or modify the replacement's shown state. The old
 publication/groups/trace assertions now require the same diagnostic in the
 logger and zero injected stderr; their lifecycle/continuity assertions remain.
@@ -95,6 +108,23 @@ log records, an unconditional level increase, a lost mode handoff, repeated
 socket diagnostics, stale socket diagnostics and failure to clear after recovery.
 The actual corrected source is restored and passes afterward.
 
+The correction controls first fail on the reviewed head for literal diagnostic
+text used as a format, live-context startup intolerance and absent service
+stderr. They pass after the correction; removing the captured logger then fails
+the apply-to-running-peer control. The initial version of that new control used
+the wrong delivery callback arguments; that retained test-harness failure was
+corrected before it was counted as evidence. The deferred-groups observer is
+executed directly with generated stderr-only and logger-only failures, not just
+checked for assertion text. Both fail, and its clean control passes.
+
+The corrected npm 11.12.1 Linux x64 pack has nine files, 28,550 archive bytes and
+92,310 unpacked bytes. Its SHA-256 is
+`2a001608a353e7c06c3e70a4f9b3e71b631494282393a4fed400e2cee8b82831`.
+Against published 0.1.3 only README.md, package.json's version line and plugin.cjs
+change. All six other files, their modes, dependencies, peers and lock remain
+identical. plugin.cjs hashes to
+`a278680025b8167c32a5be5e9a37737d8b8a5fbd045963238581c5a59e8c35c4`.
+
 The full suite, packed DSH alpha.2 proof, native alpha.1 refusal and universal
 Linux rows are run locally with raw output retained. The unchanged hosted matrix
 covers Linux and macOS installation rows. The normal-install host proof is a
@@ -104,7 +134,8 @@ The first packed gate stopped at its old assertion requiring one peer stderr
 socket line. That retained failure proves the old oracle contradicts this item,
 not that native admission or delivery failed. The existing ask-all fixture now
 registers a public native logger exporter to a generated work-local JSONL file.
-The replacement asserts one error socket record and no plugin stderr before and
+The final replacement asserts one error socket record and the same one line on
+the fixture's non-terminal stderr before and
 after the same delayed-daemon recovery. Permission, active/idle delivery, trace
 and later round-trip assertions are unchanged; no timer is increased. This
 fixture is only a synthetic repository gate, not normal-install host evidence.
@@ -120,8 +151,9 @@ stopped at the corrupt-groups startup oracle requiring stderr. This was a real
 startup regression, not an obsolete oracle: the user got exit 1 without a reason.
 The ruling restores fatal stderr and also logs the reason. The exact original
 stderr, exit and byte-identical corrupt-record checks stay unchanged. The two
-no-deferred-diagnostic checks read the native log rather than becoming vacuous
-stderr checks. A proposed oracle replacement was withdrawn before any pass;
+no-deferred-diagnostic checks read the native log alongside their original stderr
+checks, so neither a logger-only nor stderr-only deferred error passes. A proposed
+oracle replacement was withdrawn before any pass;
 an isolated diagnostic attempt also stopped before boot because its parent work
 directory was not created, and is retained without claiming a result.
 One withdrawn in-flight level-proposal run met a shell read-offset
@@ -138,7 +170,8 @@ processes. Start only the proof's own web process with the supported
 `SESSIONBUS_SOCKET` pointing at a verified absent short path. No other variable
 or configuration differs. The profile must not set an explicit socket, which
 would override the environment. Over fifteen idle seconds require no plugin
-stderr, one native diagnostic and the command's last-failed-attempt line. A
+stderr on a PTY and exactly one line with stderr to a file, one native diagnostic
+in both, and the command's last-failed-attempt line. A
 second own instance on the real socket must connect and exchange a peer message.
 No login link or token is written into evidence captures.
 

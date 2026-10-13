@@ -8,7 +8,7 @@ module.exports = {
     const logFile = process.env.DSH_W146_LOG_FILE;
     if (logFile) ctx.logger.exporter({ export: message => {
       if (message.name === "sessionbus-dsh") fs.appendFileSync(logFile,
-        JSON.stringify({ type: message.type, message: message.args[0],
+        JSON.stringify({ type: message.type, format: message.args[0], message: message.args[1],
           buffered: ctx.logger.buffer.some(record => record.sn === message.sn) }) + "\n");
     } });
     ctx.tools.register({

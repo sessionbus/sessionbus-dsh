@@ -156,14 +156,19 @@ Peer publication retries through the kit's reconnect path when the daemon is
 unavailable. In peer mode non-fatal diagnostics use DSH's named
 `sessionbus-dsh` logger at error severity, never the running host's terminal.
 Fatal startup failures also print their one-line reason to stderr before exit 1,
-so a failed launch explains why it ended. Equal socket errors are
-logged once per outage and again after a successful connection and later
-failure; reconnect timing is unchanged. The host owns log presentation.
+so a failed launch explains why it ended. Equal socket errors are logged
+once per outage for each session and again after a successful connection and
+later failure; reconnect timing is unchanged. When stderr is not a terminal
+(a service, pipe or file), that connection diagnostic also goes to stderr once
+per outage for each session. On a terminal host, use `/sessionbus-groups` in
+a session to see the last connection attempt's failure. DSH 0.2.1-alpha.2 keeps
+the logger record in memory but does not present it; that is a DSH visibility gap.
 `/sessionbus-groups` adds the last connection attempt's error when it failed;
 it makes no bus call and does not wait or promise current admission.
 Set `SESSIONBUS_DSH_TRACE=1` for mode, readiness, root-lifecycle,
 publication-gate and socket-connection traces: debug logs in peer mode,
-stderr in daemon-managed lane mode. Tracing is off by default, and lane
+which need a host logger exporter to be visible, and stderr in daemon-managed
+lane mode. Tracing is off by default, and lane
 diagnostics continue to use stderr owned by the daemon.
 
 The lane advertises no native extra arguments. A non-empty `open.arguments`

@@ -135,11 +135,12 @@ const records = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(
 const errors = records.filter(record => /^sessionbus: connect /u.test(record.message));
 assert.equal(errors.length, 1, "one native socket diagnostic per outage, not one per retry");
 assert.equal(errors[0].type, "error");
+assert.equal(errors[0].format, "%s", "native logger receives the diagnostic as a format argument");
 assert.equal(errors[0].buffered, true, "the default native buffer, not just the fixture exporter, receives the diagnostic");
 assert.equal(records.some(record => record.type === "debug"), false, "trace off keeps no plugin debug record");
 assert.match(errors[0].message, /^sessionbus: connect ENOENT /u);
-assert.doesNotMatch(fs.readFileSync(process.argv[3], "utf8"), /^sessionbus(?: trace)?:/mu,
-  "peer plugin must never write the interactive host's stderr");
+assert.deepEqual(fs.readFileSync(process.argv[3], "utf8").split("\n").filter(line => /^sessionbus(?: trace)?:/u.test(line)),
+  [errors[0].message], "non-terminal stderr keeps exactly one connection line per outage for this session");
 NODE
 }
 assert_turn_error_proof() {

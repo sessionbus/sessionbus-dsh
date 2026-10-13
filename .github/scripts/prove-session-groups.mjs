@@ -96,6 +96,7 @@ const launchWeb = async label => {
   };
   const command = async (id, line) => {
     const diagnostics = pluginLog(logFile).length;
+    const stderr = child.errors.length;
     const execution = await rpc('commands/execute', { agentId: id, line, submittedAttachments: [] });
     assert.equal(execution.result.kind, 'success', JSON.stringify(execution));
     const progress = 'change in progress; `/sessionbus-groups` with no argument shows the result';
@@ -113,9 +114,11 @@ const launchWeb = async label => {
     for (;;) {
       bound.throwIfAborted();
       assert.deepEqual(pluginLog(logFile).slice(diagnostics), [], 'no deferred plugin diagnostic');
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(stderr)), false, child.errors.slice(stderr));
       const shown = await rpc('commands/execute', { agentId: id, line: '/sessionbus-groups', submittedAttachments: [] }, bound);
       assert.equal(shown.result.kind, 'success', JSON.stringify(shown));
       assert.deepEqual(pluginLog(logFile).slice(diagnostics), [], 'no deferred plugin diagnostic');
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(stderr)), false, child.errors.slice(stderr));
       const live = JSON.stringify(JSON.parse(shown.result.text)) === JSON.stringify(wanted);
       const durable = input === '-' ? !fs.existsSync(record)
         : fs.existsSync(record) && JSON.stringify(JSON.parse(fs.readFileSync(record)).record) === JSON.stringify(wanted);
