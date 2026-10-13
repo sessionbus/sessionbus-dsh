@@ -66,7 +66,8 @@ const sources = { plugin: { version, file: pluginFile, sha256: hash(fs.readFileS
 for (const name of ['@deepseek-ai/dsh-agent-loop', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-llm-retry',
   '@deepseek-ai/dsh-api-session-controller']) {
   const file = requireDSH.resolve(name), manifest = JSON.parse(fs.readFileSync(requireDSH.resolve(name + '/package.json')));
-  assert.equal(manifest.version, '0.2.1-alpha.2');
+  assert.equal(manifest.version, '0.2.1-alpha.2',
+    `Known-gap proof pins ${name} to DSH 0.2.1-alpha.2; found ${manifest.version}. Re-run the known-gap cases against the new DSH version and update the pin.`);
   sources[name] = { file, version: manifest.version, sha256: hash(fs.readFileSync(file)) };
 }
 save('sources.json', sources);
@@ -375,5 +376,8 @@ function walk(directory) {
 }
 walk(work);
 fs.writeFileSync(path.join(work, 'MANIFEST.sha256'), files.map(file => hash(fs.readFileSync(file)) + '  ' + path.relative(work, file)).join('\n') + '\n');
-if (primary) throw primary;
+if (primary) {
+  console.error(`peer pending-input STOP: ${current}; ${primary.message}`);
+  throw primary;
+}
 console.log(`DSH ${sources['@deepseek-ai/dsh-agent-loop'].version} peer pending-input known gaps and recovery: ${results.length}/13 PASS; evidence=${work}`);

@@ -40,11 +40,10 @@ jobs:
           KEEP_PROOF: '1'
       - name: Keep synthetic peer pending-input captures
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@v7
         with:
           name: peer-pending-input-${{ matrix.dsh }}
           path: ${{ runner.temp }}/sessionbus-dsh-proof.*/peer-pending-input/**
-          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 

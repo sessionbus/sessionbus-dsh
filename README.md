@@ -209,7 +209,8 @@ by the daemon; the plugin accepts and does not consume groups in `session.open`.
 
 ## Message receipts
 
-`injected` means the message was admitted, not that it was read or answered.
+A send returns a receipt for each recipient. `injected` means the message was
+admitted into the recipient's inbox, not that it was read or answered.
 In an interactive DSH or dashi session, a message delivered while the recipient's
 turn is running is taken at that turn's next step. If the turn ends in an error
 or is cancelled before taking it, the message stays waiting: nothing starts a
@@ -217,9 +218,10 @@ new turn for it until another message arrives or the user types a prompt. You
 can therefore see a delivered message with no answer, then both messages appear
 when the next message or prompt wakes the session. Send another message or
 prompt that session; do not resend the already-admitted message just because
-it has no answer. Longer provider timeouts and fewer error-ended turns can make
-this DSH wakeup limitation less frequent, but do not guarantee an answer.
-DSH has open discussions about [error-ended turns](https://github.com/deepseek-ai/deepseek-harness/discussions/4952)
+it has no answer. Fewer error-ended turns (for example a provider timeout that
+fits how long your model takes to answer) make this less frequent, but do not
+guarantee an answer.
+DSH has discussions about [error-ended turns](https://github.com/deepseek-ai/deepseek-harness/discussions/4952)
 and [retained input after cancellation](https://github.com/deepseek-ai/deepseek-harness/discussions/4832).
 
 ## Per-session groups

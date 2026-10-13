@@ -3,7 +3,7 @@
 ## 0.1.3 — 2026-10-13
 
 - Explain that `injected` is admission, not reading or a reply, and that input admitted during a turn can remain waiting when that turn errors or is cancelled; another message or typed prompt wakes it. No runtime or receipt behavior changes.
-- Pin the known DSH pending-wake gap and ordinary wake controls using a private home, released private daemon and controllable adapter, plus the plugin-free published Agent reduction. These are assertions of today's gap, not desired behavior.
+- Pin the known DSH pending-wake gap and ordinary wake controls using a private home, released private daemon and controllable adapter. These are assertions of today's gap, not desired behavior.
 
 ## 0.1.2 — 2026-10-12
 
