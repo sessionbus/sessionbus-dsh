@@ -1,9 +1,16 @@
 "use strict";
+const fs = require("node:fs");
 
 module.exports = {
   name: "w081-ask-all",
   inject: ["tools"],
   apply(ctx) {
+    const logFile = process.env.DSH_W146_LOG_FILE;
+    if (logFile) ctx.logger.exporter({ export: message => {
+      if (message.name === "sessionbus-dsh") fs.appendFileSync(logFile,
+        JSON.stringify({ type: message.type, message: message.args[0],
+          buffered: ctx.logger.buffer.some(record => record.sn === message.sn) }) + "\n");
+    } });
     ctx.tools.register({
       name: "w081_dummy",
       description: "W-081 approval negative control.",

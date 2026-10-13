@@ -8,6 +8,14 @@ module.exports = {
   name: "w120-groups-proof",
   inject: ["commands", "pluginPackages", "tools"],
   apply(ctx) {
+    const logFile = process.env.DSH_W146_LOG_FILE;
+    if (logFile) {
+      const save = message => { if (message.name === "sessionbus-dsh") fs.appendFileSync(logFile,
+        JSON.stringify({ type: message.type, message: message.args[0],
+          buffered: ctx.logger.buffer.some(record => record.sn === message.sn) }) + "\n"); };
+      ctx.logger.buffer.forEach(save);
+      ctx.logger.exporter({ export: save });
+    }
     // Test-only human bridge invokes the actual registered plugin tool on this exact Agent.
     ctx.commands.register({
       name: "w120-call",

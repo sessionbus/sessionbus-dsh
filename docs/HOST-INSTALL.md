@@ -16,11 +16,11 @@ tools and `/proc` checks are Linux-specific. Run it as the ordinary account retu
 account is `antst` and its home is `/home/antst`; earlier references to `pdev`
 were wrong. The target set is DSH `0.2.1-alpha.2`, `@antst/dashi-launcher`
 `0.2.0-alpha.2`, `@antst/dashi-app` `0.2.0-alpha.2`, `@sessionbus/dsh`
-`0.1.3`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
+`0.1.4`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
 `v0.5.9` or newer. The dsh host runs `v0.5.12` at revision
 `fd85d7ee3a19735b2712fbbacdef30d62720cd5b`; v0.5.12 is not a higher host minimum.
 The published dashi target pins plugin pre.20 and its own exact upload provider.
-The 0.1.3 candidate beside that pin is a labelled coexistence case, not a
+The 0.1.4 candidate beside that pin is a labelled coexistence case, not a
 one-plugin-copy claim. Upload acceptance observes the mounted row and the
 registered service, never a count of physical packages or lock records.
 Use the plugin source at
@@ -70,7 +70,7 @@ Run these exact probes immediately before starting:
 ```sh
 npm view @antst/dashi@0.2.0-alpha.2 version && npm view @antst/dashi-app@0.2.0-alpha.2 version
 npm view @antst/dashi-launcher@0.2.0-alpha.2 version && npm view @antst/dsh-file-uploads-none@0.2.0-alpha.2 version
-npm view @sessionbus/dsh@0.1.3 version && npm view @sessionbus/kit@0.5.12 version
+npm view @sessionbus/dsh@0.1.4 version && npm view @sessionbus/kit@0.5.12 version
 ```
 
 Expected output, in order:
@@ -80,7 +80,7 @@ Expected output, in order:
 0.2.0-alpha.2
 0.2.0-alpha.2
 0.2.0-alpha.2
-0.1.3
+0.1.4
 0.5.12
 ```
 
@@ -848,7 +848,7 @@ records, all alpha.2, with zero records of the three absent names. A network or
 auth failure cannot take this path. These counts are evidence, not fixed targets.
 
 DSH owns the plugin floor (`0.2.1-alpha.2`). Its native add refuses an incompatible
-plugin with `Plugin @sessionbus/dsh@0.1.3 is incompatible with dsh
+plugin with `Plugin @sessionbus/dsh@0.1.4 is incompatible with dsh
 0.2.1-alpha.1`; a forced boot disables the row with the same readable reason.
 Stop on that refusal; do not grant a version exemption. The rows-only installer
 does not infer a CLI installation from a bin, home directory or package layout.
@@ -997,13 +997,13 @@ gets only the plugin package; there is no external upload-provider requirement:
 
 ```sh
 cd "$DSH_INSTALL_DIR"
-pnpm add --save-exact @sessionbus/dsh@0.1.3
+pnpm add --save-exact @sessionbus/dsh@0.1.4
 test -x "$HOST_BIN_DIR/sessionbus-dsh"
 repair_dsh_graph "$DSH_INSTALL_DIR" 0.2.1-alpha.2 report headless
 test "$?" -eq 0 || exit 1
 ```
 
-Expected output reports `@sessionbus/dsh 0.1.3`,
+Expected output reports `@sessionbus/dsh 0.1.4`,
 and a nonzero host DSH
 count at the single version `0.2.1-alpha.2`.
 
@@ -1034,7 +1034,7 @@ the dashi profile: the dashi product runs the plugin version that dashi-app
 pins, until dashi-app publishes a newer pin.
 
 ```sh
-"$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.3
+"$DSH_BIN" plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.4
 repair_dsh_graph "$DSH_HOME/profiles/sessionbus" 0.2.1-alpha.2 report sessionbus
 test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile sessionbus exec sessionbus-dsh-install
@@ -1043,7 +1043,7 @@ pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0 @sessionbus/dsh
 grep -F 'config: { mode: lane, product: sessionbus-dsh }' "$DSH_HOME/profiles/sessionbus/cordis.patch.yml"
 ```
 
-Expected output contains `@sessionbus/dsh 0.1.3` for the sessionbus
+Expected output contains `@sessionbus/dsh 0.1.4` for the sessionbus
 profile and the exact version pinned by dashi-app for the dashi profile, no DSH
 version other than alpha.2 in the lane graph (which may have zero DSH records),
 and this lane profile entry:
@@ -1060,7 +1060,7 @@ group. Re-check its graph immediately after the package add:
 if [ ! -f "$DSH_HOME/profiles/web/package.json" ]; then
   "$DSH_BIN" --profile web --dump-default-config >"$ROLLBACK_ROOT/web-default-config.yml"
 fi
-"$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.3
+"$DSH_BIN" plugin --profile web add --save-exact @sessionbus/dsh@0.1.4
 repair_dsh_graph "$DSH_HOME/profiles/web" 0.2.1-alpha.2 report web
 test "$?" -eq 0 || exit 1
 "$DSH_BIN" plugin --profile web exec sessionbus-dsh-install --product dsh web
@@ -1963,7 +1963,7 @@ for profile_name in web sessionbus; do
   installer="$DSH_HOME/profiles/$profile_name/node_modules/.bin/sessionbus-dsh-install"
   package="$DSH_HOME/profiles/$profile_name/node_modules/@sessionbus/dsh/package.json"
   installed_version=$(if [ -f "$package" ]; then node -p 'require(process.argv[1]).version' "$package" 2>/dev/null || true; fi)
-  if [ "$installed_version" = '0.1.3' ] && [ -x "$installer" ]; then
+  if [ "$installed_version" = '0.1.4' ] && [ -x "$installer" ]; then
     pnpm --dir "$DSH_HOME/profiles/$profile_name" exec sessionbus-dsh-install --remove "$profile_name"
   fi
 done
