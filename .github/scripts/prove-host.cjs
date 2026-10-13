@@ -404,6 +404,8 @@ function local() {
       metadata = {};
     function walk(file, name) {
       const m = (metadata[name] = meta(file));
+      // Shared-store link/ctime churn is recorded, but is not a write to an unopened leaf.
+      const { type, size, mode, uid, gid, mtime, inode } = m;
       if (m.type === "directory") {
         for (const n of fs.readdirSync(file).sort()) walk(path.join(file, n), name ? name + "/" + n : n);
       } else
@@ -411,7 +413,7 @@ function local() {
           m.type === "symlink"
             ? { link: m.link }
             : m.type !== "file" || metadataOnly || privateFile(file)
-              ? { metadataOnly: m }
+              ? { metadataOnly: { type, size, mode, uid, gid, mtime, inode } }
               : { sha256: hash(read(file)) };
     }
     walk(root, "");
@@ -937,8 +939,8 @@ async function observation(kind, p, label, extra, system = nativeSystem) {
       limits: [
         "Profile proof only; without acceptance no fresh native lane/runtime observation is claimed.",
         "Protected ordinary metadata changes are reported, not hidden; credential files are metadata-only.",
-        "A same-size credential rewrite with restored times may escape metadata coverage; " +
-          "ctime makes that hard without privilege.",
+        "An unopened file written in place with the same size and restored mtime is not detected; " +
+          "link count and ctime changes are recorded, not equality requirements.",
         "No retries or cleanup of native session/cache history; stopped lanes follow native policy.",
       ],
     });

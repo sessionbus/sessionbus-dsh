@@ -372,6 +372,12 @@ test("wrong inputs STOP before consuming a tool, including profile correspondenc
     (p) => delete p.operation,
     (p) => (p.sessionsDir += "/wrong"),
     (p) => (p.profile = "bystander"),
+    ...["lane", "peer"].map((mode) => (p) => {
+      p.mode = mode;
+      p.profile = mode === "lane" ? "web" : "sessionbus";
+      p.profileDir = `${p.dshHome}/profiles/${p.profile}`;
+      p.acceptance = false;
+    }),
     (p) => (p.packet = p.profileDir + "/packet"),
     (p) => (p.mode = "other"),
     (p) => (p.dsh = []),
@@ -487,12 +493,77 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
   for (const [options, phase] of [
     [{ workers: 1 }, "before"],
     [{ leakWorker: true }, "after-close"],
+    [{ badRoster: true }, "absent"],
   ]) {
     const r = await replay(t, options),
       result = await r.run();
     assert.equal(result.result, "STOP");
     assert.equal(result.stopped.phase, phase);
+    if (phase === "absent")
+      assert.deepEqual(json(r.p.packet + "/STOP.json").liveLanes, ["session-fixture@fixture"]);
   }
+});
+test("unopened leaves tolerate only link metadata churn at both comparison boundaries", async (t) => {
+  for (const scope of ["protected", "profile"])
+    for (const change of ["link", "size", "mtime", "mode", "inode"])
+      await t.test(`${scope}/${change}`, async (t) => {
+        let file, before, after;
+        const phase = scope === "protected" ? "installed" : "before-open";
+        const relative = (scope === "protected" ? "" : "node_modules/") + "credential-fixture.ts";
+        const r = await replay(t, {
+          before: async ({ label, p }) => {
+            if (label === "before") {
+              file = (scope === "protected" ? p.protected[0].path : p.profileDir) + "/" + relative;
+              fs.writeFileSync(file, "fixture\n", { mode: 0o600 });
+              fs.utimesSync(file, new Date(1000), new Date(1000));
+              before = api.local().meta(file);
+            }
+            if (label !== phase) return;
+            if (change === "link") {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              fs.linkSync(file, path.dirname(p.packet) + "/second-link");
+            } else if (change === "size") {
+              fs.appendFileSync(file, "x");
+              fs.utimesSync(file, new Date(1000), new Date(1000));
+            } else if (change === "mtime") fs.utimesSync(file, new Date(2000), new Date(2000));
+            else if (change === "mode") fs.chmodSync(file, 0o400);
+            else {
+              const replacement = path.dirname(p.packet) + "/replacement";
+              fs.writeFileSync(replacement, "fixture\n", { mode: 0o600 });
+              fs.utimesSync(replacement, new Date(1000), new Date(1000));
+              fs.renameSync(replacement, file);
+            }
+            after = api.local().meta(file);
+          },
+        });
+        const read = fs.readFileSync;
+        fs.readFileSync = function (name, ...args) {
+          assert.notEqual(String(name), file, "name-classified file must never be opened");
+          return read.call(this, name, ...args);
+        };
+        let result;
+        try {
+          result = await r.run();
+        } finally {
+          fs.readFileSync = read;
+        }
+        const stable = ["type", "size", "mode", "uid", "gid", "mtime", "inode"];
+        for (const key of stable.filter((key) => key !== change)) assert.equal(after[key], before[key], key);
+        const error = result.stopped && json(r.p.packet + "/" + result.stopped.phase + ".observation.json").error;
+        if (error) assert.ok(error.includes(scope === "protected" ? "protected bytes/links" : "profile bytes"), error);
+        assert.equal(result.result, change === "link" ? "PASS" : "STOP", JSON.stringify({ result, error }));
+        if (change === "link") {
+          assert.equal(Number(after.links), Number(before.links) + 1);
+          assert.notEqual(after.ctime, before.ctime);
+          const report = scope === "protected" ? "installed-metadata-0.json" : "before-open-profile-metadata.json";
+          const delta = json(r.p.packet + "/" + report).find((entry) => entry.path === relative);
+          assert.deepEqual(delta, { path: relative, before, after });
+        } else {
+          assert.equal(result.stopped.phase, phase);
+          assert.notEqual(after[change], before[change], change);
+        }
+        manifest(r.p.packet);
+      });
 });
 test("registry archive directory names are not archive-reference tokens; marker admits punctuation", async (t) => {
   for (const name of ["dsh", version]) {

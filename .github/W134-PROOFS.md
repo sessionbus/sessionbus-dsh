@@ -247,8 +247,51 @@ inventories were removed rather than presented as a check. No complete residue
 inventory is claimed and native history is never deleted.
 Credential-bearing names and explicitly marked paths are
 metadata-only, never opened; an unclassified sensitive file must be marked by
-the brief. A same-size rewrite with restored times can escape metadata-only
-coverage (ctime makes that hard without privilege). No daemon environment read.
+the brief. For an unopened leaf (explicit metadata-only, name-classified or
+special), equality requires type, size, mode, uid, gid, mtime and inode. Link
+count and ctime remain in the full capture and metadata-difference list but are
+not equality requirements: pnpm's shared-store hard links change both when
+another install creates or drops a link, without a write to this file. The
+classification is unchanged, with no package-tree exemption or newly opened
+name-classified file. Ordinary regular files remain content-hash-only.
+Cost: a write in place that keeps the size and restores mtime is not detected
+for unopened files; that is the price of not opening them. No daemon environment
+read.
+
+### Shared-store preflight correction (second W-134 pull request)
+
+The merged runner at `c388569` compared the entire unopened-leaf metadata record
+in its equality map. The read-only host preflight found 507 hard-linked regular
+files with credential-like names in the protected package trees; their link
+count/ctime churn could therefore stop the proof after its own successful add.
+No host proof was run on that head. The corrected equality projection is made
+once in the tree producer, serving both protected-root and active-profile
+comparisons. Full metadata differences are still captured for both.
+
+The exact real-observer controls create a synthetic `credential-fixture.ts`,
+then create a second link outside the observed tree between snapshots. Protected
+roots use installed versus before; the active profile uses before-open versus
+installed. Both stop on the merged base and pass after the correction, with
+the link count and ctime difference observed in the respective metadata report.
+Size, mtime, mode and rename-to-new-inode changes still stop at both boundaries;
+each control preserves every other equality field, including restoring mtime
+after changing size or replacing the inode. A read spy rejects any content read
+of the name-classified fixture. On base, the selected controls report ten passes
+and three failures: two link controls plus their enclosing aggregate, not three
+independent defects. The two carried controls pin the lane id in the bad
+post-forget roster's STOP record and reject lane/peer mismatch even with a
+consistent profile name and profileDir, before consuming any tool.
+
+Snapshot cost is explicit, not bounded: the independent read-only protected-root
+walk on this host on 2026-10-13 took 27.887879 seconds for 116,835 entries,
+91,575 content hashes and 1,559,400,945 bytes across the sixteen proposed roots.
+It invoked no runner or native operation. A lane proof has six snapshots plus
+two per refusal: with three refusals, twelve walks at that measured rate cost
+about 334.7 seconds (5m35s); without refusals, six cost about 167.3 seconds.
+Active-profile walks, map serialization, process checks, commands, native work
+and the settle delay are additional. These are a cost estimate from one measured
+walk, not a full-run timing or a deadline. No snapshot bound is added; the
+observer's one-second polling yield is not a timeout.
 
 Non-regular protected entries are lstat metadata only, never opened (including
 named pipes); ordinary regular files remain byte-hashed.
@@ -263,8 +306,8 @@ stand-in or its mocked delay/process listing.
 
 ## Pack and gates
 
-The maintained runner is 1037 lines / 44,071 bytes and its test is 773 lines /
-31,910 bytes, both at a maximum of 120 columns (ceilings: 1100 and 780 lines).
+The maintained runner is 1039 lines / 44,305 bytes and its test is 844 lines /
+35,646 bytes, both at a maximum of 120 columns (ceilings: 1100 and 860 lines).
 The earlier mock-flag cases and the one-call quote/bus-value/hash helpers were
 removed. The runner's six parts account for every line:
 
@@ -272,7 +315,7 @@ removed. The runner's six parts account for every line:
 | --- | ---: | --- |
 | Parameters and lifecycle predicate | 122 | Refuses wrong profile, overlapping protected roots, omitted inputs, unsafe labels and packet placement before any tool call. |
 | Call-time runner and terminal STOP | 222 | Preserves failed calls, identifies live lanes, distinguishes retained/forgotten rows and null rejections without retry; model punctuation no longer causes a false failure. |
-| Disk maps, owned spans and native-log predicates | 233 | Fixes parser/relay/span assumptions; credential and special files are metadata-only and cannot block on a FIFO. |
+| Disk maps, owned spans and native-log predicates | 235 | Fixes parser/relay/span assumptions; unopened leaves stay unread and permit shared-store link/ctime churn without losing the remaining metadata predicates. |
 | Owned command capture | 74 | Keeps large output off stdout, permits one-second drain without post-exit signals and gives the installer a loaded-host margin. |
 | Real observer | 312 | Records open-schema install metadata and real source/report/seal evidence; unused full inventories and duplicate boot checks removed. |
 | Direct argv, native process boundary and CLI | 74 | Identifies actual argv without environ, permits replaced process observations and exposes only exercised APIs. |
