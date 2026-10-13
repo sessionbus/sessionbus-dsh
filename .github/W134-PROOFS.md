@@ -126,7 +126,9 @@ the data home and target (`dshHome`, `profileDir`, `profile`), package
 (`version`, `archive`, `archiveSha256`), explicit new `packet`, and `source`.
 Also supply `product`, `protected: [{path, metadataOnly?}]`, `sessionsDir`, `cacheDir`,
 `zstd`; optionally protected `ownerPid`/`daemonPid`. Lane acceptance additionally
-names `host`, `input`, `answer`. For peer installer arguments name
+names `host`, `input`, `answer` and `acceptanceWaitMs` (integer milliseconds,
+60000 through 900000 inclusive, required with acceptance true, no default).
+For peer installer arguments name
 its peer product (normally `dsh`). The archive operand must already be durable;
 the script never moves or edits it. `DSH_HOME` selects the same named profile
 whose files are observed; it is not an inferred executing-CLI installation.
@@ -236,7 +238,8 @@ and no peer delivery. Those remain existing native CI/host-driver evidence, not
 an inferred claim from nine installed files. Acquisition has no per-command
 deadline; the version command also allows cold npx acquisition under that outer
 limit. Installer work retains a 60-second bound (rather than 10 seconds on a
-loaded host); decode/unpack keep 10 seconds and the native result wait 60 seconds.
+loaded host); decode/unpack keep 10 seconds. The single native result wait uses
+the operator's explicit `acceptanceWaitMs`; it adds no polling or second wait.
 An owned group leak fails; after the parent exit is observed the runner never
 signals that group and reports the failure rather than risk a recycled pid.
 Protected process identity and ordinary tree bytes/links must hold;
@@ -293,6 +296,47 @@ and the settle delay are additional. These are a cost estimate from one measured
 walk, not a full-run timing or a deadline. No snapshot bound is added; the
 observer's one-second polling yield is not a timeout.
 
+### Real-turn wait correction (third W-134 pull request)
+
+The first maintained-runner host proof at main `8c865c2` upgraded the lane to the
+candidate cleanly, then its fixed 60000 ms wait returned running. Its old generic
+`turn failed` STOP was not a native failure. The lane subsequently completed with
+the marker: relay to terminal 160.314 s, request to first recorded model output
+156.437 s. The owner explained that the model server was overloaded. No tight
+real-turn wait is inferred from an earlier fast sample; latency is weather.
+
+The operator chooses the acceptance wait before the run from the model's behavior.
+It must be an explicitly supplied integer in [60000, 900000] whenever acceptance
+is true. There is no default or inferred value; acceptance false needs no field
+and performs no wait. Invalid values refuse at input with zero tools. That one
+parameter is passed to the existing one-shot Sessionbus wait as timeout_ms; all
+other acquisition, installer, decode, settle and group waits remain unchanged.
+
+A wait returning running now has its own STOP message naming the bound and live
+lane: `turn still running at acceptance wait bound (...)`. Actual failed turns
+keep the separate failure message. Both preserve the raw response and live lane
+in STOP and make no ack, close, retry, interrupt or repeated wait. A longer bound
+does not reserve an ended lane's result forever or change its retirement policy.
+
+The lane retires itself sixty seconds after its terminal record. When the runner
+stops at the bound it no longer collects; after that retirement the uncollected
+result is lost. Choose the wait so the runner is still waiting when the turn ends.
+On this host the separately authorized status then answered unknown_session;
+the native log showed completed and no worker remained. The architect ruled the
+operator action closed: nothing was acknowledged or closed after that error.
+The sealed STOP and separate operator captures remain unchanged. The continuation
+will use 600000 ms only under a new go, with operation none, acceptance true and
+a fresh packet/marker; it is not started by this correction.
+
+Real-observer replay explicitly supplies 60000, 600000 and 900000 and checks the
+captured wait request. Missing, null, string, fractional, non-finite and out-of-
+range values refuse with no tool call. Running and failed replies assert their
+distinct messages, sealed live-lane identity and no ack/close. On the exact base
+runner all three selected control groups fail for the intended causes: hardcoded
+60000 rather than 600000, missing input validation and the generic running-turn
+message. The first test diagnostic tried an observer file for a bus failure;
+the final control instead asserts the actual forwarded wait value directly.
+
 Non-regular protected entries are lstat metadata only, never opened (including
 named pipes); ordinary regular files remain byte-hashed.
 The test process lister is replaced, and a spy rejects any `/proc` content read.
@@ -306,15 +350,15 @@ stand-in or its mocked delay/process listing.
 
 ## Pack and gates
 
-The maintained runner is 1039 lines / 44,305 bytes and its test is 844 lines /
-35,646 bytes, both at a maximum of 120 columns (ceilings: 1100 and 860 lines).
+The maintained runner is 1048 lines / 44,699 bytes and its test is 854 lines /
+36,497 bytes, both at a maximum of 120 columns (ceilings: 1100 and 860 lines).
 The earlier mock-flag cases and the one-call quote/bus-value/hash helpers were
 removed. The runner's six parts account for every line:
 
 | Part | Lines | Past stop or reviewer finding answered |
 | --- | ---: | --- |
-| Parameters and lifecycle predicate | 122 | Refuses wrong profile, overlapping protected roots, omitted inputs, unsafe labels and packet placement before any tool call. |
-| Call-time runner and terminal STOP | 222 | Preserves failed calls, identifies live lanes, distinguishes retained/forgotten rows and null rejections without retry; model punctuation no longer causes a false failure. |
+| Parameters and lifecycle predicate | 127 | Refuses wrong profile, overlapping protected roots, omitted inputs including the explicit acceptance wait, unsafe labels and packet placement before any tool call. |
+| Call-time runner and terminal STOP | 226 | Preserves failed calls, names a still-running turn separately, identifies live lanes and distinguishes retained/forgotten rows without retry. |
 | Disk maps, owned spans and native-log predicates | 235 | Fixes parser/relay/span assumptions; unopened leaves stay unread and permit shared-store link/ctime churn without losing the remaining metadata predicates. |
 | Owned command capture | 74 | Keeps large output off stdout, permits one-second drain without post-exit signals and gives the installer a loaded-host margin. |
 | Real observer | 312 | Records open-schema install metadata and real source/report/seal evidence; unused full inventories and duplicate boot checks removed. |

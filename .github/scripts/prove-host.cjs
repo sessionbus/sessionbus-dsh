@@ -103,8 +103,13 @@ function validate(p) {
   insist(Array.isArray(p.retained ?? []) && (p.retained ?? []).every(string), "retained must be session IDs");
   insist(Array.isArray(p.refusals ?? []), "refusals must be an array");
   insist(p.acceptance || !(p.retained?.length || p.refusals?.length), "native cases require acceptance");
-  if (p.acceptance)
+  if (p.acceptance) {
     for (const key of ["host", "input", "answer"]) insist(string(p[key]), `${key} is required for acceptance`);
+    insist(
+      Number.isInteger(p.acceptanceWaitMs) && p.acceptanceWaitMs >= 60000 && p.acceptanceWaitMs <= 900000,
+      "acceptanceWaitMs must be an integer from 60000 to 900000 for acceptance",
+    );
+  }
   const names = new Set();
   for (const item of p.refusals ?? []) {
     insist(/^case-[1-9]\d*$/u.test(item.name) && !names.has(item.name), "refusal names must be unique case-N labels");
@@ -268,7 +273,11 @@ async function runProof(p, tools) {
           ["written", "injected", "queued_for_next_turn"].includes(sent.deliveries[0].disposition),
         "send uncertain; never replay",
       );
-      const record = await bus("collect", "wait", { session_id: live, timeout_ms: 60000 });
+      const record = await bus("collect", "wait", { session_id: live, timeout_ms: p.acceptanceWaitMs });
+      insist(
+        record.state !== "running",
+        `turn still running at acceptance wait bound (${p.acceptanceWaitMs} ms); lane ${live}; never retry`,
+      );
       insist(
         record.state === "done" &&
           record.result?.outcome === "completed" &&

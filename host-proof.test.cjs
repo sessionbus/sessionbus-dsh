@@ -44,6 +44,7 @@ async function replay(t, options = {}, implementation = api) {
   const p = {
     operation: "registry",
     acceptance: true,
+    acceptanceWaitMs: 60000,
     mode: "lane",
     version,
     packet: root + "/packet",
@@ -70,6 +71,7 @@ async function replay(t, options = {}, implementation = api) {
   }
   if (options.operation) p.operation = options.operation;
   if (options.acceptance !== undefined) p.acceptance = options.acceptance;
+  if (p.acceptance === false) delete p.acceptanceWaitMs;
   const installed = p.profileDir + "/node_modules/@sessionbus/dsh",
     candidate = root + "/candidate/package";
   for (const dir of [
@@ -127,6 +129,7 @@ async function replay(t, options = {}, implementation = api) {
     counts = {},
     bus = p.acceptance ? clone(fixture.bus) : [],
     events = clone(fixture.events);
+  for (const [action, args] of bus) if (action === "wait") args.timeout_ms = p.acceptanceWaitMs;
   const expected = fixture.observations.filter(
     ([kind, label]) =>
       !(p.operation === "none" && kind === "command") &&
@@ -328,18 +331,13 @@ test("real observer replay covers archive/lane, registry/peer and both independe
     { operation: "none" },
     { refusal: "refuses" },
     { retained: true, poll: true },
+    ...[600000, 900000].map(acceptanceWaitMs => ({ parameters: { acceptanceWaitMs } })),
   ]) {
     const r = await replay(t, options),
       result = await r.run();
-    assert.equal(
-      result.result,
-      "PASS",
-      JSON.stringify({
-        options,
-        result,
-        error: result.stopped && json(r.p.packet + "/" + result.stopped.phase + ".observation.json"),
-      }),
-    );
+    const wait = r.calls.find(x => x.action === "wait");
+    if (r.p.acceptance) assert.equal(wait?.request.arguments.timeout_ms, r.p.acceptanceWaitMs);
+    assert.equal(result.result, "PASS", JSON.stringify({ options, result }));
     assert.equal(result.sealed, true);
     assert.equal(r.completed(), true);
     assert.equal(r.bus.length, 0);
@@ -367,6 +365,9 @@ test("wrong inputs STOP before consuming a tool, including profile correspondenc
   const r = await replay(t);
   const invalid = [
     (p) => delete p.acceptance,
+    (p) => delete p.acceptanceWaitMs,
+    ...[null, "60000", 59999, 900001, 60000.5, NaN, Infinity].map(value =>
+      p => (p.acceptanceWaitMs = value)),
     (p) => delete p.product,
     (p) => delete p.zstd,
     (p) => delete p.operation,
@@ -473,6 +474,10 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
       "unexpected roster RPC error",
     ],
     ["wait", (v) => (v.result.outcome = "failed"), "collect", "turn failed"],
+    [
+      "wait", (v) => { v.state = "running"; delete v.result; }, "collect",
+      "turn still running at acceptance wait bound (60000 ms); lane session-fixture@fixture",
+    ],
     ["wait", (v) => (v.result.result = "wrong answer"), "collect", "answer/run mismatch"],
   ]) {
     const r = await replay(t, {
@@ -488,6 +493,11 @@ test("real-observer bus adverse cases stop once at the owning boundary", async (
     assert.ok(result.stopped.message.includes(reason), result.stopped.message);
     assert.equal(r.counts["bus-send"], 1);
     if (phase === "send") assert.equal(r.counts["bus-wait"], undefined);
+    if (phase === "collect") {
+      assert.equal(r.counts["bus-ack"], undefined);
+      assert.equal(r.counts["bus-close"], undefined);
+      assert.deepEqual(json(r.p.packet + "/STOP.json").liveLanes, ["session-fixture@fixture"]);
+    }
     manifest(r.p.packet);
   }
   for (const [options, phase] of [
