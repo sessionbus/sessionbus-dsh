@@ -23,13 +23,22 @@ the architect's separate D-049 brief; this PR does not authorize them.
 
 ## Maintained proof
 
-`scripts/prove-peer-pending-input.mjs` takes the explicit published DSH manifest,
+`.github/scripts/prove-peer-pending-input.mjs` takes the explicit published DSH manifest,
 candidate profile's installed plugin manifest, a fresh work directory and the
 released daemon executable. It uses a private HOME, DSH_HOME and XDG roots,
 private peer profile and socket, and a controllable in-process LlmAdapter.
 Node is necessary to call the published Agent/Context/session-controller APIs.
 The daemon is the existing checksum-verified v0.5.12 acquired by the prepared
 Linux leg; no new dependency, acquisition or matrix dimension is added.
+This proof is Linux-only and refuses another platform explicitly. Before starting
+the daemon it checks both the main socket and the longest derived
+`lanes/<32 hex>.sock` path in bytes against Linux's 107-byte pathname limit.
+The main socket is in the existing prepared work parent, not another /tmp root.
+An exited child ends readiness immediately with its status and captured stderr
+tail; the 10 s observation bound is unchanged. Cleanup unregisters a proved-empty
+group before checking its exit status, so a non-zero exit does not trigger a
+second signal to that empty group. Socket-length and readiness unit controls
+exercise the actual driver functions without starting a daemon.
 One upload step in that same job keeps only the generated peer-pending-input
 capture tree for seven days. It contains synthetic inputs/results, source
 copies/hashes, private-profile configuration, native logs and the seal, not
@@ -138,6 +147,18 @@ is independently citation-checked and awaits the owner's explicit posting go.
 
 Node v25.9.0, npm 11.12.1, Linux x64:
 
+The initial head dfe668e's hosted run 38443147759 is retained as failed evidence,
+not rerun: 15 of 17 jobs passed, with the prepared leg and its aggregate gate
+failing. The daemon refused its derived lane socket (114 bytes against 107),
+before any root or message; the readiness poll hid that exit for 10 s. Its
+15-entry artifact seal is
+`5ef6915c0c8c9e17a88fa324080645373aeacf15ab1b7bff0e5d572f3601c95d`.
+The correction changes only this proof driver, its unit controls and this map;
+the packed archive below remains unchanged. The new unit controls first failed
+on the old driver (missing socket preflight and readiness predicate).
+
+Local evidence at the initial head:
+
 ```text
 tests 201; pass 201; fail 0; cancelled 0; skipped 0; todo 0
 DSH 0.2.1-alpha.2 peer pending-input known gaps and recovery: 13/13 PASS
@@ -155,6 +176,15 @@ Earlier successful run stdout/stderr are retained beside the current ones:
 first port, then tightened oracle, then KEEP_PROOF=1 with the work-owned adapter
 source. An after-run inspection of the second, already-successful run hit ENOENT
 because default EXIT cleanup had deleted it; no failed native gate was retried.
+
+Correction local gates: 203 tests passed, zero failures/cancellations/skips/TODOs;
+the full prepared regression and all 13 known-gap/recovery cases passed. Retained
+synthetic seal `54b05db01279dc174a4c114f44b2c35fc90aa8a3462f54a3cbc6d8d27638b26b`
+has 350 verified entries and 20 injected receipts. The captured driver matches
+the corrected source (`4a38550033224063dac422f7931181980ee8afc2458b7e4bfc44ecbcfd7a0f84`);
+daemon exit 0/no signal, owned group empty, no cleanup errors. Path-value audit
+again found nothing outside the prepared work parent. npm 11.12.1 re-packing
+reproduced the archive below byte-for-byte, with all nine file hashes unchanged.
 
 Candidate archive `sessionbus-dsh-0.1.3.tgz`:
 `d77029d0f28ad38016667061ecd863773ff9e10c931b5f32d87049dcd08f5d4b`.

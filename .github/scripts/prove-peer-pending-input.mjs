@@ -8,6 +8,26 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { installInterruptCleanup, stopOwnedChild } from './proof-process-group.mjs';
 
+function checkDaemonSocketPaths(socket, platform) {
+  assert.equal(platform, 'linux', `Linux-only proof; socket limit is not established for ${platform}`);
+  const limit = 107; // Linux sockaddr_un.sun_path: 108 bytes including the terminating NUL.
+  const main = { path: socket, bytes: Buffer.byteLength(socket) };
+  const lanePath = path.join(path.dirname(socket), 'lanes', '0'.repeat(32) + '.sock');
+  const lane = { path: lanePath, bytes: Buffer.byteLength(lanePath) };
+  for (const [kind, entry] of [['main', main], ['derived lane', lane]]) {
+    assert.ok(entry.bytes <= limit,
+      `private daemon ${kind} socket path is ${entry.bytes} bytes; Linux limit is ${limit} bytes`);
+  }
+  return { platform, limit, main, lane };
+}
+function daemonSocketReady(daemon, socket, stderrFile) {
+  if (daemon.hasEnded) {
+    const tail = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, 'utf8').slice(-2048) : '';
+    throw new Error(`private released daemon exited during readiness: code=${daemon.exitCode} signal=${daemon.signalCode}; stderr tail:\n${tail}`);
+  }
+  return fs.existsSync(socket);
+}
+
 const [dshManifest, pluginManifest, work, daemonBin] = process.argv.slice(2);
 assert.equal(process.argv.length, 6, 'usage: prove-peer-pending-input.mjs DSH_MANIFEST PLUGIN_MANIFEST WORK DAEMON_BIN');
 for (const file of [dshManifest, pluginManifest, work, daemonBin]) assert.ok(path.isAbsolute(file));
@@ -26,7 +46,8 @@ const fixtureFile = path.join(work, 'adapter-source.cjs');
 fs.copyFileSync(fixtureSource, fixtureFile);
 const env = { PATH: process.env.PATH, HOME: path.join(work, 'home'), DSH_HOME: path.join(work, 'dsh'),
   XDG_CONFIG_HOME: path.join(work, 'config'), XDG_STATE_HOME: path.join(work, 'state'),
-  XDG_CACHE_HOME: path.join(work, 'cache'), DSH_TELEMETRY_DISABLED: '1', SESSIONBUS_SOCKET: path.join(work, 'bus.sock') };
+  XDG_CACHE_HOME: path.join(work, 'cache'), DSH_TELEMETRY_DISABLED: '1',
+  SESSIONBUS_SOCKET: path.join(path.dirname(work), 'pending-peer.sock') };
 for (const key of Object.keys(process.env)) delete process.env[key];
 Object.assign(process.env, env);
 const workspace = path.join(work, 'workspace');
@@ -180,6 +201,7 @@ function reported(facts) {
   console.log(`${facts.case}: PASS`);
 }
 try {
+  save('daemon-socket-paths.json', checkDaemonSocketPaths(env.SESSIONBUS_SOCKET, process.platform));
   const versionResult = spawnSync(daemonBin, ['-version'], { env, encoding: 'utf8' });
   save('daemon-version.json', { argv: [daemonBin, '-version'], stdout: versionResult.stdout,
     stderr: versionResult.stderr, code: versionResult.status, signal: versionResult.signal });
@@ -197,7 +219,8 @@ try {
     daemon.once('error', reject);
     daemon.once('close', (code, signal) => { daemon.hasEnded = true; resolve({ code, signal }); });
   });
-  await until(() => fs.existsSync(env.SESSIONBUS_SOCKET), 'private released daemon socket');
+  await until(() => daemonSocketReady(daemon, env.SESSIONBUS_SOCKET, path.join(work, 'daemon.stderr')),
+    'private released daemon socket');
   sender = connectPeer({ product: 'pending-input-sender', session_id: 'proof-sender', groups: ['pending-proof'], info: {} },
     async () => ({ disposition: 'injected' }), { SESSIONBUS_SOCKET: env.SESSIONBUS_SOCKET });
   await bounded(sender.ready, 'sender admission');
@@ -329,13 +352,13 @@ try {
   for (const child of children) {
     try {
       const result = await stopOwnedChild(child);
+      children.delete(child); // stopOwnedChild proved the group empty, even when its exit code is unexpected.
       save('daemon.exit.json', result);
       assert.equal(result.code, 0);
       assert.equal(result.signal, null);
-      children.delete(child);
     } catch (error) {
       cleanupErrors.push(error);
-      try { await stopOwnedChild(child, child.pid, true); children.delete(child); }
+      try { if (children.has(child)) { await stopOwnedChild(child, child.pid, true); children.delete(child); } }
       catch (failure) { cleanupErrors.push(failure); }
     }
   }
