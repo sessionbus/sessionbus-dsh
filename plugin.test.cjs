@@ -161,7 +161,11 @@ test("runtime creation failure closes the supplied open domain", async () => {
   await ctx.dispose();
 });
 
-test("W-146 peer diagnostics use the logger; only fatal startup writes one stderr line", async (t) => {
+for (const isTTY of [true, false]) {
+test(`W-146 peer diagnostics preserve ${isTTY ? "terminal silence" : "service stderr"} and always log`, async (t) => {
+  const descriptor = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
+  Object.defineProperty(process.stderr, "isTTY", { configurable: true, value: isTTY });
+  t.after(() => { if (descriptor) Object.defineProperty(process.stderr, "isTTY", descriptor); else delete process.stderr.isTTY; });
   const output = [];
   t.mock.method(process.stderr, "write", (line) => { output.push(line); return true; });
   for (const method of ["log", "info", "warn", "error", "debug"]) {
@@ -212,8 +216,16 @@ test("W-146 peer diagnostics use the logger; only fatal startup writes one stder
         }
         assert.ok(ctx.logs.length > 0, `${cause}: diagnostic lost instead of logged`);
         const fatal = ["configuration", "capture", "activation"].includes(cause);
-        assert.deepEqual(output, fatal ? [`${ctx.logs[0].message}\n`] : [],
-          `${cause}: exactly one fatal line, no running-host stderr or console`);
+        const messages = ctx.logs.map(record => `${record.message}\n`);
+        const reasons = {
+          publication: "sessionbus: DSH root identity is incomplete\n",
+          terminal: "sessionbus: invalid hello\n",
+          title: "sessionbus: title failed\n",
+          groups: "sessionbus: groups failed\n",
+        };
+        if (cause !== "trace" && !fatal) assert.deepEqual(messages, [reasons[cause]], "unchanged 0.1.3 reason");
+        assert.deepEqual(output, !isTTY || fatal ? messages : [],
+          `${cause}: fatal stderr always; non-fatal stderr only when not a terminal; no console`);
         assert.equal(ctx.logs.every(record => record.name === "sessionbus-dsh"), true);
         assert.equal(ctx.logs.every(record => record.level === (cause === "trace" ? "debug" : "error")), true);
         assert.equal(ctx.loggers.every(logger => logger.level === (cause === "trace" ? 3 : undefined)), true,
@@ -223,6 +235,7 @@ test("W-146 peer diagnostics use the logger; only fatal startup writes one stder
     });
   }
 });
+}
 
 test("W-146 launch mode is read once before invalid configuration, lane stderr unchanged", (t) => {
   const output = [];
@@ -291,7 +304,7 @@ test("W-146 apply carries the logger through capture into a running peer", async
     deps.peers[0].finish(new Error("captured-context diagnostic"));
     await new Promise(setImmediate);
     assert.deepEqual(ctx.logs.map(record => record.message), ["sessionbus: captured-context diagnostic"]);
-    assert.deepEqual(output, []);
+    assert.deepEqual(output, process.stderr.isTTY === true ? [] : ["sessionbus: captured-context diagnostic\n"]);
     assert.deepEqual(ctx.exits, []);
     assert.equal(root.session.id, "session-fresh");
   } finally { await ctx.dispose(); }
@@ -594,7 +607,7 @@ test("a rejected peer hello is reported and a later title republishes", async ()
     await rejected.closed;
     await Promise.resolve();
     assert.deepEqual(ctx.logs.map(record => record.message), ["sessionbus: invalid_hello"]);
-    assert.deepEqual(deps.errors, []);
+    assert.deepEqual(deps.errors, process.stderr.isTTY === true ? [] : ["sessionbus: invalid_hello\n"]);
     const root = ctx.roots[0];
     ctx.emitGlobal("session/event", root.session, { type: "session/title", data: { title: "Now publish" } });
     const admitted = runtime.peers.get(root).peer;
@@ -602,7 +615,7 @@ test("a rejected peer hello is reported and a later title republishes", async ()
     await admitted.ready;
     assert.equal(attempts, 2);
     assert.deepEqual(ctx.logs.map(record => record.message), ["sessionbus: invalid_hello"]);
-    assert.deepEqual(deps.errors, []);
+    assert.deepEqual(deps.errors, process.stderr.isTTY === true ? [] : ["sessionbus: invalid_hello\n"]);
   } finally {
     runtime.close();
     await new Promise((resolve) => server.close(resolve));
@@ -703,7 +716,7 @@ test(`W-146 socket retries log once per outage with ${isTTY ? "terminal" : "serv
     assert.equal(ctx.logs.length, 3, "shutdown does not schedule a new publication or log stale errors");
     assert.deepEqual(output, isTTY ? [] : ctx.logs.map(record => `${record.message}\n`));
     assert.deepEqual(malformed.logs.map(record => record.message), ["sessionbus: DSH root identity is incomplete"]);
-    assert.deepEqual(badDeps.errors, []);
+    assert.deepEqual(badDeps.errors, isTTY ? [] : ["sessionbus: DSH root identity is incomplete\n"]);
   } finally {
     await runtime.close();
     for (const stream of streams) stream.destroy();
@@ -1858,7 +1871,7 @@ test("rejection after progress preserves the old identity and reports one diagno
   assert.equal(runtime.peers.get(root).identity.name, "While pending");
   assert.deepEqual(ctx.groupWrites, [["put", root.id, ["later"]]]);
   assert.deepEqual(ctx.logs.map(record => record.message), ['sessionbus: invalid_hello: {"reason":"forbidden\\nlist"}']);
-  assert.deepEqual(deps.errors, []);
+  assert.deepEqual(deps.errors, process.stderr.isTTY === true ? [] : ['sessionbus: invalid_hello: {"reason":"forbidden\\nlist"}\n']);
   await runtime.close();
 });
 
@@ -1886,7 +1899,7 @@ test("old reconnect terminal rejection after progress releases the queue and unp
   assert.equal(state.mapped, false, "terminal old peer cannot remain published");
   assert.equal(state.stopped, true, "pending candidate belongs to the failed operation");
   assert.deepEqual(state.errors, ["sessionbus: invalid_hello"]);
-  assert.deepEqual(deps.errors, []);
+  assert.deepEqual(deps.errors, process.stderr.isTTY === true ? [] : ["sessionbus: invalid_hello\n"]);
   assert.equal(state.effects, 1);
   assert.deepEqual(ctx.groupWrites, []);
   assert.deepEqual(result, { kind: "error", text: "queued user cancelled" });
@@ -2128,7 +2141,6 @@ test("opt-in trace reports readiness, global lifecycle, and present gates", () =
   ctx.emitGlobal("agent/created", { agent: root });
   ctx.emitGlobal("agent/disposed", { agent: root });
   runtime.close();
-  assert.deepEqual(deps.errors, []);
   assert.equal(ctx.logs.every(record => record.name === "sessionbus-dsh" && record.level === "debug"), true);
   assert.deepEqual(ctx.logs.map(record => `${record.message}\n`), [
     "sessionbus trace: mode=peer ready=false socket=/run/sessionbus.sock\n",
@@ -2142,6 +2154,7 @@ test("opt-in trace reports readiness, global lifecycle, and present gates", () =
     "sessionbus trace: agent/disposed id=session-root scope=global\n",
     "sessionbus trace: mode=peer ready=false reason=close\n",
   ]);
+  assert.deepEqual(deps.errors, process.stderr.isTTY === true ? [] : ctx.logs.map(record => `${record.message}\n`));
 });
 
 test("peer waits for a native session id and replaces it atomically when it changes", async () => {

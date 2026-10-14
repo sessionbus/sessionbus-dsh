@@ -10,8 +10,10 @@ host's terminal. The prior reconnect test even required two such stderr lines.
 Peer-mode diagnostics now use the published named Cordis logger, including
 configuration, context capture, activation, publication, title updates, deferred
 groups failures and opt-in debug traces. Non-fatal diagnostics never write to a
-terminal or console. The connection diagnostic also goes to non-terminal stderr
-once per outage for each session, retaining service-journal visibility. The two
+terminal or console. Non-terminal stderr retains all 0.1.3 diagnostics and
+opt-in trace, alongside their logger records; the sole difference is connection
+deduplication once per outage for each session, retaining service-journal
+visibility. The two
 fatal startup paths retain exactly their former one
 stderr line before exit 1, and also log at error: a launch that ends must say why.
 The published `@deepseek-ai/cordis@4.0.5-alpha.1` API is
@@ -90,7 +92,8 @@ The former receives zero lines; the latter exactly one across retries and one
 more after recovery and another outage. Actual late socket errors from disposed and
 superseded roots cannot log or modify the replacement's shown state. The old
 publication/groups/trace assertions now require the same diagnostic in the
-logger and zero injected stderr; their lifecycle/continuity assertions remain.
+logger and their original non-terminal stderr text, with zero terminal output;
+their lifecycle/continuity assertions remain.
 All existing lane controls remain, including refused Open, transport loss,
 bound errors, delivery, cancellation and shutdown.
 
@@ -117,13 +120,30 @@ corrected before it was counted as evidence. The deferred-groups observer is
 executed directly with generated stderr-only and logger-only failures, not just
 checked for assertion text. Both fail, and its clean control passes.
 
-The corrected npm 11.12.1 Linux x64 pack has nine files, 28,550 archive bytes and
-92,310 unpacked bytes. Its SHA-256 is
-`2a001608a353e7c06c3e70a4f9b3e71b631494282393a4fed400e2cee8b82831`.
+The last sink ruling removes the connection-only exception: the stream's own
+TTY state is the only non-fatal stderr condition. Four diagnostic paths and
+opt-in trace run against both real stderr spies: zero lines for a terminal, the
+0.1.3 lines for a service, and logger records in both. On the preceding head all
+five service controls fail for their missing lines. Restored legacy stderr
+assertions initially reject that superseded logger-only expectation; their
+original service text and the logger assertions are now both required.
+
+One local npx row passed its lane and option assertions, then its row-removal
+exec was SIGTERM'd at the existing ten-second bound while the root filesystem
+was full and scratch removal stalled in I/O. This was the host condition, not
+a candidate finding. The failed stdout, stderr, request and exit are retained;
+only that unchanged row was rerun after the named disk cause was cleared and
+passed in 86 seconds, including both row and package removals. Completed
+gate scratch is removed, retaining logs and cited sealed evidence, and every
+new local gate checks for at least 10 GiB free first.
+
+The corrected npm 11.12.1 Linux x64 pack has nine files, 28,616 archive bytes and
+92,468 unpacked bytes. Its SHA-256 is
+`5d44d6fd9faac514a685d556e2235386a1147f5061c9b6673e1dbc6bca1ae7aa`.
 Against published 0.1.3 only README.md, package.json's version line and plugin.cjs
 change. All six other files, their modes, dependencies, peers and lock remain
 identical. plugin.cjs hashes to
-`a278680025b8167c32a5be5e9a37737d8b8a5fbd045963238581c5a59e8c35c4`.
+`de29a51bca7a107c470e660a279b5f8cc64ba8a2663cee5bb8920d572d7c545e`.
 
 The full suite, packed DSH alpha.2 proof, native alpha.1 refusal and universal
 Linux rows are run locally with raw output retained. The unchanged hosted matrix

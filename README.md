@@ -159,16 +159,19 @@ Fatal startup failures also print their one-line reason to stderr before exit 1,
 so a failed launch explains why it ended. Equal socket errors are logged
 once per outage for each session and again after a successful connection and
 later failure; reconnect timing is unchanged. When stderr is not a terminal
-(a service, pipe or file), that connection diagnostic also goes to stderr once
-per outage for each session. On a terminal host, use `/sessionbus-groups` in
-a session to see the last connection attempt's failure. DSH 0.2.1-alpha.2 keeps
+(a service, pipe or file), all of the plugin's diagnostics also go to stderr,
+including opt-in trace; search a journal for `sessionbus: connect ENOENT <socket path>`.
+A web profile started by hand with terminal stderr is a terminal host: none of
+the plugin's non-fatal diagnostics reaches it. On a terminal host, use
+`/sessionbus-groups` in a session to see the last connection attempt's failure.
+DSH 0.2.1-alpha.2 keeps
 the logger record in memory but does not present it; that is a DSH visibility gap.
 `/sessionbus-groups` adds the last connection attempt's error when it failed;
 it makes no bus call and does not wait or promise current admission.
 Set `SESSIONBUS_DSH_TRACE=1` for mode, readiness, root-lifecycle,
 publication-gate and socket-connection traces: debug logs in peer mode,
-which need a host logger exporter to be visible, and stderr in daemon-managed
-lane mode. Tracing is off by default, and lane
+visible through a host logger exporter or non-terminal stderr, and stderr in
+daemon-managed lane mode. Tracing is off by default, and lane
 diagnostics continue to use stderr owned by the daemon.
 
 The lane advertises no native extra arguments. A non-empty `open.arguments`

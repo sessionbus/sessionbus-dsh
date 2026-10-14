@@ -82,9 +82,9 @@ function readConfiguration(ctx, config = {}, ambient = process.env, onMode) {
 }
 function diagnostic(ctx, mode, stderr = (line) => process.stderr.write(line), tracing = false) {
   const logger = mode === "lane" ? undefined : Object.assign(ctx.logger(name), tracing ? { level: 3 } : {});
-  const socketStderr = process.stderr.isTTY !== true;
-  return mode === "lane" ? stderr : (line, trace, fatal, connection) => {
-    if (fatal || connection && socketStderr) stderr(line);
+  const terminalStderr = process.stderr.isTTY === true;
+  return mode === "lane" ? stderr : (line, trace, fatal) => {
+    if (fatal || !terminalStderr) stderr(line);
     logger[trace ? "debug" : "error"]("%s", line.trimEnd());
   };
 }
@@ -450,7 +450,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
   };
   const connectionError = (agent, error, record) => {
     const message = clean(error);
-    if (active() && peers.get(agent) === record && record.connectionError !== message) report(`sessionbus: ${message}\n`, false, false, true);
+    if (active() && peers.get(agent) === record && record.connectionError !== message) report(`sessionbus: ${message}\n`);
     record.connectionError = message;
   };
   const connect = (agent, current, tail = Promise.resolve(), previous) => {
