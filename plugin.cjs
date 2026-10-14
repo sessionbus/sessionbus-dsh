@@ -57,9 +57,7 @@ function clean(error) {
   return String(error?.message || error || "DSH plugin failed").replace(/[\0\r\n]/gu, " ").slice(0, 4096);
 }
 
-function readConfiguration(ctx, config = {}, ambient = process.env) {
-  if (config.product === undefined) throw new Error("product is required; re-run sessionbus-dsh-install --product <name> <profile>");
-  if (typeof config.product !== "string" || !productPattern.test(config.product)) throw new Error("product must match ^[a-z0-9][a-z0-9-]{0,31}$");
+function readConfiguration(ctx, config = {}, ambient = process.env, onMode) {
   const launch = ctx.launchEnvironment || ctx.get?.("launchEnvironment");
   const value = (key) => {
     if (launch) return launch.get(key)?.value;
@@ -68,6 +66,9 @@ function readConfiguration(ctx, config = {}, ambient = process.env) {
   const token = value("SESSIONBUS_LAUNCH_TOKEN");
   delete process.env.SESSIONBUS_LAUNCH_TOKEN;
   const mode = token === undefined ? "peer" : "lane";
+  onMode?.(mode);
+  if (config.product === undefined) throw new Error("product is required; re-run sessionbus-dsh-install --product <name> <profile>");
+  if (typeof config.product !== "string" || !productPattern.test(config.product)) throw new Error("product must match ^[a-z0-9][a-z0-9-]{0,31}$");
   if (config.mode !== undefined && config.mode !== mode) throw new Error(`mode ${config.mode} conflicts with launch environment`);
   let groups = mode === "lane" ? [] : Object.hasOwn(config, "groups") ? config.groups : JSON.parse(value("SESSIONBUS_GROUPS") || "[]");
   if (!validGroups(groups)) throw new Error("groups are invalid");
@@ -79,6 +80,14 @@ function readConfiguration(ctx, config = {}, ambient = process.env) {
   if (!text(socket) || localKey !== undefined && !text(localKey)) throw new Error("connection settings are invalid");
   return { settings: { mode, product: config.product, groups: [...groups], socket, localKey }, token, trace: value("SESSIONBUS_DSH_TRACE") === "1" };
 }
+function diagnostic(ctx, mode, stderr = (line) => process.stderr.write(line), tracing = false) {
+  const logger = mode === "lane" ? undefined : Object.assign(ctx.logger(name), tracing ? { level: 3 } : {});
+  const terminalStderr = process.stderr.isTTY === true;
+  return mode === "lane" ? stderr : (line, trace, fatal) => {
+    if (fatal || !terminalStderr) stderr(line);
+    logger[trace ? "debug" : "error"]("%s", line.trimEnd());
+  };
+}
 
 function captureContext(ctx) {
   const services = Object.fromEntries(inject.map((service) => [service, ctx[service]]));
@@ -89,6 +98,7 @@ function captureContext(ctx) {
     active: () => fiber?.uid !== null,
     context: {
       ...services,
+      logger: ctx.logger,
       launchEnvironment,
       get: ctx.get?.bind(ctx),
       on: ctx.on.bind(ctx),
@@ -410,6 +420,7 @@ function identity(ctx, agent, product, groups, title) {
 function createRuntime(ctx, config, dependencies, prepared) {
   const configured = prepared || readConfiguration(ctx, config, dependencies.ambient);
   const values = configured.settings;
+  const report = diagnostic(ctx, values.mode, dependencies.stderr, configured.trace);
   const active = dependencies.active || (() => true);
   let launchToken = configured.token;
   const native = new NativeSession(ctx, dependencies.createUserMessage, dependencies.ProtocolError || kit.ProtocolError);
@@ -422,8 +433,8 @@ function createRuntime(ctx, config, dependencies, prepared) {
   let workerExit = Promise.resolve();
   let ready = false;
   let warned = false;
-  const warn = (error) => { if (active() && !warned) { warned = true; dependencies.stderr(`sessionbus: ${clean(error)}\n`); } };
-  const trace = (message) => { if (configured.trace && active()) dependencies.stderr(`sessionbus trace: ${message}\n`); };
+  const warn = (error) => { if (active() && !warned) { warned = true; report(`sessionbus: ${clean(error)}\n`); } };
+  const trace = (message) => { if (configured.trace && active()) report(`sessionbus trace: ${message}\n`, true); };
   const root = (agent) => ctx.agents.roots().includes(agent);
   trace(`mode=${values.mode} ready=false socket=${values.socket}`);
   const publicationError = (agent, error, record) => {
@@ -434,13 +445,13 @@ function createRuntime(ctx, config, dependencies, prepared) {
     }
     if (active() && !publicationErrors.has(agent)) {
       publicationErrors.add(agent);
-      dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+      report(`sessionbus: ${clean(error)}\n`);
     }
   };
   const connectionError = (agent, error, record) => {
-    void record.rehello.then(() => {
-      if (active() && peers.get(agent) === record) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
-    });
+    const message = clean(error);
+    if (active() && peers.get(agent) === record && record.connectionError !== message) report(`sessionbus: ${message}\n`);
+    record.connectionError = message;
   };
   const connect = (agent, current, tail = Promise.resolve(), previous) => {
     const record = { peer: undefined, identity: current, rehello: tail };
@@ -450,7 +461,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
       connect: (socket) => {
         trace(`connect id=${current.session_id} socket=${socket}`);
         const stream = net.createConnection(socket);
-        stream.once("connect", () => trace(`connect id=${current.session_id} state=connected`));
+        stream.once("connect", () => { record.connectionError = undefined; trace(`connect id=${current.session_id} state=connected`); });
         stream.once("error", (error) => connectionError(agent, error, record));
         return stream;
       },
@@ -543,7 +554,8 @@ function createRuntime(ctx, config, dependencies, prepared) {
       const initial = peers.get(agent);
       if (!initial) return { kind: "error", text: "sessionbus is not connected" };
       // Show remains available while the serialized replacement waits for the daemon.
-      if (!input) return { kind: "success", text: JSON.stringify(initial.identity.groups) };
+      if (!input) return { kind: "success", text: JSON.stringify(initial.identity.groups)
+        + (initial.connectionError ? `\nLast connection attempt failed; sessionbus is not connected: ${initial.connectionError}` : "") };
       const progress = deferred();
       let inProgress = false;
       const changed = initial.rehello.then(async () => {
@@ -615,7 +627,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
       initial.rehello = changed.then(() => {}, () => {});
       const result = changed.catch(error => {
         // The old peer's deferred publication handler reports that exact terminal error once.
-        if (inProgress && active() && peers.get(agent)?.peer.error !== error) dependencies.stderr(`sessionbus: ${clean(error)}\n`);
+        if (inProgress && active() && peers.get(agent)?.peer.error !== error) report(`sessionbus: ${clean(error)}\n`);
         return { kind: "error", text: clean(error) };
       });
       return Promise.race([result, progress.promise]);
@@ -690,19 +702,19 @@ async function activate(ctx, config = {}, dependencies = {}, prepared) {
 }
 
 function apply(ctx, config = {}, dependencies = {}) {
-  let captured, prepared;
+  let captured, prepared, report;
   try {
     captured = captureContext(ctx);
-    prepared = readConfiguration(captured.context, config, dependencies.ambient);
+    prepared = readConfiguration(captured.context, config, dependencies.ambient, (mode) => { report = diagnostic(captured.context, mode, dependencies.stderr); });
   } catch (error) {
-    (dependencies.stderr || ((line) => process.stderr.write(line)))(`sessionbus: ${clean(error)}\n`);
+    (report || diagnostic(ctx, "peer", dependencies.stderr))(`sessionbus: ${clean(error)}\n`, false, true);
     try { ctx.appExit(1); } catch {}
     return;
   }
   const runtimeDependencies = { stderr: (line) => process.stderr.write(line), ...dependencies, active: captured.active };
   void activate(captured.context, config, runtimeDependencies, prepared).catch((error) => {
     if (!captured.active()) return;
-    runtimeDependencies.stderr(`sessionbus: ${clean(error)}\n`);
+    report(`sessionbus: ${clean(error)}\n`, false, true);
     captured.context.appExit(1);
   });
 }

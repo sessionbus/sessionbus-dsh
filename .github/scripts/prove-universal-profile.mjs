@@ -12,7 +12,7 @@ assert.ok(work && commandJSON && candidate && repo, 'usage: prove-universal-prof
 const dsh = JSON.parse(commandJSON);
 assert.ok(Array.isArray(dsh) && dsh.length && dsh.every(arg => typeof arg === 'string'));
 const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'))).version;
-const publishedVersion = '0.1.2'; // Newest published baseline; move with each release.
+const publishedVersion = '0.1.3'; // Newest published baseline; move with each release.
 const profiles = ['sessionbus', 'web', ...(process.platform === 'linux' && process.env.W125_INSTALL_MODE === 'project' ? ['custom'] : [])];
 const home = path.join(work, 'home'), workspace = path.join(work, 'workspace');
 fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: true });

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 — 2026-10-13
+
+- Route non-fatal peer diagnostics to DSH's named logger at error severity, never the running interactive host's terminal; non-terminal stderr keeps all diagnostics and opt-in trace. Fatal startup failures keep their one stderr reason before exit 1 and also log it; opt-in traces use debug, raising only that named logger's level. Lane stderr and exit behavior are unchanged.
+- Log equal socket errors once per outage for each session, also to non-terminal stderr for service visibility, with a new diagnostic after recovery and another failure. Keep the kit's two-second reconnect. `/sessionbus-groups` shows a failed last connection attempt without calling the bus or waiting; it is not a current-admission guarantee.
+
 ## 0.1.3 — 2026-10-13
 
 - Explain that `injected` is admission, not reading or a reply, and that input admitted during a turn can remain waiting when that turn errors or is cancelled; another message or typed prompt wakes it. No runtime or receipt behavior changes.

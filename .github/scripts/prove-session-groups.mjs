@@ -67,12 +67,16 @@ const readEvents = id => {
     return lines[0]?.id === id ? lines.slice(1) : [];
   });
 };
+const pluginLog = file => fs.existsSync(file)
+  ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
 const launchWeb = async label => {
+  const logFile = path.join(work, `${label}.plugin-log.jsonl`);
   const child = run(path.join(home, 'node_modules/.bin/dsh'), [
     '--profile', 'web', '--patch', path.join(root, '.github/fixtures/sessionbus-groups.patch.yml'),
     '--no-open', '--host', '127.0.0.1', '--port', '0',
   ], { ...cleanEnv, DSH_HOME: home, SESSIONBUS_SOCKET: socket, SESSIONBUS_GROUPS: '["default"]',
-    DSH_SNAPSHOT_FILE: path.join(root, '.github/fixtures/sessionbus-groups.jsonl'), DSH_W081_SESSION_ROOT: sessionRoot }, label);
+    DSH_SNAPSHOT_FILE: path.join(root, '.github/fixtures/sessionbus-groups.jsonl'), DSH_W081_SESSION_ROOT: sessionRoot,
+    DSH_W146_LOG_FILE: logFile }, label);
   const launch = await until(() => {
     if (child.hasEnded) throw new Error(`web exited: ${child.errors}`);
     return /dsh web: (http:\/\/\S+)/u.exec(child.output)?.[1];
@@ -91,7 +95,8 @@ const launchWeb = async label => {
     return body.result.value;
   };
   const command = async (id, line) => {
-    const diagnostics = child.errors.length;
+    const diagnostics = pluginLog(logFile).length;
+    const stderr = child.errors.length;
     const execution = await rpc('commands/execute', { agentId: id, line, submittedAttachments: [] });
     assert.equal(execution.result.kind, 'success', JSON.stringify(execution));
     const progress = 'change in progress; `/sessionbus-groups` with no argument shows the result';
@@ -108,10 +113,12 @@ const launchWeb = async label => {
     // Observe live AND durable state for at most 10s. Never replay the mutation.
     for (;;) {
       bound.throwIfAborted();
-      assert.equal(/^sessionbus: /mu.test(child.errors.slice(diagnostics)), false, child.errors.slice(diagnostics));
+      assert.deepEqual(pluginLog(logFile).slice(diagnostics), [], 'no deferred plugin diagnostic');
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(stderr)), false, child.errors.slice(stderr));
       const shown = await rpc('commands/execute', { agentId: id, line: '/sessionbus-groups', submittedAttachments: [] }, bound);
       assert.equal(shown.result.kind, 'success', JSON.stringify(shown));
-      assert.equal(/^sessionbus: /mu.test(child.errors.slice(diagnostics)), false, child.errors.slice(diagnostics));
+      assert.deepEqual(pluginLog(logFile).slice(diagnostics), [], 'no deferred plugin diagnostic');
+      assert.equal(/^sessionbus: /mu.test(child.errors.slice(stderr)), false, child.errors.slice(stderr));
       const live = JSON.stringify(JSON.parse(shown.result.text)) === JSON.stringify(wanted);
       const durable = input === '-' ? !fs.existsSync(record)
         : fs.existsSync(record) && JSON.stringify(JSON.parse(fs.readFileSync(record)).record) === JSON.stringify(wanted);

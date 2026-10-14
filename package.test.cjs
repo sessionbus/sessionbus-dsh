@@ -9,6 +9,34 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("W-146 deferred groups proof rejects both stderr-only and logger-only diagnostics", async () => {
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-session-groups.mjs"), "utf8");
+  const start = source.indexOf("  const command = async (id, line) => {");
+  const end = source.indexOf("  return { child, rpc, command };", start);
+  assert.ok(start >= 0 && end > start, "the actual command observer must be present");
+  const make = new Function("assert", "child", "rpc", "pluginLog", "logFile", "groupResponses", "path", "home", "fs", "delay",
+    source.slice(start, end) + "\nreturn command;");
+  for (const cause of ["stderr", "logger", "none"]) {
+    const child = { errors: "" }, logs = [];
+    let calls = 0;
+    const rpc = async () => {
+      calls++;
+      if (calls > 1) return { result: { kind: "success", text: '["after"]' } };
+      if (cause === "stderr") child.errors += "sessionbus: generated negative control\n";
+      if (cause === "logger") logs.push({ type: "error", message: "generated negative control" });
+      return { result: { kind: "success",
+        text: "change in progress; `/sessionbus-groups` with no argument shows the result" } };
+    };
+    const command = make(assert, child, rpc, () => logs, "generated-log", { progress: 0 }, path, "generated-home", {
+      existsSync: () => true, readFileSync: () => '{"record":["after"]}',
+    }, async () => {});
+    const result = command("generated-session", "/sessionbus-groups after");
+    if (cause === "none") assert.deepEqual(await result, ["after"]);
+    else await assert.rejects(result, error => error.code === "ERR_ASSERTION"
+      && error.message.includes(cause === "stderr" ? "generated negative control" : "no deferred plugin diagnostic"), cause);
+  }
+});
+
 test("private pending-input daemon checks hosted and platform socket limits before starting", () => {
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-peer-pending-input.mjs"), "utf8");
   const start = source.indexOf("\nfunction checkDaemonSocketPaths(");

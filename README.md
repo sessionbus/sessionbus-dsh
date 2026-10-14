@@ -58,14 +58,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.3
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.4
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.3
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.4
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -75,7 +75,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.3
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.4
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -131,7 +131,7 @@ not packages added to the profile.
 exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.3 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.1.4 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.
@@ -153,10 +153,26 @@ installs.
 Without an explicit socket, peers use `$XDG_RUNTIME_DIR/sessionbus/presence.sock`
 or `/tmp/sessionbus-<uid>/presence.sock`, matching the daemon's discovery rule.
 Peer publication retries through the kit's reconnect path when the daemon is
-unavailable, and each failed connection attempt writes one diagnostic line.
-Set `SESSIONBUS_DSH_TRACE=1` to write one-line mode, readiness, root-lifecycle,
-publication-gate, and socket-connection diagnostics to stderr; tracing is off
-by default.
+unavailable. In peer mode non-fatal diagnostics use DSH's named
+`sessionbus-dsh` logger at error severity, never the running host's terminal.
+Fatal startup failures also print their one-line reason to stderr before exit 1,
+so a failed launch explains why it ended. Equal socket errors are logged
+once per outage for each session and again after a successful connection and
+later failure; reconnect timing is unchanged. When stderr is not a terminal
+(a service, pipe or file), all of the plugin's diagnostics also go to stderr,
+including opt-in trace; search a journal for `sessionbus: connect ENOENT <socket path>`.
+A web profile started by hand with terminal stderr is a terminal host: none of
+the plugin's non-fatal diagnostics reaches it. On a terminal host, use
+`/sessionbus-groups` in a session to see the last connection attempt's failure.
+DSH 0.2.1-alpha.2 keeps
+the logger record in memory but does not present it; that is a DSH visibility gap.
+`/sessionbus-groups` adds the last connection attempt's error when it failed;
+it makes no bus call and does not wait or promise current admission.
+Set `SESSIONBUS_DSH_TRACE=1` for mode, readiness, root-lifecycle,
+publication-gate and socket-connection traces: debug logs in peer mode,
+visible through a host logger exporter or non-terminal stderr, and stderr in
+daemon-managed lane mode. Tracing is off by default, and lane
+diagnostics continue to use stderr owned by the daemon.
 
 The lane advertises no native extra arguments. A non-empty `open.arguments`
 request is rejected rather than silently ignored.
@@ -256,7 +272,7 @@ loss on the candidate uses the kit's existing reconnect, not a plugin retry. If
 neither terminal signal arrives, the operation remains pending under those same
 kit close/reconnect semantics; there is no swap deadline or polling loop. Show
 remains available; later changes and title updates wait. A failure after the
-progress response has one flattened `sessionbus:` stderr diagnostic.
+progress response has one flattened `sessionbus:` error diagnostic in DSH's logger.
 A terminal rejection of the old peer's reconnect also ends the pending change
 and unpublishes it with that diagnostic. A second change queued behind a pending
 one has no progress response of its own; it checks cancellation only once the

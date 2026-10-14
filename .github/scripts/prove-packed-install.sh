@@ -127,6 +127,22 @@ assert.equal(events.filter(event => event.type === "approval/asked" && event.dat
 assert.equal(events.some(event => event.type === "turn/end" && event.data?.reason?.kind === "completed"), true);
 NODE
 }
+assert_peer_diagnostic() {
+  node --input-type=module - "$work/web-plugin-log.jsonl" "$work/web.stderr" <<'NODE'
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const records = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(line => JSON.parse(line));
+const errors = records.filter(record => /^sessionbus: connect /u.test(record.message));
+assert.equal(errors.length, 1, "one native socket diagnostic per outage, not one per retry");
+assert.equal(errors[0].type, "error");
+assert.equal(errors[0].format, "%s", "native logger receives the diagnostic as a format argument");
+assert.equal(errors[0].buffered, true, "the default native buffer, not just the fixture exporter, receives the diagnostic");
+assert.equal(records.some(record => record.type === "debug"), false, "trace off keeps no plugin debug record");
+assert.match(errors[0].message, /^sessionbus: connect ENOENT /u);
+assert.deepEqual(fs.readFileSync(process.argv[3], "utf8").split("\n").filter(line => /^sessionbus(?: trace)?:/u.test(line)),
+  [errors[0].message], "non-terminal stderr keeps exactly one connection line per outage for this session");
+NODE
+}
 assert_turn_error_proof() {
   node --input-type=module - "$1" "$2" "$3" <<'NODE'
 import assert from "node:assert/strict";
@@ -359,7 +375,7 @@ socket="$work/runtime/sessionbus/presence.sock"
 peer_socket_env=(-u SESSIONBUS_SOCKET XDG_RUNTIME_DIR="$work/runtime")
 capture="$work/web-proof.json"
 echo "DSH $version web peer reconnect, permission and trace proof"
-start_process native env "${peer_socket_env[@]}" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$peer_fixture" DSH_W081_SESSION_ROOT="$work/web-sessions" SESSIONBUS_GROUPS='["web-proof"]' "$dsh" --profile web --patch "$proof_patch" --no-open --host 127.0.0.1 --port "$port" >"$work/web.stdout" 2>"$work/web.stderr"
+start_process native env "${peer_socket_env[@]}" DSH_HOME="$home" DSH_SNAPSHOT_FILE="$peer_fixture" DSH_W081_SESSION_ROOT="$work/web-sessions" DSH_W146_LOG_FILE="$work/web-plugin-log.jsonl" SESSIONBUS_GROUPS='["web-proof"]' "$dsh" --profile web --patch "$proof_patch" --no-open --host 127.0.0.1 --port "$port" >"$work/web.stdout" 2>"$work/web.stderr"
 ready=false
 for _ in $(seq 1 200); do
   if curl -s -o /dev/null "http://127.0.0.1:$port/"; then ready=true; break; fi
@@ -393,13 +409,13 @@ const created = await rpc("session/create", { request: {} });
 fs.writeFileSync(sessionFile, created.sessionId);
 await rpc("session/selectModel", { request: { sessionId: created.sessionId, provider: "deepseek-official", model: "deepseek-v4-flash" } });
 NODE
-for _ in $(seq 1 100); do grep -q '^sessionbus: connect ' "$work/web.stderr" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
-[[ $(grep -c '^sessionbus: connect ' "$work/web.stderr") -eq 1 ]]
+for _ in $(seq 1 100); do [[ -s "$work/web-plugin-log.jsonl" ]] && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
+assert_peer_diagnostic
 start_process fixture node "$root/.github/scripts/fake-permission-sessionbus.mjs" "$socket" "$capture" dsh peer
 for _ in $(seq 1 50); do [[ -S "$socket" ]] && break; sleep 0.1; done
 for _ in $(seq 1 100); do [[ -s "$capture" ]] && grep -q '"hello":true' "$capture" && break; kill -0 "$dsh_pid" 2>/dev/null || break; sleep 0.1; done
 [[ -s "$capture" ]] && grep -q '"hello":true' "$capture"
-[[ $(grep -c '^sessionbus: connect ' "$work/web.stderr") -eq 1 ]]
+assert_peer_diagnostic
 node --input-type=module - "$launch_url" "$work/web-session-id" <<'NODE'
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
