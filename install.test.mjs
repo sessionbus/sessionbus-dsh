@@ -22,6 +22,26 @@ function fixture(t, names = ["sessionbus"]) {
 }
 const allRows = rows => rows.flatMap(row => [row, ...(row.insert ? allRows(row.insert) : [])]);
 
+test("W-150 peer installer equips acp, headless and sdk without manufacturing a controller", t => {
+  const f = fixture(t, ["acp", "headless", "sdk"]);
+  const owner = "# owner route\n- id: agent-default-model\n  config: { provider: owner, model: unchanged }\n";
+  for (const name of ["acp", "headless", "sdk"]) {
+    writeFileSync(f.file(name), owner);
+    const manifest = readFileSync(f.file(name, "package.json"));
+    install([name], { ...f, product: "dsh" });
+    const first = readFileSync(f.file(name), "utf8"), rows = allRows(yaml.load(first));
+    assert.equal(first.slice(0, owner.length), owner);
+    assert.equal(rows.filter(row => row.id === "sessionbus").length, 1);
+    assert.equal(rows.find(row => row.id === "sessionbus").config.product, "dsh");
+    assert.equal(rows.find(row => row.id === "sessionbus").config.mode, undefined);
+    assert.equal(rows.find(row => row.id === "file-uploads-none").name, "@sessionbus/dsh/file-uploads-none");
+    assert.equal(rows.some(row => row.id === "session-controller"), false);
+    assert.deepEqual(readFileSync(f.file(name, "package.json")), manifest);
+    install([name], { ...f, product: "dsh" });
+    assert.equal(readFileSync(f.file(name), "utf8"), first);
+  }
+});
+
 test("runbook resolves verified-absent transitive-only lock records without moving unrelated resolutions", () => {
   // Only lock repair is under test: no DSH package is installed or booted here.
   const root = mkdtempSync(path.join(os.tmpdir(), "sessionbus-dsh-orphan-lock-"));

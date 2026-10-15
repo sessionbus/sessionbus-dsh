@@ -30,7 +30,8 @@ it untouched. An exporter's explicit level filter still takes precedence. No
 global logger or exporter is changed, and no plugin diagnostic uses warn.
 Every logger call passes the literal text as the argument to `%s`, not as a
 format string. DSH alpha.2 buffers the record but supplies no presentation;
-the session's no-argument command is the terminal user's visibility surface.
+the session's no-argument command is the terminal user's connection-failure
+visibility surface, not a presentation of all logger records.
 
 Launch mode is selected once from the immutable launch snapshot when available,
 after capturing the services and before validating the product. Capture keeps

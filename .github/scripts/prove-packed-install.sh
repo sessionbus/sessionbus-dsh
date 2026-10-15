@@ -256,6 +256,8 @@ cp "$home/profiles/sessionbus/package.json" "$work/lane-manifest-before-install.
 installer_exec --profile sessionbus exec sessionbus-dsh-install
 cmp -s "$work/lane-manifest-before-install.json" "$home/profiles/sessionbus/package.json"
 installer_exec --profile web exec sessionbus-dsh-install --product dsh web
+node "$root/.github/scripts/prove-mode-controller.mjs" "$home/node_modules/@deepseek-ai/dsh/package.json" "$home/profiles/web/node_modules/@sessionbus/dsh/package.json" | tee "$work/mode-controller.log"
+node "$root/.github/scripts/prove-stock-peers.mjs" "$work/stock-peers" "$dsh" "$home" "$tarball" "$root"
 cp "$home/profiles/dashi/package.json" "$work/dashi-manifest-before-refusal.json"
 cp "$home/profiles/dashi/cordis.patch.yml" "$work/dashi-patch-before-refusal.yml"
 set +e
