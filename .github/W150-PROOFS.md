@@ -109,7 +109,7 @@ failed in the existing fixtures' npm-executable-relative semver resolution;
 `npm test` is the defined CI command. That invocation limitation is not hidden
 by changing a product predicate or adding a dependency.
 
-Corrected-source local results: 236/236 unit tests, 9/9 real-Cordis lifecycle
+Before the prefix pin below, corrected-source local results were 236/236 unit tests, 9/9 real-Cordis lifecycle
 controls, packed alpha.3 (including 13/13 pending-input cases), native alpha.1
 floor refusal, and all seven Linux universal rows passed. Removing the activation
 cleanup fails on a duplicate worker; extending that guard into runtime exit
@@ -125,6 +125,43 @@ the other six paths are byte-identical, including the installer and launcher.
 Dependency/peer declarations and the lock are unchanged. The corrected packed
 pending-input packet's manifest SHA-256 is
 `98c66f3b2699543a2e4046afef972cc7c1c35bf9686beccdcdb81054372133a0`.
+
+## Model-prefix byte contract with published 0.1.4
+
+The owner requires that upgrading an already-equipped profile not invalidate
+its model prefix. Exact commit 9748263 was compared with published 0.1.4 using
+an in-memory registration fixture and the same published alpha.3 `defineTool`
+and `ToolRuntime` for both sources. The baseline source was checked against the
+published archive above. The registered compiled definition, native wire schema,
+SDK schema, generated TypeScript/Python SDKs, full skill record and literal
+5,080-byte skill text were byte-identical; the captured-record diff is empty.
+This is a registration/projection comparison, not another native model run.
+
+The unshipped `model-prefix-0.1.4.json` golden records lengths and SHA-256s without
+sorting keys. The unit test pins raw registration/skill bytes for web/custom,
+dashi and lane identities, before and after readiness and peer group/title
+changes. The packed real-Cordis check pins the actual compiled tool and native/
+SDK projections, including generated SDK text, for all three product identities.
+No product text or schema is changed to obtain equality. No dependency is added;
+the native check uses the DSH packages already required by that gate. A changed
+byte or key/enum order must fail and require an explicit compatibility review,
+not a silent snapshot refresh. Output callbacks are not model input and are
+excluded by JSON serialization; their output schema is included because PTC SDKs
+use it. Published alpha.3 `dsh-system-prompt/lib/index.js:87-107,395` sorts the
+final model-facing tools by name (or explicit `toolOrder`), so the earlier
+registry Map order is not the final request order. The architect's independent
+ordinary-web measurement also found all 33 definitions and their order stable
+across two cold restarts. Our golden pins our contribution, not unrelated DSH
+or model-server request bytes.
+
+After adding this unshipped pin, the full local gates passed again: 237/237
+unit tests, 10/10 compiler/Cordis controls, packed alpha.3, below-floor refusal
+and all seven Linux universal rows. Five source mutations (tool name,
+description, enum order, object-key order and skill text) and one native-wire-
+only whitespace mutation fail at the prefix assertion; an unchanged copied
+fixture passes. The runtime and packed bytes are unchanged from 9748263. The
+fresh pending-input packet's manifest SHA-256 is
+`01d01532e7af575b4714505f1bc7352516ba10255aab4e9b9612a3a6d1a2b286`.
 
 ## Earlier carried points, not changes in this item
 

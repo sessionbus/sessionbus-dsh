@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const Module = require("node:module");
+const { createHash } = require("node:crypto");
 const { format } = require("node:util");
 const { connectPeer, serveWorker } = require("@sessionbus/kit");
 const { ACTIONS, activate, apply, createRuntime, inject, settings, terminal } = require("./plugin.cjs");
@@ -178,6 +179,36 @@ test("a row without product fails once with the installer fix", () => {
     message: "sessionbus: product is required; re-run sessionbus-dsh-install --product <name> <profile>" }]);
   assert.deepEqual(ctx.exits, [1]);
   assert.equal(ctx.tool, undefined);
+});
+
+test("W-150 registered tool and skill bytes stay pinned to published 0.1.4", async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(path.join(__dirname, ".github/fixtures/model-prefix-0.1.4.json"), "utf8"));
+  for (const product of ["dsh", "dashi", "sessionbus-dsh"]) {
+    const ctx = new Context(), root = agent(ctx, "prefix-" + product), deps = dependencies(ctx);
+    if (product === "sessionbus-dsh") deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "synthetic-prefix-token" };
+    const runtime = createRuntime(ctx, { product, groups: ["prefix-team"] }, deps);
+    const check = () => {
+      const tools = [...ctx.registeredTools.values()];
+      assert.equal(tools.length, 1, "the published model-facing tool set contains exactly one Sessionbus definition");
+      for (const [name, bytes] of Object.entries({
+        rawTool: JSON.stringify(tools[0]),
+        skill: JSON.stringify(ctx.registeredSkills.get("sessionbus")),
+        skillText: ctx.registeredSkills.get("sessionbus").content,
+      })) {
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ": published 0.1.4 model-prefix length changed");
+        assert.equal(createHash("sha256").update(bytes).digest("hex"), prefix[name].sha256,
+          name + ": published 0.1.4 model-prefix bytes changed; review deliberately, never refresh this golden silently");
+      }
+    };
+    try {
+      check(); ctx.ready(); check();
+      if (product !== "sessionbus-dsh") {
+        await ctx.command.handler({ agent: root, rawInput: "changed-group", signal: new AbortController().signal });
+        ctx.emit("session/event", root.session, { type: "session/title", data: { title: "Changed identity" } });
+        await runtime.peers.get(root).rehello; check();
+      }
+    } finally { await ctx.dispose(); }
+  }
 });
 
 test("W-150 a peer applies without reading or waiting for a controller", async () => {

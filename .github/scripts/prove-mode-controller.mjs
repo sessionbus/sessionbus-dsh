@@ -3,12 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const [dshManifest, pluginManifest] = process.argv.slice(2);
 assert.equal(process.argv.length, 4, 'usage: prove-mode-controller.mjs DSH_MANIFEST PLUGIN_MANIFEST');
 const native = createRequire(fs.realpathSync(dshManifest));
 const own = createRequire(fs.realpathSync(pluginManifest));
 const { Context } = await import(pathToFileURL(native.resolve('@deepseek-ai/cordis')));
+const { defineTool, ToolRuntime, renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tools')));
 const plugin = own('./plugin.cjs');
 const tick = () => new Promise(setImmediate);
 async function settled() { for (let i = 0; i < 5; i++) await tick(); }
@@ -53,6 +55,38 @@ async function check(name, run) {
   await run(); cases++;
   console.log('real Cordis ' + name + ': PASS');
 }
+await check('published 0.1.4 model-prefix bytes survive native compilation and projection', async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.4.json', import.meta.url)));
+  for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {
+    const ctx = new Context(), effects = [], captured = {};
+    ctx.provide('systemPrompt', { tools() {} });
+    const registry = new ToolRuntime(ctx);
+    const host = {
+      logger: () => ({ error() {}, debug() {} }), appReady: { onReady: () => () => {} },
+      agents: { roots: () => [] }, on: () => () => {},
+      effect: call => { const dispose = call(); effects.push(dispose); return dispose; },
+      tools: { register: value => { captured.registeredTool = value; return registry.register(value); } },
+      skills: { register: value => { captured.skill = value; return () => {}; } }, commands: { register: () => () => {} },
+    };
+    try {
+      plugin.createRuntime(host, { product, groups: ['prefix-team'] }, {
+        ambient: product === 'sessionbus-dsh' ? { SESSIONBUS_LAUNCH_TOKEN: 'synthetic-prefix-token' } : {},
+        defineTool: value => { captured.rawTool = value; return defineTool(value); }, createUserMessage: value => value,
+        domain: { table: () => ({ get() {} }), close: async () => {} },
+      });
+      const values = { ...captured, nativeTools: registry.schemas(), sdkTools: registry.sdkSchemas(),
+        typescript: renderToolsSdk(registry.sdkSchemas()), python: renderToolsSdkPy(registry.sdkSchemas()),
+        skillText: captured.skill.content };
+      assert.equal(values.nativeTools.length, 1);
+      for (const [name, value] of Object.entries(values)) {
+        const bytes = typeof value === 'string' ? value : JSON.stringify(value);
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': published 0.1.4 model-prefix length changed');
+        assert.equal(createHash('sha256').update(bytes).digest('hex'), prefix[name].sha256,
+          name + ': published 0.1.4 model-prefix changed; explicit compatibility review is required');
+      }
+    } finally { for (const dispose of effects.reverse()) await dispose(); await ctx.fiber.dispose(); }
+  }
+});
 await check('controller-free peer survives unrelated controller removal', async () => {
   const f = fixture('peer');
   try {
