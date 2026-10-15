@@ -9,7 +9,7 @@ It depends on the exact `@sessionbus/kit` version `0.5.12`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
 It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
-`0.2.1-alpha.2`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
+`0.2.1-alpha.3`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
 until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH
@@ -47,7 +47,7 @@ Disable the global virtual store and reinstall DSH:
 <!-- install:pnpm-global-remedy -->
 ```sh
 pnpm config set --global --json enableGlobalVirtualStore false
-pnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2
+pnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.3
 ```
 
 The setting affects subsequent installations; it does not migrate existing
@@ -58,14 +58,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.4
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.5
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.4
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.5
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -75,7 +75,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.4
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.5
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -90,11 +90,15 @@ lane variant, `dsh` for a standalone web or custom peer profile, or another
 stable operator-chosen identifier matching `^[a-z0-9][a-z0-9-]{0,31}$`.
 The dashi-app bundle owns its dashi-profile row and
 exact plugin dependency; do not run this installer against that profile.
-Non-web profiles also receive the no-upload provider required by DSH's Session
-Controller; ordinary text prompts work while file-upload receipts are rejected.
+Non-web profiles also receive the no-upload provider used by DSH's Session
+Controller when present; ordinary text prompts work while file-upload receipts are rejected.
 The no-upload row uses this package's separate `@sessionbus/dsh/file-uploads-none`
 entry. There is no dependency or peer on `@antst/dsh-file-uploads-none`; web
 receives no no-upload row, and dashi-app keeps ownership of its own provider.
+Peer mode does not require the Session Controller: the same add/exec commands
+work for `acp`, `headless` and `sdk`, replacing `web` with the profile name.
+Lane mode still requires the controller at host readiness. If it is missing,
+startup prints one fatal reason and exits 1 instead of waiting indefinitely.
 For a lane or web profile upgraded in place in a Linux project, re-running
 the installer upgrades its marked pre.20 entries. Any old provider pin
 is left untouched and reported, not removed. An unmarked plugin or upload row belongs to
@@ -131,7 +135,7 @@ not packages added to the profile.
 exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.4 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.1.5 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.
@@ -160,10 +164,14 @@ so a failed launch explains why it ended. Equal socket errors are logged
 once per outage for each session and again after a successful connection and
 later failure; reconnect timing is unchanged. When stderr is not a terminal
 (a service, pipe or file), all of the plugin's diagnostics also go to stderr,
-including opt-in trace; search a journal for `sessionbus: connect ENOENT <socket path>`.
+including opt-in trace. Search a journal for the stable prefix `sessionbus: `;
+for example, an absent socket reports `sessionbus: connect ENOENT <socket path>`
+and a stopped daemon may report `sessionbus: connect ECONNREFUSED <socket path>`.
 A web profile started by hand with terminal stderr is a terminal host: none of
 the plugin's non-fatal diagnostics reaches it. On a terminal host, use
 `/sessionbus-groups` in a session to see the last connection attempt's failure.
+Redirect stderr to a file or pipe to retain service-style diagnostics when
+starting a profile from a terminal, including inside tmux or screen.
 DSH 0.2.1-alpha.2 keeps
 the logger record in memory but does not present it; that is a DSH visibility gap.
 `/sessionbus-groups` adds the last connection attempt's error when it failed;

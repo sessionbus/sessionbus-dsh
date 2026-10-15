@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5 — 2026-10-15
+
+- Let peers activate without the Session Controller, including stock acp, headless and sdk profiles. Keep the controller as a lane-only native dependency: absence at host readiness prints one fatal reason and exits 1; dependency loss retains native teardown and the existing worker exit behavior. No polling, retry or extra controller row is added.
+- Cancel stale async activation when native dependencies are replaced during imports. This pre-existing race is also present in 0.1.4: an old import could start a second worker or exit the replacement host after failing.
+- Move maintained native selectors to DSH alpha.3, retain the alpha.2 support floor, and clarify terminal versus redirected/service diagnostic visibility.
+
 ## 0.1.4 — 2026-10-13
 
 - Route non-fatal peer diagnostics to DSH's named logger at error severity, never the running interactive host's terminal; non-terminal stderr keeps all diagnostics and opt-in trace. Fatal startup failures keep their one stderr reason before exit 1 and also log it; opt-in traces use debug, raising only that named logger's level. Lane stderr and exit behavior are unchanged.

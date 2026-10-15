@@ -36,7 +36,7 @@ function assertKnownArguments(value, schema, location = "arguments") {
 const name = "sessionbus-dsh";
 const productPattern = /^[a-z0-9][a-z0-9-]{0,31}$/u;
 const inject = [
-  "agents", "appReady", "appExit", "commands", "permissionPresets", "sessionController",
+  "agents", "appReady", "appExit", "commands", "permissionPresets",
   "sessions", "sessionTitle", "skills", "storageDomain", "tools",
 ];
 function deferred() {
@@ -94,8 +94,11 @@ function captureContext(ctx) {
   let launchEnvironment;
   try { launchEnvironment = ctx.launchEnvironment || ctx.get?.("launchEnvironment"); } catch {}
   const fiber = ctx.fiber;
+  let alive = true;
+  ctx.effect(() => () => { alive = false; }, "sessionbus-dsh.activation");
   return {
-    active: () => fiber?.uid !== null,
+    active: () => alive && fiber?.uid !== null,
+    runtimeActive: () => fiber?.uid !== null,
     context: {
       ...services,
       logger: ctx.logger,
@@ -694,7 +697,8 @@ async function activate(ctx, config = {}, dependencies = {}, prepared) {
     if (dependencies.active && !dependencies.active()) { await domain.close(); return; }
   }
   try {
-    return createRuntime(ctx, config, { ...kit, active: () => true, stderr: (line) => process.stderr.write(line), ...dependencies, domain, createUserMessage, defineTool }, configured);
+    return createRuntime(ctx, config, { ...kit, stderr: (line) => process.stderr.write(line), ...dependencies,
+      active: dependencies.runtimeActive || dependencies.active || (() => true), domain, createUserMessage, defineTool }, configured);
   } catch (error) {
     await domain?.close();
     throw error;
@@ -711,12 +715,37 @@ function apply(ctx, config = {}, dependencies = {}) {
     try { ctx.appExit(1); } catch {}
     return;
   }
-  const runtimeDependencies = { stderr: (line) => process.stderr.write(line), ...dependencies, active: captured.active };
-  void activate(captured.context, config, runtimeDependencies, prepared).catch((error) => {
+  const fail = (error) => {
     if (!captured.active()) return;
     report(`sessionbus: ${clean(error)}\n`, false, true);
     captured.context.appExit(1);
+  };
+  const mount = (scope) => {
+    const runtimeDependencies = { stderr: (line) => process.stderr.write(line), ...dependencies,
+      active: scope.active, runtimeActive: scope.runtimeActive };
+    void activate(scope.context, config, runtimeDependencies, prepared).catch((error) => {
+      if (scope.active()) fail(error);
+    });
+  };
+  if (prepared.settings.mode === "peer") return mount(captured);
+  // Cordis, not a retained controller reference, owns lane dependency loss/replacement.
+  const lane = ctx.inject(["sessionController"], (ctx) => {
+    try {
+      const scoped = captureContext(ctx);
+      scoped.context.sessionController = ctx.sessionController;
+      mount(scoped);
+    } catch (error) { fail(error); }
   });
+  ctx.effect(() => captured.context.appReady.onReady(() => {
+    if (!captured.active()) return;
+    try {
+      const controller = captured.context.get ? captured.context.get("sessionController") : ctx.sessionController;
+      if (!controller) throw new Error("sessionController is unavailable at host readiness; lane mode requires it");
+    } catch (error) {
+      void lane.dispose();
+      fail(error);
+    }
+  }), "sessionbus-dsh.lane-readiness");
 }
 
 module.exports = { ACTIONS, NativeSession, activate, apply, connectionEnvironment, createRuntime, identity, inject, name, settings, terminal };

@@ -7,9 +7,10 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const Module = require("node:module");
+const { createHash } = require("node:crypto");
 const { format } = require("node:util");
 const { connectPeer, serveWorker } = require("@sessionbus/kit");
-const { ACTIONS, activate, apply, createRuntime, settings, terminal } = require("./plugin.cjs");
+const { ACTIONS, activate, apply, createRuntime, inject, settings, terminal } = require("./plugin.cjs");
 const packageVersion = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
 
 function deferred() {
@@ -60,7 +61,10 @@ class Context {
       delete: async (key) => { this.groupWrites.push(["delete", key]); return this.groupRecords.delete(key); },
     };
     this.agents = { roots: () => [...this.roots], get: (id) => this.roots.find((agent) => agent.session?.id === id) };
-    this.appReady = { onReady: (call) => { this.ready = call; return () => { this.ready = null; }; } };
+    const ready = new Set();
+    let committed = false;
+    this.ready = () => { if (committed) return; committed = true; for (const call of [...ready]) call(); ready.clear(); };
+    this.appReady = { onReady: (call) => { if (committed) call(); else ready.add(call); return () => ready.delete(call); } };
     this.appExit = (code) => { this.exits.push(code); };
     this.sessionTitle = { get: (session) => this.titles.get(session) };
     this.permissionPresets = { names: ["ask", "never"], set: (session, preset) => this.calls.push(["permission", session.id, preset]) };
@@ -102,6 +106,32 @@ class Context {
     this.byID = new Map();
   }
   get(name) { return this[name]; }
+  inject(names, callback) {
+    const parent = this;
+    let child, service;
+    const scope = {
+      uid: 1,
+      async refresh() {
+        if (scope.uid === null) return;
+        const present = names.every(name => parent[name] !== undefined);
+        const current = present ? parent[names[0]] : undefined;
+        if (child && service === current) return;
+        if (child) { child.fiber.uid = null; await child.dispose(); child = undefined; }
+        if (!present || scope.uid === null) return;
+        service = current;
+        child = Object.create(parent);
+        child.fiber = { uid: 1 }; child.effects = new Set();
+        child.dispose = () => Promise.all([...child.effects].reverse().map(dispose => dispose()));
+        for (const name of names) Object.defineProperty(child, name, { value: parent[name] });
+        callback(child);
+      },
+      async dispose() { scope.uid = null; if (child) { child.fiber.uid = null; await child.dispose(); } },
+    };
+    this.scopes ??= []; this.scopes.push(scope);
+    this.effect(() => () => scope.dispose());
+    void scope.refresh();
+    return scope;
+  }
   on(name, call, options = {}) {
     const list = this.listeners.get(name) || [];
     if (options.prepend) list.unshift(call); else list.push(call);
@@ -149,6 +179,128 @@ test("a row without product fails once with the installer fix", () => {
     message: "sessionbus: product is required; re-run sessionbus-dsh-install --product <name> <profile>" }]);
   assert.deepEqual(ctx.exits, [1]);
   assert.equal(ctx.tool, undefined);
+});
+
+test("W-150 registered tool and skill bytes stay pinned to published 0.1.4", async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(path.join(__dirname, ".github/fixtures/model-prefix-0.1.4.json"), "utf8"));
+  for (const product of ["dsh", "dashi", "sessionbus-dsh"]) {
+    const ctx = new Context(), root = agent(ctx, "prefix-" + product), deps = dependencies(ctx);
+    if (product === "sessionbus-dsh") deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "synthetic-prefix-token" };
+    const runtime = createRuntime(ctx, { product, groups: ["prefix-team"] }, deps);
+    const check = () => {
+      const tools = [...ctx.registeredTools.values()];
+      assert.equal(tools.length, 1, "the published model-facing tool set contains exactly one Sessionbus definition");
+      for (const [name, bytes] of Object.entries({
+        rawTool: JSON.stringify(tools[0]),
+        skill: JSON.stringify(ctx.registeredSkills.get("sessionbus")),
+        skillText: ctx.registeredSkills.get("sessionbus").content,
+      })) {
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ": published 0.1.4 model-prefix length changed");
+        assert.equal(createHash("sha256").update(bytes).digest("hex"), prefix[name].sha256,
+          name + ": published 0.1.4 model-prefix bytes changed; review deliberately, never refresh this golden silently");
+      }
+    };
+    try {
+      check(); ctx.ready(); check();
+      if (product !== "sessionbus-dsh") {
+        await ctx.command.handler({ agent: root, rawInput: "changed-group", signal: new AbortController().signal });
+        ctx.emit("session/event", root.session, { type: "session/title", data: { title: "Changed identity" } });
+        await runtime.peers.get(root).rehello; check();
+      }
+    } finally { await ctx.dispose(); }
+  }
+});
+
+test("W-150 a peer applies without reading or waiting for a controller", async () => {
+  assert.equal(inject.includes("sessionController"), false, "peer service metadata must not gate activation");
+  const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+  root.steer = message => ctx.emit("session/event", root.session,
+    { type: "agent/inbox/spliced", data: { inserted: [message] } });
+  Object.defineProperty(ctx, "sessionController", { get() { throw new Error("peer controller read"); } });
+  ctx.inject = () => { throw new Error("peer created a controller scope"); };
+  apply(ctx, { product: "dsh" }, deps);
+  await new Promise(setImmediate);
+  ctx.ready();
+  assert.deepEqual(ctx.exits, []);
+  assert.equal(deps.peers.length, 1);
+  assert.equal(deps.peers[0].identity.session_id, root.id);
+  assert.deepEqual(await deps.peers[0].deliver(null, delivery("without a controller")), { disposition: "injected" });
+  assert.deepEqual(await ctx.command.handler({ agent: root, rawInput: "" }), { kind: "success", text: "[]" });
+  await ctx.dispose();
+  assert.equal(deps.peers[0].stopped, true);
+});
+
+test("W-150 a missing lane controller fails at readiness once and cannot appear late", async () => {
+  const ctx = new Context(), deps = dependencies(ctx);
+  delete ctx.sessionController;
+  deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  await new Promise(setImmediate);
+  assert.equal(deps.worker, undefined);
+  assert.deepEqual(ctx.exits, []);
+  ctx.ready(); ctx.ready();
+  assert.deepEqual(ctx.exits, [1]);
+  assert.equal(deps.errors.length, 1);
+  assert.match(deps.errors[0], /^sessionbus: .*sessionController.*readiness.*\n$/u);
+  assert.deepEqual(ctx.logs, [], "lane diagnostics retain their existing daemon-owned stderr sink");
+  ctx.sessionController = new Context().sessionController;
+  for (const scope of ctx.scopes ?? []) await scope.refresh();
+  await new Promise(setImmediate);
+  assert.equal(deps.worker, undefined);
+  await ctx.dispose();
+});
+
+test("W-150 a lane accepts a controller arriving before readiness", async () => {
+  const ctx = new Context(), controller = ctx.sessionController, deps = dependencies(ctx);
+  delete ctx.sessionController; deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  ctx.sessionController = controller;
+  for (const scope of ctx.scopes ?? []) await scope.refresh();
+  await new Promise(setImmediate);
+  ctx.ready();
+  assert.ok(deps.worker);
+  assert.deepEqual(ctx.exits, []);
+  await ctx.dispose();
+  assert.equal(deps.workerStopped, true);
+});
+
+test("W-150 disposal before lane readiness creates no worker or diagnostic", async () => {
+  const ctx = new Context(), deps = dependencies(ctx);
+  delete ctx.sessionController; deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  ctx.fiber.uid = null; await ctx.dispose(); ctx.ready();
+  assert.equal(deps.worker, undefined);
+  assert.deepEqual(ctx.exits, []); assert.deepEqual(deps.errors, []);
+});
+
+test("W-150 a throwing readiness lookup cancels lane activation during imports", async () => {
+  const ctx = new Context(), deps = dependencies(ctx), imported = deferred();
+  const get = ctx.get.bind(ctx);
+  ctx.get = name => { if (name === "sessionController") throw new Error("controller lookup failed"); return get(name); };
+  deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  deps.createUserMessage = undefined;
+  deps.importLLM = () => imported.promise;
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  ctx.ready();
+  assert.deepEqual(ctx.exits, [1]);
+  assert.deepEqual(deps.errors, ["sessionbus: controller lookup failed\n"]);
+  imported.resolve({ createUserMessage: value => value });
+  await new Promise(setImmediate);
+  assert.equal(deps.worker, undefined);
+  await ctx.dispose();
+});
+
+test("W-150 an already-ready host refuses a missing lane controller synchronously", async () => {
+  const ctx = new Context(), deps = dependencies(ctx);
+  delete ctx.sessionController; deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "token" };
+  ctx.ready();
+  apply(ctx, { product: "sessionbus-dsh" }, deps);
+  assert.deepEqual(ctx.exits, [1]); assert.equal(deps.errors.length, 1);
+  ctx.sessionController = new Context().sessionController;
+  for (const scope of ctx.scopes ?? []) await scope.refresh();
+  await new Promise(setImmediate);
+  assert.equal(deps.worker, undefined);
+  await ctx.dispose();
 });
 
 test("runtime creation failure closes the supplied open domain", async () => {
@@ -670,6 +822,7 @@ test(`W-146 socket retries log once per outage with ${isTTY ? "terminal" : "serv
     assert.equal(runtime.peers.get(root).peer, peer);
     assert.equal(ctx.logs.length, 1);
     assert.equal(output.length, isTTY ? 0 : 1, "several retries produce only one service line");
+    assert.equal(ctx.logs[0].level, "error", "socket outage must survive the host's default logger level");
     assert.match(ctx.logs[0].message, /^sessionbus: connect ENOENT /u);
     assert.deepEqual(await show(), failed);
 

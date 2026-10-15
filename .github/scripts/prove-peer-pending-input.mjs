@@ -66,8 +66,8 @@ const sources = { plugin: { version, file: pluginFile, sha256: hash(fs.readFileS
 for (const name of ['@deepseek-ai/dsh-agent-loop', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-llm-retry',
   '@deepseek-ai/dsh-api-session-controller']) {
   const file = requireDSH.resolve(name), manifest = JSON.parse(fs.readFileSync(requireDSH.resolve(name + '/package.json')));
-  assert.equal(manifest.version, '0.2.1-alpha.2',
-    `Known-gap proof pins ${name} to DSH 0.2.1-alpha.2; found ${manifest.version}. Re-run the known-gap cases against the new DSH version and update the pin.`);
+  assert.equal(manifest.version, '0.2.1-alpha.3',
+    `Known-gap proof pins ${name} to DSH 0.2.1-alpha.3; found ${manifest.version}. Re-run the known-gap cases against the new DSH version and update the pin.`);
   sources[name] = { file, version: manifest.version, sha256: hash(fs.readFileSync(file)) };
 }
 save('sources.json', sources);

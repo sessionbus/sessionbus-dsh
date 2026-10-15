@@ -4,7 +4,7 @@ set -euo pipefail
 mode=${1:?pass npm-global, pnpm10-global, pnpm11-global, pnpm12-global, npx, project or mixed}
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/sessionbus-universal.XXXXXXXX")
-version=0.2.1-alpha.2
+version=0.2.1-alpha.3
 export W125_INSTALL_MODE="$mode"
 began=$(date +%s)
 export npm_config_cache="$work/npm-cache"
@@ -24,7 +24,7 @@ case "$mode" in
       npm install --prefix "$work/other-project" --save-exact @deepseek-ai/dsh@0.2.1-alpha.1 >"$work/other-install.log" 2>&1
       export PATH="$work/install/bin:$work/other-project/node_modules/.bin:$PATH"
       test "$(command -v dsh)" = "$work/install/bin/dsh"
-      printf '%s\n' 'mixed fixture: global alpha.2 selected; project alpha.1 also on PATH, never selected'
+      printf '%s\n' 'mixed fixture: global alpha.3 selected; project alpha.1 also on PATH, never selected'
     fi
     argv='["dsh"]'
     ;;
@@ -63,7 +63,7 @@ import fs from 'node:fs';
 const [source, destination] = process.argv.slice(2);
 const text = fs.readFileSync(source, 'utf8').split('<!-- install:pnpm-global-remedy -->')[1];
 const commands = text?.match(/^\s*```sh\n([\s\S]*?)\n```/u)?.[1];
-assert.equal(commands, 'pnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2');
+assert.equal(commands, 'pnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.3');
 fs.writeFileSync(destination, `set -eu\n${commands}\n`);
 NODE
       bash "$work/pnpm11-remedy.sh" >"$work/pnpm11-remedy.log" 2>&1
@@ -74,7 +74,7 @@ NODE
     argv='["dsh"]'
     ;;
   npx)
-    argv='["npx","--yes","--package=@deepseek-ai/dsh@0.2.1-alpha.2","dsh"]'
+    argv='["npx","--yes","--package=@deepseek-ai/dsh@0.2.1-alpha.3","dsh"]'
     ;;
   project)
     npm install --prefix "$work/install" --save-exact "@deepseek-ai/dsh@$version" >"$work/install.log" 2>&1

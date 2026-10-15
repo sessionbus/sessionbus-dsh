@@ -12,7 +12,7 @@ assert.ok(work && commandJSON && candidate && repo, 'usage: prove-universal-prof
 const dsh = JSON.parse(commandJSON);
 assert.ok(Array.isArray(dsh) && dsh.length && dsh.every(arg => typeof arg === 'string'));
 const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'))).version;
-const publishedVersion = '0.1.3'; // Newest published baseline; move with each release.
+const publishedVersion = '0.1.4'; // Newest published baseline; move with each release.
 const profiles = ['sessionbus', 'web', ...(process.platform === 'linux' && process.env.W125_INSTALL_MODE === 'project' ? ['custom'] : [])];
 const home = path.join(work, 'home'), workspace = path.join(work, 'workspace');
 fs.mkdirSync(home, { recursive: true }); fs.mkdirSync(workspace, { recursive: true });
@@ -72,7 +72,7 @@ try {
   // The same documented version command absorbs cold npx acquisition first;
   // registry waits are bounded by CI's 25-minute leg, not native-state timers.
   const selected = await operation(['--version'], 'executing-version', 0, true);
-  assert.equal(selected.stdoutText.trim(), '0.2.1-alpha.2');
+  assert.equal(selected.stdoutText.trim(), '0.2.1-alpha.3');
   // EXACT README order. No hook, cutoff, provider lookup, cleanup or companion preparation.
   for (const profile of profiles) {
     const upgrade = process.env.W125_INSTALL_MODE?.endsWith('-global');
@@ -106,7 +106,7 @@ try {
   }
   // Only now add test-only replay/approval fixtures. They are not install prerequisites.
   for (const profile of ['sessionbus', 'web']) await operation(['plugin', '--profile', profile, 'add', '--save-exact',
-    '@deepseek-ai/dsh-llm-replay@0.2.1-alpha.2', path.join(repo, '.github/fixtures/ask-all-plugin')], `${profile}-proof-fixtures`, 0, true);
+    '@deepseek-ai/dsh-llm-replay@0.2.1-alpha.3', path.join(repo, '.github/fixtures/ask-all-plugin')], `${profile}-proof-fixtures`, 0, true);
 
   for (const [profile, mode] of [['sessionbus', 'lane'], ['web', 'web']]) {
     const runtime = path.join(work, `${mode}-runtime.json`), capture = path.join(work, `${mode}-bus.json`);

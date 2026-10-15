@@ -682,7 +682,7 @@ test('pnpm 11 remedy is the actual README fenced text and exec has its own short
   const output = path.join(directory, 'remedy.sh');
   const run = childProcess.spawnSync(process.execPath, ['--input-type=module', '-', new URL('./README.md', import.meta.url).pathname, output], { input: block, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(readFileSync(output, 'utf8'), 'set -eu\npnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.2\n');
+  assert.equal(readFileSync(output, 'utf8'), 'set -eu\npnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.3\n');
   const driver = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
   const line = driver.split('\n').find(line => line.includes('const milliseconds = args.includes(\'exec\')'));
   assert.ok(line); const bound = new Function('args', `${line}; return milliseconds`);
