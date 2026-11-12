@@ -1,6 +1,103 @@
 # W-154: full Sessionbus file transfer
 
-## Accepted change and provenance
+## Kit 0.5.16 re-pin (adopted in this commit)
+
+Plugin 0.1.6 adopts exact `@sessionbus/kit` 0.5.16 from the DEV1-cleared R3.
+The frozen lock install, units and scoped local gates have run; their actual
+results are recorded below. Live real-model acceptance remains separate.
+
+- Kit npm integrity, computed from the provided archive:
+  `sha512-beiJWHttoSfH28XCrYn/SQ80I9/AoM/9mSN2PRjdR13U4g+8yCA+kmEQuLVQJoxRoXz4LDTF/ejDAKgfrpOvCg==`.
+- Kit tarball SHA-256:
+  `f11b8a60bede2972545454a418b6910bb733c69dd6243299897c30e5fd4a5e1a`.
+- Kit registry gitHead `ede4421b2ec9ec23c2c4ff8f695eeec5a8cb6e29`
+  (not present in the tarball package.json, by npm design).
+- New plugin archive SHA-256: `647c1cf0c1508c76061c01465c0730b00ade1351150dd2382e43cc8e5d7a9160`
+  (set at adoption pack).
+
+Source of fill: Root's KIT16-PUBLISHED-INPUT registry archive and receipts,
+not a local pack or npm cache. The SHA-256 and computed SHA-512 agree with
+both supplied receipts. NPM-FILES-VERIFIED.json records Root's byte-equality
+of all 12 shipped members against that registry gitHead; own streamed member
+hashes match all 12 receipt hashes. The optional registry-only npm view also
+matches gitHead and integrity, as an extra record, not the fill source.
+Own static checks on the archive's sdk/js/caller.js match all 18 frozen
+actions in order. The five retained reviewed JS files are byte-identical to
+their published members, including the documented `unknown_transfer` error
+and hello negotiation changes. Evidence and the resolved initial gitHead
+check stop are recorded in the off-repo R3 PROVENANCE and VERIFICATION-R3.
+Old daemons may show `sessionbus_unknown_transfer` in peers' public info,
+like the other opt-in keys; this is dynamic tool-result metadata, not a
+tool/skill definition change.
+
+Kit 0.5.16's reviewed source distinguishes SDK-local unknown/ended transfer
+accept refusals and negotiates the no-accessible-live-transfer status refusal
+as `unknown_transfer`; existing field/role/path conflicts and legacy-kit
+status answers are preserved. Static artifact/source checks are not native
+acceptance evidence. Tool, skill and golden bytes are unchanged. The e66
+fail-closed scripts remain unchanged; the fleet result is not a packed PASS.
+
+Adoption checks on the exact 647c1cf0 archive recorded above:
+
+- Frozen lock install: exit 0. All 12 installed kit members equal Root's
+  provided registry archive byte for byte.
+- Units: the first run's 241/242 exact-hello failure is retained. After the
+  approved correction adding `sessionbus_unknown_transfer: 1` to both expected
+  hello info literals, keeping full deepEqual and every old field, the fresh
+  complete run passed 242/242 (exit 0, no skips or cancellations).
+- Alpha.3 full packed gate: PASS, exit 0, including its existing native,
+  schema/root/prefix, pending-input gap/recovery and uninstall checks.
+- Alpha.1 native refusal: PASS, exit 0, covering native add refusal and
+  disabled rows in the labelled forced-package boot control.
+- Fleet rc.2: OBSERVATION only, exit 1 UNVERIFIED at mode-controller. It reached
+  the CLI closure/companion, schema/runtime-resolution and candidate upgrade/
+  installer checks. All six renderer-independent byte oracles and root checks
+  held for the three products. TS/Python remained explicitly UNVERIFIED;
+  the nine subsequent readiness/controller/import-replacement controls passed
+  before that checker's final UNVERIFIED summary. No later packed stages ran.
+  This is not native profile acceptance or an alpha.3 error/cancel oracle on
+  rc.2. No renderer golden or fail-closed condition was changed.
+- Repack after the fixture/proof correction and all three gate packs have
+  SHA-256 `647c1cf0c1508c76061c01465c0730b00ade1351150dd2382e43cc8e5d7a9160`.
+  Against 810bba7d, only README and package.json differ; runtime, frozen tool
+  declaration, skill and all other packed members remain byte-identical.
+
+Pending: the full native U1-U6 plus idle, busy and lane acceptance in Root's
+coordinated window. No local U rows or real-model turns were run. The README/
+CHANGELOG validation claim stays tied to kit-0.5.15 historical observations
+until that acceptance; local gate results do not replace it. The historical
+sections below are preserved verbatim: their earlier pending language records
+those earlier stages, not the current adoption/results above.
+
+### UMKA preparation: Root-relayed observations, not transfer acceptance
+
+Live real-model acceptance is pending: three turns across two preparation windows ended with DSH’s SERVER error (its classification of backend server failures; no HTTP status was observed), before any transfer; no plugin fault was established.
+
+- First preparation window: both A's and B's model turns ended SERVER (two turns).
+- Second preparation window: A's ack-continuation model turn ended SERVER
+  (one turn). Total: three SERVER-ended turns across two windows, not two
+  failed turns and not three preparation windows.
+- The duplicate `run` is recorded as a model deviation. It is not a successful
+  acceptance row, a transfer outcome or evidence of a plugin fault.
+- Observation: the projected DSH error code was SERVER. Interpretation only:
+  the source classifier's HTTP-5xx explanation describes backend server
+  failures; no HTTP response status was observed in this evidence. Do not
+  present a particular HTTP status or an HTTP 5xx capture as an observation.
+
+These are Root's reported preparation facts, not a new run or independent
+HTTP measurement here. No transfer was requested in these preparation turns.
+Planned acceptance on the fixed kit is the full native U1-U6 plus idle, busy
+and lane, not a conditional repeat of the earlier local subset. Historical
+NOT RUN/subset records below remain history, not the new acceptance scope.
+
+## Historical 0.5.15 records: superseded-by-0.5.16-pending
+
+All following records, measurements, archives, source traces and outcomes
+remain the kit-0.5.15 history (or their explicitly older pins). They are
+preserved, not replaced with guessed 0.5.16 provenance or new PASS claims.
+The frozen common artifact's hash/revision and historical rc.2 renderer
+observation hashes below remain unchanged. Verified kit provenance is above;
+the new plugin archive hash and kit-0.5.16 validation remain pending.
 
 Plugin 0.1.6 pins published `@sessionbus/kit` 0.5.15. Own verification and Root's
 independent published-artifact cross-check agree: gitHead

@@ -723,8 +723,8 @@ test("peer SESSIONBUS_GROUPS is a configuration proof against a fake daemon", as
     assert.deepEqual(deps.errors, []);
     await hello;
     assert.deepEqual(hellos, [
-      { protocol: 1, product: "dsh", session_id: root.id, groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1 } },
-      { protocol: 1, product: "dsh", session_id: root.id, name: "Renamed", groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1 } },
+      { protocol: 1, product: "dsh", session_id: root.id, groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1, sessionbus_unknown_transfer: 1 } },
+      { protocol: 1, product: "dsh", session_id: root.id, name: "Renamed", groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1, sessionbus_unknown_transfer: 1 } },
     ]);
   } finally {
     runtime.close();

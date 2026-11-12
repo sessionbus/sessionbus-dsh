@@ -5,11 +5,11 @@ Source and issue tracking live in
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh), and
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
-It depends on the exact `@sessionbus/kit` version `0.5.15`.
+It depends on the exact `@sessionbus/kit` version `0.5.16`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
 It requires DeepSeek Harness `0.2.1-alpha.2` or later.
-Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor.
+Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor (with kit 0.5.15; to be re-validated on 0.5.16).
 DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit
 model or reasoning_effort is refused there (spawn_failed), and other DSH
 0.2.2 changes are under review (W-155).
