@@ -29,6 +29,28 @@ test("W-154 ships the byte-exact frozen common declaration", () => {
   }
 });
 
+test("W-154 renderer observations preserve every native and alpha.3 prefix oracle", () => {
+  const { createHash } = require("node:crypto");
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-mode-controller.mjs"), "utf8");
+  const start = source.indexOf("      for (const [name, value] of Object.entries(values)) {");
+  const end = source.indexOf("\n    } finally", start);
+  assert.ok(start >= 0 && end > start);
+  const check = new Function("assert", "createHash", "values", "prefix", "baseline", "toolsVersion", "product", "console", source.slice(start, end));
+  const native = ["rawTool", "registeredTool", "nativeTools", "sdkTools", "skill", "skillText"];
+  const values = Object.fromEntries([...native, "typescript", "python"].map(name => [name, name]));
+  const prefix = Object.fromEntries(Object.entries(values).map(([name, bytes]) => [name,
+    { bytes: Buffer.byteLength(bytes), sha256: createHash("sha256").update(bytes).digest("hex") }]));
+  const run = (version, actual) => check(assert, createHash, actual, prefix, { dshTools: "0.2.1-alpha.3" }, version, "synthetic", { log() {} });
+  for (const version of ["0.2.1-alpha.3", "0.2.1-rc.2", "0.2.2-rc.2"]) {
+    run(version, values);
+    for (const name of native) assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
+    for (const name of ["typescript", "python"]) {
+      if (version === "0.2.1-alpha.3") assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
+      else run(version, { ...values, [name]: "changed" });
+    }
+  }
+});
+
 test("W-146 deferred groups proof rejects both stderr-only and logger-only diagnostics", async () => {
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-session-groups.mjs"), "utf8");
   const start = source.indexOf("  const command = async (id, line) => {");

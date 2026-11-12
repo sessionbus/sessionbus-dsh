@@ -5,11 +5,15 @@ Source and issue tracking live in
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh), and
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
-It depends on the exact `@sessionbus/kit` version `0.5.14`.
+It depends on the exact `@sessionbus/kit` version `0.5.15`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
-It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
-`0.2.1-alpha.3`. Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
+It requires DeepSeek Harness `0.2.1-alpha.2` or later.
+Validated on DSH 0.2.1 (fleet 0.2.1-rc.2) and the 0.2.1-alpha.3 floor.
+DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit
+model or reasoning_effort is refused there (spawn_failed), and other DSH
+0.2.2 changes are under review (W-155).
+Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
 until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH

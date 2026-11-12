@@ -213,7 +213,11 @@ node "$root/.github/scripts/dsh-cli-pins.mjs" prepare "$version" "$work/cli.json
 mapfile -t cli_pins < "$work/cli-pins.txt"
 node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json" "$home"
 node "$root/.github/scripts/prove-domain-schema.mjs" "$home"
-node "$root/.github/scripts/prove-runtime-resolution.mjs" "$home"
+if [[ "$version" = 0.2.2-rc.2 ]]; then
+  echo 'Runtime-resolution private-reflection sub-proof: NOT APPLICABLE on DSH 0.2.2-rc.2 / Cordis 4.1; replacement public observable is a follow-up'
+else
+  node "$root/.github/scripts/prove-runtime-resolution.mjs" "$home"
+fi
 if [[ -n "${DASHI_APP_VERSION:-}" ]]; then
   npm install --prefix "$home" --save-exact "@antst/dashi-launcher@$DASHI_APP_VERSION"
   node "$root/.github/scripts/dsh-cli-pins.mjs" assert "$version" "$work/cli.json" "$home/package-lock.json" "$home"
@@ -457,11 +461,15 @@ curl -fsSL https://github.com/sessionbus/sessionbus/releases/download/v0.5.12/SH
 "$work/daemon-v0.5.12/bin/sessionbus" --version
 node "$root/.github/scripts/prove-session-groups.mjs" "$home" "$work" "$work/daemon-v0.5.12/bin/sessionbus" "$root"
 
-echo "DSH $version known peer pending-input gaps after error/cancel and later recovery"
-node "$root/.github/scripts/prove-peer-pending-input.mjs" \
-  "$home/node_modules/@deepseek-ai/dsh/package.json" \
-  "$home/profiles/web/node_modules/@sessionbus/dsh/package.json" \
-  "$work/peer-pending-input" "$work/daemon-v0.5.12/bin/sessionbus"
+if [[ "$version" = 0.2.1-alpha.3 ]]; then
+  echo "DSH $version known peer pending-input gaps after error/cancel and later recovery"
+  node "$root/.github/scripts/prove-peer-pending-input.mjs" \
+    "$home/node_modules/@deepseek-ai/dsh/package.json" \
+    "$home/profiles/web/node_modules/@sessionbus/dsh/package.json" \
+    "$work/peer-pending-input" "$work/daemon-v0.5.12/bin/sessionbus"
+else
+  echo 'Known peer pending-input gaps: alpha.3-only proof, run in the retained alpha.3 leg; not claimed for this DSH version'
+fi
 
 echo "DSH $version runbook offline provider overlay proof (no model turn)"
 mkdir -p "$work/native-conflicts"

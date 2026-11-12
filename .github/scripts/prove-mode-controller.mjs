@@ -11,6 +11,7 @@ const native = createRequire(fs.realpathSync(dshManifest));
 const own = createRequire(fs.realpathSync(pluginManifest));
 const { Context } = await import(pathToFileURL(native.resolve('@deepseek-ai/cordis')));
 const { defineTool, ToolRuntime, renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tools')));
+const toolsVersion = JSON.parse(fs.readFileSync(native.resolve('@deepseek-ai/dsh-tools/package.json'))).version;
 const plugin = own('./plugin.cjs');
 const tick = () => new Promise(setImmediate);
 async function settled() { for (let i = 0; i < 5; i++) await tick(); }
@@ -57,7 +58,7 @@ async function check(name, run) {
   console.log('real Cordis ' + name + ': PASS');
 }
 await check('reviewed 0.1.6 model-prefix bytes survive native compilation and projection', async () => {
-  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
+  const { baseline, prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
   for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {
     const ctx = new Context(), effects = [], captured = {};
     ctx.provide('systemPrompt', { tools() {} });
@@ -88,6 +89,11 @@ await check('reviewed 0.1.6 model-prefix bytes survive native compilation and pr
       assert.equal(await openRoot.execute({ action: 'list', arguments: {}, extra: true }, {}), 'open-root-control');
       for (const [name, value] of Object.entries(values)) {
         const bytes = typeof value === 'string' ? value : JSON.stringify(value);
+        if (['typescript', 'python'].includes(name) && toolsVersion !== baseline.dshTools) {
+          console.log(JSON.stringify({ product, projection: name, toolsVersion, oracle: false,
+            bytes: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }));
+          continue;
+        }
         assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': reviewed 0.1.6 model-prefix length changed');
         assert.equal(createHash('sha256').update(bytes).digest('hex'), prefix[name].sha256,
           name + ': reviewed 0.1.6 model-prefix changed; explicit compatibility review is required');

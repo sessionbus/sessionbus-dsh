@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@sessionbus/kit':
-        specifier: 0.5.14
-        version: 0.5.14
+        specifier: 0.5.15
+        version: 0.5.15
       js-yaml:
         specifier: 4.3.2
         version: 4.3.2
@@ -21,8 +21,8 @@ importers:
 
 packages:
 
-  '@sessionbus/kit@0.5.14':
-    resolution: {integrity: sha512-LvxqQIL2t70WopsV/DTM6Fwtc6pNSumilOItYXZdcD+YNj9GptD5uQ2eFHTmsou00ip1raPyWY4BVcVdnsncKQ==}
+  '@sessionbus/kit@0.5.15':
+    resolution: {integrity: sha512-dygNZ+u88Cp32ly8AhoaxTH/E9MttOeqQwXmL+fc6ot0BsfUCUfTZFdgv4uSku3xAzWS0nrwNylYbruo3Ui7Tg==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -36,7 +36,7 @@ packages:
 
 snapshots:
 
-  '@sessionbus/kit@0.5.14': {}
+  '@sessionbus/kit@0.5.15': {}
 
   argparse@2.0.1: {}
 
