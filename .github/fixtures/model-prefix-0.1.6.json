@@ -1,0 +1,44 @@
+{
+  "baseline": {
+    "package": "@sessionbus/dsh",
+    "version": "0.1.6",
+    "commonRevision": "db8f85d47fbc8f25faa4edeb606fbf3e8ea660d1",
+    "artifactSha256": "16430e214e8808ff7d9fbac30ef422f607c965903d14e7b4812a3e6b108209da",
+    "dshTools": "0.2.1-alpha.3"
+  },
+  "serialization": "JSON.stringify without sorting keys; skillText and generated SDKs are literal UTF-8. Deliberate W-154 common-tool re-prefill; 0.1.4 fixture retained unchanged.",
+  "prefix": {
+    "rawTool": {
+      "bytes": 7712,
+      "sha256": "6e0d817509b93cbd6076e94c499505bef74c8ee36738db03521b05f576e3cf25"
+    },
+    "registeredTool": {
+      "bytes": 7774,
+      "sha256": "8e83d7731b9db4429875db94b298bfadf892c0946cd97f25214018f8d0a4e04b"
+    },
+    "skill": {
+      "bytes": 5572,
+      "sha256": "4560727c687081d240e97af951aa579dc6ce3ba0cb7712acde452f974e838e6c"
+    },
+    "nativeTools": {
+      "bytes": 7694,
+      "sha256": "9451bfbe71653065178827d1b314a5d032236ad0c0f86e18ce9ebe4c0ba76946"
+    },
+    "sdkTools": {
+      "bytes": 7765,
+      "sha256": "9ceec63849dc0b09473af0ebcdf872a72c7647dfca30a7b0bc499bd2c85fb3e8"
+    },
+    "typescript": {
+      "bytes": 8906,
+      "sha256": "baee4a4fc6f10be3262eb5075abd49d9ec3897f65c275b1a2351ab42f3e9072f"
+    },
+    "python": {
+      "bytes": 9323,
+      "sha256": "7017d3d0f63475801c5dbdd6052cb858fb989bd87a6ddc0347e75132f40ae786"
+    },
+    "skillText": {
+      "bytes": 5175,
+      "sha256": "28eca4f3f014757c1e4b0a30f70afca1e83435d93843bc8e71be3b120907eff4"
+    }
+  }
+}

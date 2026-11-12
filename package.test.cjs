@@ -9,6 +9,72 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("W-154 ships the byte-exact frozen common declaration", () => {
+  const { createHash } = require("node:crypto");
+  const bytes = fs.readFileSync(path.join(__dirname, "sessionbus-tool.json"));
+  const pinned = value => {
+    assert.equal(value.length, 7694);
+    assert.equal(createHash("sha256").update(value).digest("hex"), "16430e214e8808ff7d9fbac30ef422f607c965903d14e7b4812a3e6b108209da");
+  };
+  pinned(bytes);
+  assert.ok(packageManifest.files.includes("sessionbus-tool.json"));
+  const declaration = JSON.parse(bytes);
+  assert.deepEqual(declaration.inputSchema.properties.action.enum, require("@sessionbus/kit").ACTIONS);
+  assert.equal(declaration.inputSchema.properties.action.enum.length, 18);
+  pinned(Buffer.from(JSON.stringify(declaration) + "\n"));
+  for (const edit of [value => { delete value.inputSchema.properties.arguments.properties.source; },
+    value => { value.inputSchema.properties.action.enum.pop(); }, value => { delete value.inputSchema.additionalProperties; }]) {
+    const value = structuredClone(declaration); edit(value);
+    assert.throws(() => pinned(Buffer.from(JSON.stringify(value) + "\n")), assert.AssertionError);
+  }
+});
+
+test("W-154 renderer observations are UNVERIFIED off-baseline and preserve every prefix oracle", async () => {
+  const { createHash } = require("node:crypto");
+  const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-mode-controller.mjs"), "utf8");
+  const start = source.indexOf("      for (const [name, value] of Object.entries(values)) {");
+  const end = source.indexOf("\n    } finally", start);
+  assert.ok(start >= 0 && end > start);
+  const check = new Function("assert", "createHash", "values", "prefix", "baseline", "toolsVersion", "product", "console", "unverified", source.slice(start, end));
+  const native = ["rawTool", "registeredTool", "nativeTools", "sdkTools", "skill", "skillText"];
+  const values = Object.fromEntries([...native, "typescript", "python"].map(name => [name, name]));
+  const prefix = Object.fromEntries(Object.entries(values).map(([name, bytes]) => [name,
+    { bytes: Buffer.byteLength(bytes), sha256: createHash("sha256").update(bytes).digest("hex") }]));
+  const run = (version, actual) => {
+    const unverified = [], logs = [];
+    check(assert, createHash, actual, prefix, { dshTools: "0.2.1-alpha.3" }, version, "synthetic",
+      { log: line => logs.push(line) }, unverified);
+    assert.deepEqual(unverified, version === "0.2.1-alpha.3" ? [] : ["typescript", "python"].map(name => `${version} synthetic ${name}`));
+    assert.equal(logs.length, unverified.length);
+    for (const line of logs) { assert.match(line, /^UNVERIFIED /u); assert.doesNotMatch(line, /oracle|PASS/u); }
+    return unverified;
+  };
+  const labelStart = source.indexOf("async function check(name, run) {");
+  const labelEnd = source.indexOf("\nawait check(", labelStart);
+  const summaryStart = source.indexOf("\nconsole.log(JSON.stringify({ cases, dsh:");
+  assert.ok(labelStart >= 0 && labelEnd > labelStart && summaryStart > labelEnd);
+  for (const version of ["0.2.1-alpha.3", "0.2.1-rc.2", "0.2.2-rc.2"]) {
+    const unverified = run(version, values), logs = [], process = { exitCode: 0 };
+    const console = { log: line => logs.push(line) };
+    const label = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")([], console);
+    await label("prefix", async () => {});
+    assert.match(logs.pop(), /: PASS$/u);
+    const marked = [];
+    const incomplete = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")(marked, console);
+    await incomplete("prefix", async () => marked.push(...unverified));
+    assert.match(logs.pop(), version === "0.2.1-alpha.3" ? /: PASS$/u : /: UNVERIFIED$/u);
+    new Function("console", "process", "unverified", "cases", "fs", "dshManifest", "pluginManifest", "native", source.slice(summaryStart))(
+      console, process, unverified, 10, { readFileSync: () => JSON.stringify({ version }) }, "synthetic-dsh", "synthetic-plugin", { resolve: () => "synthetic-cordis" });
+    assert.equal(process.exitCode, version === "0.2.1-alpha.3" ? 0 : 1);
+    if (unverified.length) { assert.equal(JSON.parse(logs.pop()).result, "UNVERIFIED"); }
+    for (const name of native) assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
+    for (const name of ["typescript", "python"]) {
+      if (version === "0.2.1-alpha.3") assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
+      else run(version, { ...values, [name]: "changed" });
+    }
+  }
+});
+
 test("W-146 deferred groups proof rejects both stderr-only and logger-only diagnostics", async () => {
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-session-groups.mjs"), "utf8");
   const start = source.indexOf("  const command = async (id, line) => {");
@@ -167,7 +233,7 @@ test("package metadata stays rooted in the standalone repository with its own pr
   assert.deepEqual(manifest.bugs, { url: "https://github.com/sessionbus/sessionbus-dsh/issues" });
   assert.equal(manifest.homepage, "https://github.com/sessionbus/sessionbus-dsh#readme");
   assert.deepEqual(manifest.bin, { "sessionbus-dsh": "launcher.mjs", "sessionbus-dsh-install": "bin.mjs" });
-  assert.deepEqual(manifest.files, ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"]);
+  assert.deepEqual(manifest.files, ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "sessionbus-tool.json", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"]);
   assert.deepEqual(manifest.exports, { ".": "./plugin.cjs", "./file-uploads-none": "./file-uploads-none.mjs" });
   assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], undefined);
   assert.equal(manifest.peerDependencies["@antst/dsh-file-uploads-none"], undefined);
@@ -319,7 +385,7 @@ test("packed cold imports and the installed bin have no CLI or registry side eff
   const packed = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], { cwd: __dirname, encoding: "utf8" });
   assert.equal(packed.status, 0, packed.stderr);
   const info = JSON.parse(packed.stdout)[0], tarball = path.join(directory, info.filename);
-  assert.deepEqual(info.files.map(file => file.path).sort(), ["README.md", "bin.mjs", "docs/LANE-WITHOUT-TUI.md", "file-uploads-none.mjs", "install.mjs", "launcher.mjs", "package.json", "plugin.cjs", "skills/sessionbus.md"]);
+  assert.deepEqual(info.files.map(file => file.path).sort(), ["README.md", "bin.mjs", "docs/LANE-WITHOUT-TUI.md", "file-uploads-none.mjs", "install.mjs", "launcher.mjs", "package.json", "plugin.cjs", "sessionbus-tool.json", "skills/sessionbus.md"]);
   const consumer = path.join(directory, "consumer");
   // Cold-import/bin fixture ONLY: legacy-peer-deps deliberately avoids supplying a fake DSH.
   // Native add/exec/compatibility/service proofs run separately in every universal hosted leg.
@@ -327,6 +393,7 @@ test("packed cold imports and the installed bin have no CLI or registry side eff
   assert.equal(installed.status, 0, installed.stderr);
   const packageRoot = path.join(consumer, "node_modules/@sessionbus/dsh");
   assert.equal(JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"))).version, packageVersion);
+  assert.deepEqual(fs.readFileSync(path.join(packageRoot, "sessionbus-tool.json")), fs.readFileSync(path.join(__dirname, "sessionbus-tool.json")));
   const imported = spawnSync(process.execPath, ["-e", "require('./plugin.cjs')"], { cwd: packageRoot, encoding: "utf8" });
   assert.equal(imported.status, 0, imported.stderr);
   const importHome = path.join(directory, "import-home");

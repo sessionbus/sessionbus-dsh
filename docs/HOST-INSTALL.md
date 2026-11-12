@@ -511,6 +511,8 @@ for (const [name, pin] of Object.entries(pins)) {
   console.log(`CLI companion ${name}@${pin}: one version`)
 }
 NODE
+# This private-reflection checker does NOT support Cordis 4.1 / DSH 0.2.2 yet.
+# Its loader-row identity assumptions broke there; a public observable is a follow-up.
 cat >"$ROLLBACK_ROOT/check-profile-closure.mjs" <<'NODE'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -526,6 +528,7 @@ const require = createRequire(anchor)
 const cli = JSON.parse(readFileSync(anchor, 'utf8'))
 const wanted = Object.fromEntries(Object.keys(cli.dependencies).filter(name => name.startsWith('@deepseek-ai/dsh')).map(name => [name, cli.version]))
 wanted['@deepseek-ai/dsh-base'] = cli.version
+const ownerFiber = impl => impl.ctx?.fiber ?? impl.fiber
 function assertRuntimeSelection(name, version, resolved) {
   const selected = resolved && JSON.parse(readFileSync(join(resolved.dir, 'package.json'), 'utf8'))
   if (resolved?.name !== name || resolved?.version !== version ||
@@ -591,10 +594,10 @@ try {
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
   if (ownsPlugin) {
-    const implementations = Reflect.ownKeys(boot.ctx.reflect.store).map(key => boot.ctx.reflect.store[key])
-      .filter(value => value?.name === 'fileUploads' && value.fiber.state === 2)
-    if (implementations.length !== 1) throw new Error('expected one active fileUploads implementation')
-    const rows = [...boot.ctx.loader.entries()].filter(row => row.fiber === implementations[0].fiber)
+    const fibers = Reflect.ownKeys(boot.ctx.reflect.store).map(key => boot.ctx.reflect.store[key])
+      .filter(value => value?.name === 'fileUploads').map(ownerFiber).filter(fiber => fiber.state === 2)
+    if (fibers.length !== 1) throw new Error('expected one active fileUploads implementation')
+    const rows = [...boot.ctx.loader.entries()].filter(row => row.fiber === fibers[0])
     if (rows.length !== 1) throw new Error('expected one mounted upload-provider row')
     const row = rows[0], mounted = packages.packageOf(row.options.name, row.parent.tree.ctx.baseUrl)
     if (!mounted) throw new Error('mounted upload provider has no native package owner')

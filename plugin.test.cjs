@@ -181,29 +181,34 @@ test("a row without product fails once with the installer fix", () => {
   assert.equal(ctx.tool, undefined);
 });
 
-test("W-150 registered tool and skill bytes stay pinned to published 0.1.4", async () => {
-  const { prefix } = JSON.parse(fs.readFileSync(path.join(__dirname, ".github/fixtures/model-prefix-0.1.4.json"), "utf8"));
+test("W-154 registered tool and skill bytes stay pinned to the reviewed 0.1.6 declaration", async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(path.join(__dirname, ".github/fixtures/model-prefix-0.1.6.json"), "utf8"));
   for (const product of ["dsh", "dashi", "sessionbus-dsh"]) {
     const ctx = new Context(), root = agent(ctx, "prefix-" + product), deps = dependencies(ctx);
+    let rawTool;
+    deps.defineTool = tool => { rawTool = JSON.stringify(tool); return { ...tool, parameters: { ...tool.parameters } }; };
     if (product === "sessionbus-dsh") deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "synthetic-prefix-token" };
     const runtime = createRuntime(ctx, { product, groups: ["prefix-team"] }, deps);
+    const registeredToolBytes = JSON.stringify(ctx.tool);
     const check = () => {
       const tools = [...ctx.registeredTools.values()];
       assert.equal(tools.length, 1, "the published model-facing tool set contains exactly one Sessionbus definition");
+      assert.equal(JSON.stringify(tools[0]), registeredToolBytes, "registered tool bytes changed at runtime");
       for (const [name, bytes] of Object.entries({
-        rawTool: JSON.stringify(tools[0]),
+        rawTool,
         skill: JSON.stringify(ctx.registeredSkills.get("sessionbus")),
         skillText: ctx.registeredSkills.get("sessionbus").content,
       })) {
-        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ": published 0.1.4 model-prefix length changed");
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ": reviewed 0.1.6 model-prefix length changed");
         assert.equal(createHash("sha256").update(bytes).digest("hex"), prefix[name].sha256,
-          name + ": published 0.1.4 model-prefix bytes changed; review deliberately, never refresh this golden silently");
+          name + ": reviewed 0.1.6 model-prefix bytes changed; review deliberately, never refresh this golden silently");
       }
     };
     try {
       check(); ctx.ready(); check();
       if (product !== "sessionbus-dsh") {
         await ctx.command.handler({ agent: root, rawInput: "changed-group", signal: new AbortController().signal });
+        check();
         ctx.emit("session/event", root.session, { type: "session/title", data: { title: "Changed identity" } });
         await runtime.peers.get(root).rehello; check();
       }
@@ -718,8 +723,8 @@ test("peer SESSIONBUS_GROUPS is a configuration proof against a fake daemon", as
     assert.deepEqual(deps.errors, []);
     await hello;
     assert.deepEqual(hellos, [
-      { protocol: 1, product: "dsh", session_id: root.id, groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default" } },
-      { protocol: 1, product: "dsh", session_id: root.id, name: "Renamed", groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default" } },
+      { protocol: 1, product: "dsh", session_id: root.id, groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1, sessionbus_unknown_transfer: 1 } },
+      { protocol: 1, product: "dsh", session_id: root.id, name: "Renamed", groups: ["alpha", "beta"], info: { cwd: "/workspace", model: "provider/default", sessionbus_availability: 1, sessionbus_policy: 1, sessionbus_transfer: 1, sessionbus_unknown_transfer: 1 } },
     ]);
   } finally {
     runtime.close();
@@ -1040,6 +1045,7 @@ test("missing-seam diagnostics survive real unexported or invalid version metada
   return (async () => {
     try {
       fs.copyFileSync(path.join(__dirname, "plugin.cjs"), path.join(directory, "plugin.cjs"));
+      fs.copyFileSync(path.join(__dirname, "sessionbus-tool.json"), path.join(directory, "sessionbus-tool.json"));
       fs.copyFileSync(path.join(__dirname, "package.json"), path.join(directory, "package.json"));
       fs.mkdirSync(path.join(directory, "skills"));
       fs.copyFileSync(path.join(__dirname, "skills/sessionbus.md"), path.join(directory, "skills/sessionbus.md"));
@@ -2385,37 +2391,17 @@ test("peer title re-hellos are serialized and finish on the newest title", async
   assert.equal(runtime.peers.get(one).peer.identity.name, "Newest");
 });
 
-test("native tool arguments expose the exact closed MCP union", () => {
+test("stub tool adapter preserves the frozen fields and root-false carry", () => {
   const ctx = new Context();
   createRuntime(ctx, { product: "dashi" }, dependencies(ctx));
-  assert.deepEqual(ACTIONS, ["list", "send", "spawn", "describe", "trace", "run", "start", "wait", "status", "interrupt", "close", "forget", "ack"]);
-  assert.match(ctx.tool.description, /trace mode off, events or content/u);
-  assert.match(ctx.tool.description, /Read the sessionbus skill/u);
+  const frozen = require("./sessionbus-tool.json");
+  assert.deepEqual(ACTIONS, require("@sessionbus/kit").ACTIONS);
+  assert.equal(ACTIONS.length, 18);
+  assert.equal(ctx.tool.description, frozen.description);
+  // Identity-stub shape only; prove-mode-controller.mjs checks the real compiled root.
   assert.deepEqual(ctx.tool.parameters, {
-    action: { type: "string", enum: ACTIONS, required: true },
-    arguments: {
-      type: "object", additionalProperties: false,
-      description: "Use only the fields listed for the selected action in the tool description. send has no summary field; put the complete content in message.",
-      properties: {
-        session_id: { type: "string" }, host: { type: "string" }, message: { type: "string" },
-        target: { type: "string" }, group: { type: "string" }, product: { type: "string" },
-        name: { type: "string" }, resume_session_id: { type: "string" }, notify_target: { type: "string" },
-        input: { type: "string" }, run_id: { type: "string" },
-        targets: { type: "array", items: { type: "string" } },
-        extra_groups: { type: "array", items: { type: "string" } },
-        persistent: { type: "boolean" }, notify: { type: "boolean" }, forget: { type: "boolean" },
-        auto_close_ms: { type: "integer" }, timeout_ms: { type: "integer" },
-        trace: { type: "string", enum: ["off", "events", "content"] },
-        mode: { type: "string", enum: ["off", "events", "content"] },
-        open: {
-          type: "object", additionalProperties: false,
-          properties: {
-            cwd: { type: "string" }, permission_mode: { type: "string" }, model: { type: "string" },
-            reasoning_effort: { type: "string" }, arguments: { type: "array", items: { type: "string" } },
-          },
-        },
-      },
-    },
+    ...Object.fromEntries(Object.entries(frozen.inputSchema.properties).map(([key, schema]) => [key, { ...schema, required: true }])),
+    additionalProperties: false,
   });
   ctx.dispose();
 });
@@ -2449,7 +2435,52 @@ test("an unavailable native permission hook fails before tool registration", () 
   assert.equal(ctx.tool, undefined);
 });
 
+test("W-154 final disposal waits for current peers' public closed promises", async () => {
+  const ctx = new Context(), deps = dependencies(ctx), retired = deferred(); agent(ctx);
+  const connect = deps.connectPeer; let stopped = false, complete = false;
+  deps.connectPeer = (...args) => { const peer = connect(...args); peer.closed = retired.promise; peer.shutdown = () => { stopped = true; }; return peer; };
+  const runtime = createRuntime(ctx, { product: "dsh" }, deps); ctx.ready();
+  const closing = runtime.close().then(() => { complete = true; });
+  await new Promise(setImmediate); assert.equal(stopped, true); assert.equal(complete, false);
+  retired.resolve(); await closing; assert.equal(complete, true);
+});
+
 for (const mode of ["peer", "lane"]) {
+  test(`W-154 transfer paths bind to the exact ${mode} session without cleaning`, async t => {
+    const ctx = new Context(), deps = dependencies(ctx);
+    const native = agent(ctx), directory = fs.mkdtempSync(path.join(os.tmpdir(), "sessionbus-w154-path-"));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const cwd = path.join(directory, "session"), elsewhere = path.join(directory, "elsewhere");
+    fs.mkdirSync(cwd); fs.mkdirSync(path.join(elsewhere, "child"), { recursive: true });
+    fs.symlinkSync(path.join(elsewhere, "child"), path.join(cwd, "link"));
+    fs.writeFileSync(path.join(elsewhere, "chosen"), "native path"); fs.writeFileSync(path.join(cwd, "chosen"), "cleaned path");
+    native.session.header.cwd = cwd;
+    if (mode === "lane") deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "synthetic-path-token" };
+    const runtime = createRuntime(ctx, { product: mode === "lane" ? "sessionbus-dsh" : "dsh" }, deps);
+    t.after(() => runtime.close()); ctx.ready();
+    if (mode === "lane") runtime.native.agent = native;
+    const client = mode === "lane" ? deps.workerCaller : deps.peers[0].caller;
+    let passed; client.action = (action, args) => { passed = { action, args }; return passed; };
+    for (const [action, field] of [["transfer.offer", "source"], ["transfer.request", "destination"], ["transfer.accept", "source"], ["transfer.accept", "destination"]]) {
+      for (const input of ["link/../chosen", path.join(elsewhere, "chosen"), "", 7]) {
+        const args = { [field]: input }, before = JSON.stringify(args);
+        runtime.execute({ action, arguments: args }, { agent: native });
+        assert.equal(JSON.stringify(args), before, "model arguments stay unchanged");
+        const expected = typeof input === "string" && input && !path.isAbsolute(input) ? `${cwd}/${input}` : input;
+        assert.equal(passed.args[field], expected);
+        if (input === "link/../chosen") assert.equal(fs.readFileSync(passed.args[field], "utf8"), "native path", "path.resolve/join must fail this symlink control");
+      }
+      native.session.header.cwd = undefined;
+      assert.throws(() => runtime.execute({ action, arguments: { [field]: "relative" } }, { agent: native }), /absolute.*cwd|cwd.*absolute/u);
+      runtime.execute({ action, arguments: { [field]: "/absolute" } }, { agent: native });
+      assert.equal(passed.args[field], "/absolute");
+      native.session.header.cwd = "relative-cwd";
+      assert.throws(() => runtime.execute({ action, arguments: { [field]: "relative" } }, { agent: native }), /absolute.*cwd|cwd.*absolute/u);
+      native.session.header.cwd = cwd;
+    }
+    const args = { message: "relative", target: "peer" };
+    runtime.execute({ action: "send", arguments: args }, { agent: native }); assert.equal(passed.args, args);
+  });
   test(`native tool accepts known arguments and rejects unknown keys before ${mode} action`, async () => {
     const { ctx, native, deps, runtime } = mode === "lane" ? await openedLane() : (() => {
       const ctx = new Context();
@@ -2473,13 +2504,17 @@ for (const mode of ["peer", "lane"]) {
       ["run", { session_id: "worker", input: "go" }],
       ["wait", { session_id: "worker", run_id: "run", timeout_ms: 0 }],
       ["close", { session_id: "worker", forget: true }],
+      ["transfer.offer", { target: "recipient", source: "/source", name: "file" }],
+      ["transfer.request", { target: "recipient", what: "file", destination: "/destination", overwrite: true }],
+      ["transfer.accept", { id: "transfer", destination: "/destination" }],
+      ["transfer.status", { id: "transfer" }], ["transfer.cancel", { id: "transfer" }],
     ];
     for (const [action, args] of requests) {
       assert.equal(await ctx.tool.execute({ action, arguments: args }, { agent: native }), "accepted");
       assert.deepEqual(forwarded.at(-1), { action, args });
       assert.equal(forwarded.at(-1).args, args);
     }
-    assert.equal(new Set(requests.flatMap(([, args]) => Object.keys(args))).size, 21);
+    assert.equal(new Set(requests.flatMap(([, args]) => Object.keys(args))).size, 26);
     for (const [args, message] of [
       [{ target: "recipient", message: "Complete message", summary: "extra" }, /arguments\.summary is not supported/],
       [{ unexpected: true }, /arguments\.unexpected is not supported/],

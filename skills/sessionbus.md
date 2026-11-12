@@ -2,8 +2,9 @@
 
 Use the native `sessionbus` tool with exactly `{action, arguments}`. Its action
 enum is `list`, `send`, `spawn`, `describe`, `trace`, `run`, `start`, `wait`,
-`status`, `interrupt`, `close`, `forget`, and `ack`. Follow the advertised
-schema. Do not invent convenience methods, use a shell substitute, or switch to
+`status`, `interrupt`, `close`, `forget`, `ack`, `transfer.offer`,
+`transfer.request`, `transfer.accept`, `transfer.cancel`, and `transfer.status`.
+Follow the advertised schema. Do not invent convenience methods, use a shell substitute, or switch to
 another transport to repair a failed call.
 
 `list` returns `self_info` for the identity bound to this caller: `session_id`,

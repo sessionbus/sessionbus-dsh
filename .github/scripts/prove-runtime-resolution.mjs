@@ -18,6 +18,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const runbook = readFileSync(join(root, 'docs/HOST-INSTALL.md'), 'utf8');
 const matches = [...runbook.matchAll(/cat >"\$ROLLBACK_ROOT\/check-profile-closure.mjs" <<'NODE'\n([\s\S]*?)\nNODE/g)];
 assert.equal(matches.length, 1, 'extract exactly one documented native checker');
+// Exercise the identical documented selector before either native fixture.
+const selector = /^const ownerFiber = impl => (.+)$/m.exec(matches[0][1]);
+assert.ok(selector, 'documented checker must define its implementation-owner selector');
+const ownerFiber = new Function('impl', `return ${selector[1]}`);
+const current = { state: 2 }, legacy = { state: 2 };
+assert.equal(ownerFiber({ ctx: { fiber: current } }), current);
+assert.equal(ownerFiber({ fiber: legacy }), legacy);
+assert.equal(ownerFiber({ ctx: { fiber: current }, fiber: legacy }), current);
+assert.equal(ownerFiber({}), undefined, 'missing ownership must not manufacture an active fiber');
 const fixture = mkdtempSync(join(tmpdir(), 'sessionbus-runtime-oracle-'));
 try {
   const checker = join(fixture, 'check.mjs');

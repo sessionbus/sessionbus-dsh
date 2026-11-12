@@ -11,6 +11,7 @@ const native = createRequire(fs.realpathSync(dshManifest));
 const own = createRequire(fs.realpathSync(pluginManifest));
 const { Context } = await import(pathToFileURL(native.resolve('@deepseek-ai/cordis')));
 const { defineTool, ToolRuntime, renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tools')));
+const toolsVersion = JSON.parse(fs.readFileSync(native.resolve('@deepseek-ai/dsh-tools/package.json'))).version;
 const plugin = own('./plugin.cjs');
 const tick = () => new Promise(setImmediate);
 async function settled() { for (let i = 0; i < 5; i++) await tick(); }
@@ -41,8 +42,9 @@ function fixture(mode) {
     },
     connectPeer: () => {
       state.peers++;
-      return { ready: Promise.resolve(), closed: new Promise(() => {}),
-        shutdown() { state.stopped++; }, caller: {} };
+      let close;
+      return { ready: Promise.resolve(), closed: new Promise(resolve => { close = resolve; }),
+        shutdown() { state.stopped++; close(); }, caller: {} };
     },
   };
   const mount = () => ctx.plugin({ ...plugin, apply: (scope, config) => plugin.apply(scope, config, deps) },
@@ -51,12 +53,14 @@ function fixture(mode) {
   return { ctx, state, deps, mount, provide, commit, titleProvider };
 }
 let cases = 0;
+const unverified = [];
 async function check(name, run) {
+  const before = unverified.length;
   await run(); cases++;
-  console.log('real Cordis ' + name + ': PASS');
+  console.log('real Cordis ' + name + ': ' + (unverified.length > before ? 'UNVERIFIED' : 'PASS'));
 }
-await check('published 0.1.4 model-prefix bytes survive native compilation and projection', async () => {
-  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.4.json', import.meta.url)));
+await check('reviewed 0.1.6 model-prefix bytes survive native compilation and projection', async () => {
+  const { baseline, prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
   for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {
     const ctx = new Context(), effects = [], captured = {};
     ctx.provide('systemPrompt', { tools() {} });
@@ -78,11 +82,24 @@ await check('published 0.1.4 model-prefix bytes survive native compilation and p
         typescript: renderToolsSdk(registry.sdkSchemas()), python: renderToolsSdkPy(registry.sdkSchemas()),
         skillText: captured.skill.content };
       assert.equal(values.nativeTools.length, 1);
+      assert.deepEqual(captured.registeredTool.parameters, own('./sessionbus-tool.json').inputSchema);
+      // DSH GAP: prove root-false changes the actual defineTool validation, not just display.
+      for (const args of [{ action: 'list', arguments: {}, extra: true }, { action: 'list' }]) {
+        await assert.rejects(() => captured.registeredTool.execute(args, {}), error => error.name === 'ToolArgsError');
+      }
+      const openRoot = defineTool({ ...captured.rawTool, execute: () => 'open-root-control' });
+      assert.equal(await openRoot.execute({ action: 'list', arguments: {}, extra: true }, {}), 'open-root-control');
       for (const [name, value] of Object.entries(values)) {
         const bytes = typeof value === 'string' ? value : JSON.stringify(value);
-        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': published 0.1.4 model-prefix length changed');
+        if (['typescript', 'python'].includes(name) && toolsVersion !== baseline.dshTools) {
+          unverified.push(`${toolsVersion} ${product} ${name}`);
+          console.log('UNVERIFIED ' + JSON.stringify({ product, projection: name, toolsVersion,
+            bytes: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }));
+          continue;
+        }
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': reviewed 0.1.6 model-prefix length changed');
         assert.equal(createHash('sha256').update(bytes).digest('hex'), prefix[name].sha256,
-          name + ': published 0.1.4 model-prefix changed; explicit compatibility review is required');
+          name + ': reviewed 0.1.6 model-prefix changed; explicit compatibility review is required');
       }
     } finally { for (const dispose of effects.reverse()) await dispose(); await ctx.fiber.dispose(); }
   }
@@ -168,4 +185,6 @@ for (const mode of ['lane', 'peer']) for (const outcome of ['resolve', 'reject']
 }
 console.log(JSON.stringify({ cases, dsh: JSON.parse(fs.readFileSync(dshManifest)).version,
   plugin: JSON.parse(fs.readFileSync(pluginManifest)).version,
-  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false }));
+  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false,
+  ...(unverified.length ? { result: 'UNVERIFIED', unverified } : {}) }));
+if (unverified.length) process.exitCode = 1;

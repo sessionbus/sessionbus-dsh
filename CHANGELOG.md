@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6 — 2026-11-12
+
+- Support Sessionbus file transfers in interactive peers and lanes with kit 0.5.16's default filesystem executor and existing notice delivery. Local paths use the executing session's cwd without cleaning symlink/..; no transfer mirror, queue or replay is added. Transfers run as the OS user and are not subject to DSH permission modes.
+- Kit 0.5.16 distinguishes SDK-local unknown/ended transfer accepts as `unknown_transfer` while preserving field/role/path conflicts, and negotiates `unknown_transfer` for status with no accessible live transfer; old kits retain their legacy status answer.
+- Final disposal awaits current peers' public `closed` promises, which include transfer retirement in kit 0.5.15. Earlier peer removals and the lane worker remain unjoined; no retired-peer registry or group-admission wait is added.
+- Vendor the frozen common tool declaration from peer-common db8f85d byte-exact, adapting only DSH's native schema shape. Adopting its closed envelope makes arguments required and refuses undeclared outer keys. Tool and skill changes cause one deliberate re-prefill. Daemons before 0.5.14 do not grant transfer support.
+- Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor (with kit 0.5.15; to be re-validated on 0.5.16). DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit model or reasoning_effort is refused there (spawn_failed), and other DSH 0.2.2 changes are under review (W-155).
+- Live real-model acceptance is pending: three turns across two preparation windows ended with DSH’s SERVER error (its classification of backend server failures; no HTTP status was observed), before any transfer; no plugin fault was established.
+
 ## 0.1.5 — 2026-10-15
 
 - Let peers activate without the Session Controller, including stock acp, headless and sdk profiles. Keep the controller as a lane-only native dependency: absence at host readiness prints one fatal reason and exits 1; dependency loss retains native teardown and the existing worker exit behavior. No polling, retry or extra controller row is added.
