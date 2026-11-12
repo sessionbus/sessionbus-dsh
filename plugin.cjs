@@ -5,23 +5,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const kit = require("@sessionbus/kit");
 const version = require("./package.json").version;
-const { ACTIONS } = kit;
+// Byte-exact common.Tool(): peer-common db8f85d47fbc8f25faa4edeb606fbf3e8ea660d1.
+const declaration = require("./sessionbus-tool.json");
+const ACTIONS = Object.freeze(declaration.inputSchema.properties.action.enum);
 const skillContent = fs.readFileSync(path.join(__dirname, "skills/sessionbus.md"), "utf8");
 
-// Match the MCP tool's closed union; the public kit validates each action.
-function argumentSchema() {
-  const properties = {};
-  for (const field of ["session_id", "host", "message", "target", "group", "product", "name", "resume_session_id", "notify_target", "input", "run_id"]) properties[field] = { type: "string" };
-  for (const field of ["targets", "extra_groups"]) properties[field] = { type: "array", items: { type: "string" } };
-  for (const field of ["persistent", "notify", "forget"]) properties[field] = { type: "boolean" };
-  for (const field of ["auto_close_ms", "timeout_ms"]) properties[field] = { type: "integer" };
-  properties.trace = { type: "string", enum: ["off", "events", "content"] };
-  properties.mode = { type: "string", enum: ["off", "events", "content"] };
-  const open = {};
-  for (const field of ["cwd", "permission_mode", "model", "reasoning_effort"]) open[field] = { type: "string" };
-  open.arguments = { type: "array", items: { type: "string" } };
-  properties.open = { type: "object", additionalProperties: false, properties: open };
-  return { type: "object", additionalProperties: false, properties, description: "Use only the fields listed for the selected action in the tool description. send has no summary field; put the complete content in message." };
+function bindTransferPaths(action, args, cwd) {
+  const fields = { "transfer.offer": ["source"], "transfer.request": ["destination"], "transfer.accept": ["source", "destination"] }[action] || [];
+  let bound = args;
+  for (const field of fields) {
+    const value = args[field];
+    if (typeof value !== "string" || !value || path.isAbsolute(value)) continue;
+    if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error(`transfer ${field} requires an absolute session cwd`);
+    if (bound === args) bound = { ...args };
+    // Do not clean symlink/..: the OS must resolve the path in its native order.
+    bound[field] = cwd + (cwd.endsWith(path.sep) ? "" : path.sep) + value;
+  }
+  return bound;
 }
 
 function assertKnownArguments(value, schema, location = "arguments") {
@@ -515,13 +515,13 @@ function createRuntime(ctx, config, dependencies, prepared) {
     }, { global: true });
   }
   const caller = (agent) => worker && native.agent === agent ? worker.caller : peers.get(agent)?.peer.caller;
-  const argumentsSchema = argumentSchema();
+  const argumentsSchema = declaration.inputSchema.properties.arguments;
   const execute = (argumentsValue, execution) => {
     const client = caller(execution?.agent);
     if (!client) throw new Error("sessionbus requires an exact live DSH root");
     const args = argumentsValue.arguments || {};
     assertKnownArguments(args, argumentsSchema);
-    return client.action(argumentsValue.action, args);
+    return client.action(argumentsValue.action, bindTransferPaths(argumentsValue.action, args, execution?.agent?.session?.header?.cwd));
   };
   let removeGrant;
   try {
@@ -529,13 +529,18 @@ function createRuntime(ctx, config, dependencies, prepared) {
     removeGrant = ctx.on("tools/pre-execute", async (execution, next) =>
       execution.name === "sessionbus" ? { kind: "allow" } : next(), { prepend: true });
   } catch (error) { throw new Error(`cannot grant sessionbus tool permission: ${clean(error)}`); }
-  const removeTool = ctx.tools.register(dependencies.defineTool({
-    name: "sessionbus",
-    description: "Call Sessionbus with an action from the list, send, spawn, describe, trace, run, start, wait, status, interrupt, close, forget, or ack enum. Use trace mode off, events or content for a direct child. Read the sessionbus skill for exact arguments, caller identity, delivery dispositions, lane policies, collection and acknowledgment discipline, tracing, and safe replies.",
-    parameters: { action: { type: "string", enum: ACTIONS, required: true }, arguments: argumentsSchema },
+  const definition = dependencies.defineTool({
+    name: declaration.name,
+    description: declaration.description,
+    parameters: Object.fromEntries(Object.entries(declaration.inputSchema.properties).map(([key, schema]) =>
+      [key, { ...schema, ...(declaration.inputSchema.required.includes(key) ? { required: true } : {}) }])),
     output: { schema: { type: "object", additionalProperties: true, properties: {} }, render: (_args, result) => [{ type: "text", text: JSON.stringify(result) }] },
     execute,
-  }));
+  });
+  // DSH GAP: its parameter-map DSL omits root openness. The returned schema is
+  // also the validation closure's schema (dsh-tools rc.2:838-863); pin this seam.
+  definition.parameters.additionalProperties = declaration.inputSchema.additionalProperties;
+  const removeTool = ctx.tools.register(definition);
   const removeSkill = ctx.skills.register({
     name: "sessionbus",
     description: "Discover and message Sessionbus peers, trace direct child traffic, and create, run, collect, close and resume Sessionbus lanes through the single tool.",
@@ -671,9 +676,10 @@ function createRuntime(ctx, config, dependencies, prepared) {
     ready = false;
     trace(`mode=${values.mode} ready=false reason=close`);
     removeReady(); removeCreated(); removeDisposed(); removeTitle(); removeSkill(); removeGrant(); removeTool(); removeCommand();
+    const closed = [...peers.values()].map(({ peer }) => peer.closed);
     for (const agent of peers.keys()) forget(agent);
     worker?.shutdown(); native.removeEvents();
-    return domain?.close();
+    return Promise.all([...closed, domain?.close()]);
   };
   ctx.effect(() => close, "sessionbus-dsh.lifecycle");
   return { close, execute, native, peers, settings: values, start, get worker() { return worker; }, get workerExit() { return workerExit; } };

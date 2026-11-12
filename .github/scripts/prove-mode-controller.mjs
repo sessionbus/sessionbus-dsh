@@ -41,8 +41,9 @@ function fixture(mode) {
     },
     connectPeer: () => {
       state.peers++;
-      return { ready: Promise.resolve(), closed: new Promise(() => {}),
-        shutdown() { state.stopped++; }, caller: {} };
+      let close;
+      return { ready: Promise.resolve(), closed: new Promise(resolve => { close = resolve; }),
+        shutdown() { state.stopped++; close(); }, caller: {} };
     },
   };
   const mount = () => ctx.plugin({ ...plugin, apply: (scope, config) => plugin.apply(scope, config, deps) },
@@ -55,8 +56,8 @@ async function check(name, run) {
   await run(); cases++;
   console.log('real Cordis ' + name + ': PASS');
 }
-await check('published 0.1.4 model-prefix bytes survive native compilation and projection', async () => {
-  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.4.json', import.meta.url)));
+await check('reviewed 0.1.6 model-prefix bytes survive native compilation and projection', async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
   for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {
     const ctx = new Context(), effects = [], captured = {};
     ctx.provide('systemPrompt', { tools() {} });
@@ -78,11 +79,18 @@ await check('published 0.1.4 model-prefix bytes survive native compilation and p
         typescript: renderToolsSdk(registry.sdkSchemas()), python: renderToolsSdkPy(registry.sdkSchemas()),
         skillText: captured.skill.content };
       assert.equal(values.nativeTools.length, 1);
+      assert.deepEqual(captured.registeredTool.parameters, own('./sessionbus-tool.json').inputSchema);
+      // DSH GAP: prove root-false changes the actual defineTool validation, not just display.
+      for (const args of [{ action: 'list', arguments: {}, extra: true }, { action: 'list' }]) {
+        await assert.rejects(() => captured.registeredTool.execute(args, {}), error => error.name === 'ToolArgsError');
+      }
+      const openRoot = defineTool({ ...captured.rawTool, execute: () => 'open-root-control' });
+      assert.equal(await openRoot.execute({ action: 'list', arguments: {}, extra: true }, {}), 'open-root-control');
       for (const [name, value] of Object.entries(values)) {
         const bytes = typeof value === 'string' ? value : JSON.stringify(value);
-        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': published 0.1.4 model-prefix length changed');
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': reviewed 0.1.6 model-prefix length changed');
         assert.equal(createHash('sha256').update(bytes).digest('hex'), prefix[name].sha256,
-          name + ': published 0.1.4 model-prefix changed; explicit compatibility review is required');
+          name + ': reviewed 0.1.6 model-prefix changed; explicit compatibility review is required');
       }
     } finally { for (const dispose of effects.reverse()) await dispose(); await ctx.fiber.dispose(); }
   }

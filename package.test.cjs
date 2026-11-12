@@ -9,6 +9,25 @@ const test = require("node:test");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
 const packageVersion = packageManifest.version;
 
+test("W-154 ships the byte-exact frozen common declaration", () => {
+  const { createHash } = require("node:crypto");
+  const bytes = fs.readFileSync(path.join(__dirname, "sessionbus-tool.json"));
+  const pinned = value => {
+    assert.equal(value.length, 7694);
+    assert.equal(createHash("sha256").update(value).digest("hex"), "16430e214e8808ff7d9fbac30ef422f607c965903d14e7b4812a3e6b108209da");
+  };
+  pinned(bytes);
+  assert.ok(packageManifest.files.includes("sessionbus-tool.json"));
+  const declaration = JSON.parse(bytes);
+  assert.deepEqual(declaration.inputSchema.properties.action.enum, require("@sessionbus/kit").ACTIONS);
+  assert.equal(declaration.inputSchema.properties.action.enum.length, 18);
+  for (const edit of [value => { delete value.inputSchema.properties.arguments.properties.source; },
+    value => { value.inputSchema.properties.action.enum.pop(); }, value => { delete value.inputSchema.additionalProperties; }]) {
+    const value = structuredClone(declaration); edit(value);
+    assert.throws(() => pinned(Buffer.from(JSON.stringify(value) + "\n")), assert.AssertionError);
+  }
+});
+
 test("W-146 deferred groups proof rejects both stderr-only and logger-only diagnostics", async () => {
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-session-groups.mjs"), "utf8");
   const start = source.indexOf("  const command = async (id, line) => {");
@@ -167,7 +186,7 @@ test("package metadata stays rooted in the standalone repository with its own pr
   assert.deepEqual(manifest.bugs, { url: "https://github.com/sessionbus/sessionbus-dsh/issues" });
   assert.equal(manifest.homepage, "https://github.com/sessionbus/sessionbus-dsh#readme");
   assert.deepEqual(manifest.bin, { "sessionbus-dsh": "launcher.mjs", "sessionbus-dsh-install": "bin.mjs" });
-  assert.deepEqual(manifest.files, ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"]);
+  assert.deepEqual(manifest.files, ["README.md", "docs/LANE-WITHOUT-TUI.md", "skills/sessionbus.md", "sessionbus-tool.json", "plugin.cjs", "launcher.mjs", "bin.mjs", "install.mjs", "file-uploads-none.mjs"]);
   assert.deepEqual(manifest.exports, { ".": "./plugin.cjs", "./file-uploads-none": "./file-uploads-none.mjs" });
   assert.equal(manifest.dependencies["@antst/dsh-file-uploads-none"], undefined);
   assert.equal(manifest.peerDependencies["@antst/dsh-file-uploads-none"], undefined);
@@ -319,7 +338,7 @@ test("packed cold imports and the installed bin have no CLI or registry side eff
   const packed = spawnSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", directory], { cwd: __dirname, encoding: "utf8" });
   assert.equal(packed.status, 0, packed.stderr);
   const info = JSON.parse(packed.stdout)[0], tarball = path.join(directory, info.filename);
-  assert.deepEqual(info.files.map(file => file.path).sort(), ["README.md", "bin.mjs", "docs/LANE-WITHOUT-TUI.md", "file-uploads-none.mjs", "install.mjs", "launcher.mjs", "package.json", "plugin.cjs", "skills/sessionbus.md"]);
+  assert.deepEqual(info.files.map(file => file.path).sort(), ["README.md", "bin.mjs", "docs/LANE-WITHOUT-TUI.md", "file-uploads-none.mjs", "install.mjs", "launcher.mjs", "package.json", "plugin.cjs", "sessionbus-tool.json", "skills/sessionbus.md"]);
   const consumer = path.join(directory, "consumer");
   // Cold-import/bin fixture ONLY: legacy-peer-deps deliberately avoids supplying a fake DSH.
   // Native add/exec/compatibility/service proofs run separately in every universal hosted leg.
@@ -327,6 +346,7 @@ test("packed cold imports and the installed bin have no CLI or registry side eff
   assert.equal(installed.status, 0, installed.stderr);
   const packageRoot = path.join(consumer, "node_modules/@sessionbus/dsh");
   assert.equal(JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"))).version, packageVersion);
+  assert.deepEqual(fs.readFileSync(path.join(packageRoot, "sessionbus-tool.json")), fs.readFileSync(path.join(__dirname, "sessionbus-tool.json")));
   const imported = spawnSync(process.execPath, ["-e", "require('./plugin.cjs')"], { cwd: packageRoot, encoding: "utf8" });
   assert.equal(imported.status, 0, imported.stderr);
   const importHome = path.join(directory, "import-home");

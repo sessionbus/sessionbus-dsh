@@ -5,7 +5,7 @@ Source and issue tracking live in
 [sessionbus/sessionbus-dsh](https://github.com/sessionbus/sessionbus-dsh), and
 daemon releases come from
 [sessionbus/sessionbus](https://github.com/sessionbus/sessionbus/releases).
-It depends on the exact `@sessionbus/kit` version `0.5.12`.
+It depends on the exact `@sessionbus/kit` version `0.5.14`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
 It supports DeepSeek Harness `0.2.1-alpha.2` and later; the tested version is
@@ -20,6 +20,14 @@ migration; this plugin neither reads nor rewrites recorded logs.
 The plugin reads the token once, deletes it from process.env, and retains it
 nowhere in the plugin; DSH's immutable launch snapshot keeps it for the process
 lifetime (trusted host).
+
+File transfers (`transfer.offer`, `transfer.request`, `transfer.accept`,
+`transfer.cancel`, `transfer.status`) require Sessionbus daemon v0.5.14 on the
+hosts involved and transfer-capable peers. Relative source/destination paths use
+the executing DSH session's cwd, in peers and lanes. Transfers run as the OS user
+and are not subject to DSH permission modes. Offers, requests and final results
+arrive through ordinary messages; admission is not proof the model read them.
+The shared tool declaration supplies the exact arguments and outcome meanings.
 
 ## Installation
 
@@ -58,14 +66,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.5
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.6
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.5
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.6
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -75,7 +83,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.5
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.6
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -135,7 +143,7 @@ not packages added to the profile.
 exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.5 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.1.6 is incompatible with dsh 0.2.1-alpha.1`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.

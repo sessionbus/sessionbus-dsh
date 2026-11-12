@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 — 2026-11-12
+
+- Support Sessionbus file transfers in interactive peers and lanes with kit 0.5.14's default filesystem executor and existing notice delivery. Local paths use the executing session's cwd without cleaning symlink/..; no transfer mirror, queue or replay is added. Transfers run as the OS user and are not subject to DSH permission modes.
+- Vendor the frozen common tool declaration from peer-common db8f85d byte-exact, adapting only DSH's native schema shape. Adopting its closed envelope makes arguments required and refuses undeclared outer keys. Tool and skill changes cause one deliberate re-prefill. Daemons before 0.5.14 do not grant transfer support.
+
 ## 0.1.5 — 2026-10-15
 
 - Let peers activate without the Session Controller, including stock acp, headless and sdk profiles. Keep the controller as a lane-only native dependency: absence at host readiness prints one fatal reason and exits 1; dependency loss retains native teardown and the existing worker exit behavior. No polling, retry or extra controller row is added.
