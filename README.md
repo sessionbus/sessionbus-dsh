@@ -9,7 +9,7 @@ It depends on the exact `@sessionbus/kit` version `0.5.15`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
 It requires DeepSeek Harness `0.2.1-alpha.2` or later.
-Validated on DSH 0.2.1 (fleet 0.2.1-rc.2) and the 0.2.1-alpha.3 floor.
+Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor.
 DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit
 model or reasoning_effort is refused there (spawn_failed), and other DSH
 0.2.2 changes are under review (W-155).
@@ -32,6 +32,8 @@ the executing DSH session's cwd, in peers and lanes. Transfers run as the OS use
 and are not subject to DSH permission modes. Offers, requests and final results
 arrive through ordinary messages; admission is not proof the model read them.
 The shared tool declaration supplies the exact arguments and outcome meanings.
+Final disposal awaits current peers' public `closed`; earlier removals and the
+lane worker remain unjoined.
 
 ## Installation
 

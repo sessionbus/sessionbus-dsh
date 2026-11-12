@@ -5,7 +5,7 @@
 - Support Sessionbus file transfers in interactive peers and lanes with kit 0.5.15's default filesystem executor and existing notice delivery. Local paths use the executing session's cwd without cleaning symlink/..; no transfer mirror, queue or replay is added. Transfers run as the OS user and are not subject to DSH permission modes.
 - Final disposal awaits current peers' public `closed` promises, which include transfer retirement in kit 0.5.15. Earlier peer removals and the lane worker remain unjoined; no retired-peer registry or group-admission wait is added.
 - Vendor the frozen common tool declaration from peer-common db8f85d byte-exact, adapting only DSH's native schema shape. Adopting its closed envelope makes arguments required and refuses undeclared outer keys. Tool and skill changes cause one deliberate re-prefill. Daemons before 0.5.14 do not grant transfer support.
-- Validated on DSH 0.2.1 (fleet 0.2.1-rc.2) and the 0.2.1-alpha.3 floor. DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit model or reasoning_effort is refused there (spawn_failed), and other DSH 0.2.2 changes are under review (W-155).
+- Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor. DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit model or reasoning_effort is refused there (spawn_failed), and other DSH 0.2.2 changes are under review (W-155).
 
 ## 0.1.5 — 2026-10-15
 

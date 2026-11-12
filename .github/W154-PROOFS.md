@@ -132,6 +132,16 @@ Python 9,323 bytes, SHA-256
 All three configured products yielded those observations. Alpha.3 retains
 its original TypeScript/Python byte oracles; no fixture is updated.
 
+The final docs-only correction touches README, CHANGELOG and this proof map:
+it names the tested prereleases precisely and adds README's current-peer
+disposal limit. The final archive SHA-256 is
+`810bba7d026fbe01bb1a55695685e92589c55b1cf31e442ca05aec2bdd5087c2`.
+Compared entry by entry with the fixed-kit U-evidence archive and both fleet
+rc.2 and alpha.3 gate archives, only README differs. CHANGELOG and this proof
+map are source-only and are not packed. All other nine packed paths, including
+the runtime, manifest, frozen declaration and skill, are byte-identical; no
+model-facing byte changes or acceptance-row replays result from this correction.
+
 ## Stated limits
 
 Published fixed kit pinned. The version-independent unit suite passes 242/242;
