@@ -49,6 +49,11 @@ adding a second direct plugin does not update the app's importer.
   with different real contents, malformed values and no argument mutation.
 - `prove-mode-controller.mjs`: real published DSH schema compilation,
   validation and projections plus the existing controller/liveness controls.
+  Only alpha.3 has TypeScript/Python renderer byte oracles. Every other tools
+  version reports those projections UNVERIFIED (even if the bytes coincide),
+  marks the containing check UNVERIFIED and exits nonzero after the remaining
+  assertions. Raw/registered/native/SDK-array/skill goldens and schema/root
+  validation are unchanged; no non-baseline renderer golden is introduced.
 - The 0.1.6 prefix fixture is deliberate. The 0.1.4 fixture remains unchanged
   as historical evidence, not a claim that transfer adoption is prefix-neutral.
 - All existing install, native, packed, peer-floor and universal matrix checks
@@ -68,7 +73,8 @@ made. Public native diagnosis on 0.2.2-rc.2 proved one enabled upload-provider
 row in composed config, a live instance of the published FileUploads class,
 unknown-receipt absence and FILE_NOT_STAGED rejection on an own real Agent.
 The private runtime-resolution sub-proof is therefore NOT APPLICABLE on exact
-0.2.2-rc.2; it remains a full oracle on fleet rc.2 and alpha.3. The documented
+0.2.2-rc.2. Its recorded fleet rc.2 native observations met the unchanged
+exactly-one assertions; alpha.3 retains the full oracle. The documented
 checker does not support Cordis 4.1 / DSH 0.2.2 yet; replacement with a public
 observable is a separate follow-up, not a W-154 runtime change.
 The shipped plugin does not read those records. It does depend on its OWN
@@ -89,7 +95,8 @@ key, credential or provider experiment is run for them. U7/hub is NOT RUN
 locally. Real-model normal-install acceptance belongs to that later window.
 
 The fixed-kit repeat on fleet 0.2.1-rc.2 used kit and released daemon 0.5.15:
-U1/U4/U5/U6 PASS, U2/U3 NOT RUN LOCALLY, U7 NOT RUN. Both native input envelopes
+native OBSERVATIONS for U1/U4/U5/U6 met their row criteria; U2/U3 NOT RUN
+LOCALLY, U7 NOT RUN. Both native input envelopes
 and terminal notices are retained; U6's real refusal is followed by list/send
 and injected native input on the same connection. The unchanged reference
 postflight reports zero temporary transfer files. One pre-row boot with an
@@ -123,35 +130,63 @@ Only the skill's opening action list changes, in artifact order. No appended
 transfer section or trust/authority edit is included. Tool and skill adoption
 are batched into one re-prefill; these are bytes, not measured token/cost counts.
 
-On fleet dsh-tools 0.2.1-rc.2 the six renderer-independent projections match
-the exact 0.1.6 fixture. The generated SDK literals are observations, not
-refreshed goldens: TypeScript 9,076 bytes, SHA-256
+Native OBSERVATIONS from the recorded fleet dsh-tools 0.2.1-rc.2 run matched
+the six renderer-independent projections to the exact 0.1.6 fixture. The
+generated SDK literals are observations, not refreshed goldens: TypeScript
+9,076 bytes, SHA-256
 `e02cad11e886f77d7af214911a5ed7dd5a59313379146abd099e297b99d7c8e7`;
 Python 9,323 bytes, SHA-256
 `44334eb1f1ec509bff103b90991b43c8607aef2b174e6c1071fdfaafc48cbd3a`.
 All three configured products yielded those observations. Alpha.3 retains
 its original TypeScript/Python byte oracles; no fixture is updated.
+The historical mode-controller log's PASS label was incorrect for non-baseline
+renderers: those measured SDK bytes never constituted a renderer oracle.
+The corrected script's result on rc.2 is UNVERIFIED by design, with a nonzero
+exit, not a compatibility pass.
 
 The final docs-only correction touches README, CHANGELOG and this proof map:
 it names the tested prereleases precisely and adds README's current-peer
 disposal limit. The final archive SHA-256 is
 `810bba7d026fbe01bb1a55695685e92589c55b1cf31e442ca05aec2bdd5087c2`.
-Compared entry by entry with the fixed-kit U-evidence archive and both fleet
-rc.2 and alpha.3 gate archives, only README differs. CHANGELOG and this proof
+Compared entry by entry with the fixed-kit U-evidence archive, the recorded
+fleet rc.2 observation archive and the alpha.3 gate archive, only README
+differs. CHANGELOG and this proof
 map are source-only and are not packed. All other nine packed paths, including
 the runtime, manifest, frozen declaration and skill, are byte-identical; no
 model-facing byte changes or acceptance-row replays result from this correction.
+The subsequent fail-closed correction changes only this proof map, two
+unshipped scripts and their unit control. Its packed archive is unchanged;
+the historical sealed captures are retained, not rewritten.
 
 ## Stated limits
 
 Published fixed kit pinned. The version-independent unit suite passes 242/242;
-both fleet rc.2 and alpha.3 full native packed gates pass, including their
-real-Cordis lifecycle/schema/prefix controls. Native alpha.1 below-floor refusal
-passes. Hosted CI at the final head remains a separate required gate. Scope is
-fleet DSH 0.2.1-rc.2 (units, packed gate and repeated U1/U4/U5/U6 with F2),
-the existing alpha.3/floor rows, and hosted CI. DSH 0.2.2 is not validated.
-The same version-independent units passed and its upload provider was observed through public
-native behavior, but the packed gate stopped at the historical lane-options
+alpha.3's full native packed gate includes its real-Cordis lifecycle/schema/
+prefix controls and the unchanged pending-input known-gap oracle. Native
+alpha.1 below-floor refusal passes. Hosted CI at the final head remains a
+separate required gate; CI and release DSH matrices are alpha.3 only.
+
+Fleet rc.2 evidence is native OBSERVATIONS only, not these scripts passing:
+the retained `final-packed-fleet.log` and
+`final-kept/sessionbus-dsh-proof.WSCTE8/mode-controller.log` record reached
+runtime-resolution exactly-one assertions, schema/root validation, the six
+renderer-independent byte comparisons and ten real-Cordis lifecycle controls.
+The same recorded packed run reached lane-option/profile-default, stock-peer,
+active/idle/trace delivery, group-change, upgrade and removal checks. It skipped
+the alpha.3-only pending-input driver; its historical overall PASS is not
+accepted as an oracle result. The corrected packed script cannot return a
+pass on rc.2: the renderer sub-proof is UNVERIFIED/nonzero, and its independent
+pending-input guard also stops non-baseline versions with `alpha.3 oracle;
+<version> pending-input error/cancel continuity UNVERIFIED by this script`.
+Alpha.3 expectations never run on rc.2. The separate `u-fixed/RESULTS.md`,
+native envelopes/history, postflight and filtered F2 coverage record the
+U1/U4/U5/U6 and real-exit OBSERVATIONS; no new acceptance row is run here.
+These paths are in the retained W-154 evidence directory named by the handoff.
+
+Scope is those fleet observations, the existing alpha.3/floor oracles and
+hosted CI. DSH 0.2.2 is not validated.
+On 0.2.2-rc.2 the same version-independent units passed and its upload provider
+was observed through public native behavior, but the packed gate stopped at the historical lane-options
 baseline: the removed selectionFor/selectForNextRequest seam makes explicit
 model/effort lane open refuse with spawn_failed before native create. The
 subsequent standalone prefix control also stopped at the removed

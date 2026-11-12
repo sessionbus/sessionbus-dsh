@@ -53,9 +53,11 @@ function fixture(mode) {
   return { ctx, state, deps, mount, provide, commit, titleProvider };
 }
 let cases = 0;
+const unverified = [];
 async function check(name, run) {
+  const before = unverified.length;
   await run(); cases++;
-  console.log('real Cordis ' + name + ': PASS');
+  console.log('real Cordis ' + name + ': ' + (unverified.length > before ? 'UNVERIFIED' : 'PASS'));
 }
 await check('reviewed 0.1.6 model-prefix bytes survive native compilation and projection', async () => {
   const { baseline, prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
@@ -90,7 +92,8 @@ await check('reviewed 0.1.6 model-prefix bytes survive native compilation and pr
       for (const [name, value] of Object.entries(values)) {
         const bytes = typeof value === 'string' ? value : JSON.stringify(value);
         if (['typescript', 'python'].includes(name) && toolsVersion !== baseline.dshTools) {
-          console.log(JSON.stringify({ product, projection: name, toolsVersion, oracle: false,
+          unverified.push(`${toolsVersion} ${product} ${name}`);
+          console.log('UNVERIFIED ' + JSON.stringify({ product, projection: name, toolsVersion,
             bytes: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }));
           continue;
         }
@@ -182,4 +185,6 @@ for (const mode of ['lane', 'peer']) for (const outcome of ['resolve', 'reject']
 }
 console.log(JSON.stringify({ cases, dsh: JSON.parse(fs.readFileSync(dshManifest)).version,
   plugin: JSON.parse(fs.readFileSync(pluginManifest)).version,
-  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false }));
+  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false,
+  ...(unverified.length ? { result: 'UNVERIFIED', unverified } : {}) }));
+if (unverified.length) process.exitCode = 1;

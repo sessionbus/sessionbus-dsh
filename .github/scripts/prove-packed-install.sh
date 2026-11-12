@@ -461,15 +461,15 @@ curl -fsSL https://github.com/sessionbus/sessionbus/releases/download/v0.5.12/SH
 "$work/daemon-v0.5.12/bin/sessionbus" --version
 node "$root/.github/scripts/prove-session-groups.mjs" "$home" "$work" "$work/daemon-v0.5.12/bin/sessionbus" "$root"
 
-if [[ "$version" = 0.2.1-alpha.3 ]]; then
-  echo "DSH $version known peer pending-input gaps after error/cancel and later recovery"
-  node "$root/.github/scripts/prove-peer-pending-input.mjs" \
-    "$home/node_modules/@deepseek-ai/dsh/package.json" \
-    "$home/profiles/web/node_modules/@sessionbus/dsh/package.json" \
-    "$work/peer-pending-input" "$work/daemon-v0.5.12/bin/sessionbus"
-else
-  echo 'Known peer pending-input gaps: alpha.3-only proof, run in the retained alpha.3 leg; not claimed for this DSH version'
+if [[ "$version" != 0.2.1-alpha.3 ]]; then
+  echo "alpha.3 oracle; $version pending-input error/cancel continuity UNVERIFIED by this script" >&2
+  exit 1
 fi
+echo "DSH $version known peer pending-input gaps after error/cancel and later recovery"
+node "$root/.github/scripts/prove-peer-pending-input.mjs" \
+  "$home/node_modules/@deepseek-ai/dsh/package.json" \
+  "$home/profiles/web/node_modules/@sessionbus/dsh/package.json" \
+  "$work/peer-pending-input" "$work/daemon-v0.5.12/bin/sessionbus"
 
 echo "DSH $version runbook offline provider overlay proof (no model turn)"
 mkdir -p "$work/native-conflicts"

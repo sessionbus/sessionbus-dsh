@@ -29,20 +29,44 @@ test("W-154 ships the byte-exact frozen common declaration", () => {
   }
 });
 
-test("W-154 renderer observations preserve every native and alpha.3 prefix oracle", () => {
+test("W-154 renderer observations are UNVERIFIED off-baseline and preserve every prefix oracle", async () => {
   const { createHash } = require("node:crypto");
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-mode-controller.mjs"), "utf8");
   const start = source.indexOf("      for (const [name, value] of Object.entries(values)) {");
   const end = source.indexOf("\n    } finally", start);
   assert.ok(start >= 0 && end > start);
-  const check = new Function("assert", "createHash", "values", "prefix", "baseline", "toolsVersion", "product", "console", source.slice(start, end));
+  const check = new Function("assert", "createHash", "values", "prefix", "baseline", "toolsVersion", "product", "console", "unverified", source.slice(start, end));
   const native = ["rawTool", "registeredTool", "nativeTools", "sdkTools", "skill", "skillText"];
   const values = Object.fromEntries([...native, "typescript", "python"].map(name => [name, name]));
   const prefix = Object.fromEntries(Object.entries(values).map(([name, bytes]) => [name,
     { bytes: Buffer.byteLength(bytes), sha256: createHash("sha256").update(bytes).digest("hex") }]));
-  const run = (version, actual) => check(assert, createHash, actual, prefix, { dshTools: "0.2.1-alpha.3" }, version, "synthetic", { log() {} });
+  const run = (version, actual) => {
+    const unverified = [], logs = [];
+    check(assert, createHash, actual, prefix, { dshTools: "0.2.1-alpha.3" }, version, "synthetic",
+      { log: line => logs.push(line) }, unverified);
+    assert.deepEqual(unverified, version === "0.2.1-alpha.3" ? [] : ["typescript", "python"].map(name => `${version} synthetic ${name}`));
+    assert.equal(logs.length, unverified.length);
+    for (const line of logs) { assert.match(line, /^UNVERIFIED /u); assert.doesNotMatch(line, /oracle|PASS/u); }
+    return unverified;
+  };
+  const labelStart = source.indexOf("async function check(name, run) {");
+  const labelEnd = source.indexOf("\nawait check(", labelStart);
+  const summaryStart = source.indexOf("\nconsole.log(JSON.stringify({ cases, dsh:");
+  assert.ok(labelStart >= 0 && labelEnd > labelStart && summaryStart > labelEnd);
   for (const version of ["0.2.1-alpha.3", "0.2.1-rc.2", "0.2.2-rc.2"]) {
-    run(version, values);
+    const unverified = run(version, values), logs = [], process = { exitCode: 0 };
+    const console = { log: line => logs.push(line) };
+    const label = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")([], console);
+    await label("prefix", async () => {});
+    assert.match(logs.pop(), /: PASS$/u);
+    const marked = [];
+    const incomplete = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")(marked, console);
+    await incomplete("prefix", async () => marked.push(...unverified));
+    assert.match(logs.pop(), version === "0.2.1-alpha.3" ? /: PASS$/u : /: UNVERIFIED$/u);
+    new Function("console", "process", "unverified", "cases", "fs", "dshManifest", "pluginManifest", "native", source.slice(summaryStart))(
+      console, process, unverified, 10, { readFileSync: () => JSON.stringify({ version }) }, "synthetic-dsh", "synthetic-plugin", { resolve: () => "synthetic-cordis" });
+    assert.equal(process.exitCode, version === "0.2.1-alpha.3" ? 0 : 1);
+    if (unverified.length) { assert.equal(JSON.parse(logs.pop()).result, "UNVERIFIED"); }
     for (const name of native) assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
     for (const name of ["typescript", "python"]) {
       if (version === "0.2.1-alpha.3") assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
