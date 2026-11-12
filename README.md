@@ -274,7 +274,7 @@ owned non-persistent lanes and the daemon-assigned private `session:<id>` group
 (not part of the declared list). Old-group observers can lose visibility;
 new-group observers gain it. In-flight calls on the superseded connection can
 fail, and uncertain sends are never replayed. One five-second `list/self_info`
-check confirms admission because kit 0.5.12's `ready` alone does not. Cancellation
+check confirms admission because the kit's `ready` alone does not. Cancellation
 is honored only before `connectPeer` is invoked, the kit's public attempt boundary.
 After that, the change runs to completion even if the command is cancelled.
 

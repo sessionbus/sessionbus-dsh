@@ -21,6 +21,7 @@ test("W-154 ships the byte-exact frozen common declaration", () => {
   const declaration = JSON.parse(bytes);
   assert.deepEqual(declaration.inputSchema.properties.action.enum, require("@sessionbus/kit").ACTIONS);
   assert.equal(declaration.inputSchema.properties.action.enum.length, 18);
+  pinned(Buffer.from(JSON.stringify(declaration) + "\n"));
   for (const edit of [value => { delete value.inputSchema.properties.arguments.properties.source; },
     value => { value.inputSchema.properties.action.enum.pop(); }, value => { delete value.inputSchema.additionalProperties; }]) {
     const value = structuredClone(declaration); edit(value);

@@ -97,8 +97,16 @@ On kit 0.5.14 Peer.shutdown triggers generation abort, but Peer.closed is NOT
 proof of completed filesystem retirement. Core PR123 changes that public
 promise; the final pin must be the published fixed kit and be re-gated before
 this PR is final. There is no peer.transfers join or retired-peer registry in
-this plugin. With the fixed kit, final disposal joins current peers; peers
-already removed by a groups replacement remain unjoined. A local abort
+this plugin. With the fixed kit, final disposal joins only peers still in its
+map. Peers removed by a groups replacement, root disposal or publication error,
+and pending groups candidates, remain unjoined. The lane worker is also
+unjoined: close calls worker.shutdown without awaiting worker.closed. Waiting
+there could deadlock with the native product close that is disposing this
+plugin; no such wait or registry is added. Whether normal DSH exit leaves any
+current peer for the final snapshot remains unverified until observed inside
+the already-scoped fixed-kit acceptance runs. That re-gate must also trace the
+public closed promise against existing native delivery cancellation and event
+removal; no new lifecycle matrix, waits or state are added. A local abort
 observation proves its own cleanup only, not every exit race. U rows on 0.5.14
 must remain labelled with that pin, not described as fixed-kit exit proof.
 

@@ -189,9 +189,11 @@ test("W-154 registered tool and skill bytes stay pinned to the reviewed 0.1.6 de
     deps.defineTool = tool => { rawTool = JSON.stringify(tool); return { ...tool, parameters: { ...tool.parameters } }; };
     if (product === "sessionbus-dsh") deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "synthetic-prefix-token" };
     const runtime = createRuntime(ctx, { product, groups: ["prefix-team"] }, deps);
+    const registeredToolBytes = JSON.stringify(ctx.tool);
     const check = () => {
       const tools = [...ctx.registeredTools.values()];
       assert.equal(tools.length, 1, "the published model-facing tool set contains exactly one Sessionbus definition");
+      assert.equal(JSON.stringify(tools[0]), registeredToolBytes, "registered tool bytes changed at runtime");
       for (const [name, bytes] of Object.entries({
         rawTool,
         skill: JSON.stringify(ctx.registeredSkills.get("sessionbus")),
@@ -206,6 +208,7 @@ test("W-154 registered tool and skill bytes stay pinned to the reviewed 0.1.6 de
       check(); ctx.ready(); check();
       if (product !== "sessionbus-dsh") {
         await ctx.command.handler({ agent: root, rawInput: "changed-group", signal: new AbortController().signal });
+        check();
         ctx.emit("session/event", root.session, { type: "session/title", data: { title: "Changed identity" } });
         await runtime.peers.get(root).rehello; check();
       }
@@ -2388,13 +2391,14 @@ test("peer title re-hellos are serialized and finish on the newest title", async
   assert.equal(runtime.peers.get(one).peer.identity.name, "Newest");
 });
 
-test("native tool arguments expose the exact closed MCP union", () => {
+test("stub tool adapter preserves the frozen fields and root-false carry", () => {
   const ctx = new Context();
   createRuntime(ctx, { product: "dashi" }, dependencies(ctx));
   const frozen = require("./sessionbus-tool.json");
   assert.deepEqual(ACTIONS, require("@sessionbus/kit").ACTIONS);
   assert.equal(ACTIONS.length, 18);
   assert.equal(ctx.tool.description, frozen.description);
+  // Identity-stub shape only; prove-mode-controller.mjs checks the real compiled root.
   assert.deepEqual(ctx.tool.parameters, {
     ...Object.fromEntries(Object.entries(frozen.inputSchema.properties).map(([key, schema]) => [key, { ...schema, required: true }])),
     additionalProperties: false,
@@ -2469,6 +2473,9 @@ for (const mode of ["peer", "lane"]) {
       native.session.header.cwd = undefined;
       assert.throws(() => runtime.execute({ action, arguments: { [field]: "relative" } }, { agent: native }), /absolute.*cwd|cwd.*absolute/u);
       runtime.execute({ action, arguments: { [field]: "/absolute" } }, { agent: native });
+      assert.equal(passed.args[field], "/absolute");
+      native.session.header.cwd = "relative-cwd";
+      assert.throws(() => runtime.execute({ action, arguments: { [field]: "relative" } }, { agent: native }), /absolute.*cwd|cwd.*absolute/u);
       native.session.header.cwd = cwd;
     }
     const args = { message: "relative", target: "peer" };

@@ -601,7 +601,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
             });
             await Promise.race([candidate.peer.ready, ended, admitted]);
             if (!live()) throw new Error("DSH root was disposed or replaced");
-            // Interim public admission proof: ready alone can settle after a failed hello in kit 0.5.12.
+            // Public admission proof: ready alone can settle after a failed hello.
             try {
               const { self_info: self } = await Promise.race([candidate.peer.caller.list({}, AbortSignal.timeout(5000)), ended]);
               const expected = self && [...new Set([...choice, `session:${self.session_id}`])];
