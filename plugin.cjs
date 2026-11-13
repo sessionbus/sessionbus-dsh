@@ -184,35 +184,19 @@ class NativeSession {
       if (options[field] !== undefined && (typeof options[field] !== "string" || options[field].length === 0)) throw new Error(`unsupported value ${field}: expected a non-empty string`);
     }
     if (options.permission_mode !== undefined && !this.ctx.permissionPresets.names.includes(options.permission_mode)) throw new Error(`unsupported value permission_mode=${options.permission_mode}`);
-    let route, llm, controller;
+    const selecting = options.model !== undefined || options.reasoning_effort !== undefined;
+    let route, llm;
     if (options.model !== undefined) {
       const slash = options.model.indexOf("/");
       if (slash < 1 || slash === options.model.length - 1) throw new Error(`unsupported value model=${options.model}`);
       route = { provider: options.model.slice(0, slash), model: options.model.slice(slash + 1) };
     }
-    if (options.model !== undefined || options.reasoning_effort !== undefined) {
+    if (selecting) {
       llm = this.ctx.get?.("llm");
       if (typeof llm?.resolveCallConfig !== "function") throw new Error("DSH llm.resolveCallConfig is unavailable for lane open options");
-      // Approved alpha.2 non-public holder, documented methods only (controller
-      // lib/types/index.d.ts:49; lib/types/agent.d.ts:101,107,129). Its presence is
-      // session-independent: refuse before create. selectModel saves the profile
-      // default; never fall back to it.
-      controller = this.ctx.sessionController.agents;
-      const missing = ["selectionFor", "selectForNextRequest", "serializeImageAdmission"].filter(method => typeof controller?.[method] !== "function");
-      if (missing.length) {
-        const message = `sessionController.agents missing ${missing.join(", ")}`;
-        let dshVersion = "unknown version";
-        // Diagnostic only: unavailable metadata must not hide the missing seam
-        // or forward a module-resolution error containing host paths.
-        try {
-          const value = require("@deepseek-ai/dsh-api-session-controller/package.json").version;
-          if (typeof value === "string" && value.length) dshVersion = value;
-        } catch {}
-        throw new Error(`${message} on DSH ${dshVersion}; lane open options require the session-only selection seam`);
-      }
       if (!request.resume_session_id) {
-        // Public default read is the fresh route at this moment. The serializer
-        // below still reads and validates the session's commit-time selection.
+        // Validate before create where possible, then validate the session's
+        // commit-time route again under native maintenance admission.
         const defaultModel = route ? undefined : this.ctx.get?.("agentDefaultModel");
         const defaults = route ?? (typeof defaultModel?.currentSelection === "function" ? defaultModel.currentSelection() : undefined);
         if (!defaults) throw new Error("DSH agentDefaultModel.currentSelection is unavailable for fresh lane effort options");
@@ -233,23 +217,37 @@ class NativeSession {
     const expected = request.resume_session_id || agent.id;
     if (agent.id !== expected || agent.session.id !== expected) throw new Error("DSH resolved a different native session");
     if (options.cwd !== undefined && agent.session.header.cwd !== options.cwd) throw new Error("DSH resolved a different native cwd");
+    const requireIdle = () => {
+      if (agent.status !== "idle") throw new Error("lane is busy; model/reasoning_effort can only be set while idle");
+    };
+    if (selecting) {
+      if (typeof agent.model?.current !== "function" || typeof agent.model?.select !== "function" || typeof agent.runMaintenance !== "function") {
+        throw new Error("DSH agent.model.current/select and agent.runMaintenance are required for lane open options");
+      }
+      requireIdle();
+    }
     await this.ctx.sessionController.rename({ sessionId: agent.id, title: nativeName(request.name) });
-    if (options.model !== undefined || options.reasoning_effort !== undefined) {
+    if (selecting) {
       signal?.throwIfAborted();
-      await controller.serializeImageAdmission(agent, async () => {
-        signal?.throwIfAborted();
+      requireIdle();
+      await agent.runMaintenance(async nativeSignal => {
+        const cancel = signal ? AbortSignal.any([signal, nativeSignal]) : nativeSignal;
+        cancel.throwIfAborted();
         let currentRoute = route;
         if (options.model === undefined) {
-          const current = controller.selectionFor(agent).current;
+          const current = agent.model.current();
+          if (!current) throw new Error("DSH lane has no current model for reasoning_effort");
           currentRoute = { provider: current.provider, model: current.model };
         }
-        const resolved = await llm.resolveCallConfig({ ...currentRoute, ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, signal);
-        signal?.throwIfAborted();
-        controller.selectForNextRequest(agent, {
+        const resolved = await llm.resolveCallConfig({ ...currentRoute, ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: options.reasoning_effort }) }, cancel);
+        cancel.throwIfAborted();
+        agent.model.select({
           provider: resolved.provider, model: resolved.model,
           // Adapter defaults belong to request preparation, not an explicit choice.
           ...(options.reasoning_effort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort }),
         });
+        // Selection is durable already; cancellation reports it, never rolls it back.
+        cancel.throwIfAborted();
       });
     }
     if (options.permission_mode !== undefined) {
@@ -423,6 +421,7 @@ function identity(ctx, agent, product, groups, title) {
 function createRuntime(ctx, config, dependencies, prepared) {
   const configured = prepared || readConfiguration(ctx, config, dependencies.ambient);
   const values = configured.settings;
+  if (values.mode === "peer" && typeof ctx.subagents?.rootOf !== "function") throw new Error("subagents.rootOf is required for peer mode");
   const report = diagnostic(ctx, values.mode, dependencies.stderr, configured.trace);
   const active = dependencies.active || (() => true);
   let launchToken = configured.token;
@@ -438,7 +437,11 @@ function createRuntime(ctx, config, dependencies, prepared) {
   let warned = false;
   const warn = (error) => { if (active() && !warned) { warned = true; report(`sessionbus: ${clean(error)}\n`); } };
   const trace = (message) => { if (configured.trace && active()) report(`sessionbus trace: ${message}\n`, true); };
-  const root = (agent) => ctx.agents.roots().includes(agent);
+  const root = (agent) => {
+    if (!agent || ctx.agents.get(agent.id) !== agent) return false;
+    try { return ctx.subagents.rootOf(agent) === agent; }
+    catch (error) { if (error?.code === "UNAUTHORIZED") return false; throw error; }
+  };
   trace(`mode=${values.mode} ready=false socket=${values.socket}`);
   const publicationError = (agent, error, record) => {
     if (record && peers.get(agent) === record) {
@@ -668,7 +671,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
         } else ctx.appExit(0);
       });
     } else {
-      for (const agent of ctx.agents.roots()) present(agent);
+      for (const agent of ctx.agents.list()) present(agent);
     }
   };
   const removeReady = ctx.appReady.onReady(start);
@@ -733,25 +736,27 @@ function apply(ctx, config = {}, dependencies = {}) {
       if (scope.active()) fail(error);
     });
   };
-  if (prepared.settings.mode === "peer") return mount(captured);
-  // Cordis, not a retained controller reference, owns lane dependency loss/replacement.
-  const lane = ctx.inject(["sessionController"], (ctx) => {
+  // Cordis owns dependency replacement in both modes; readiness refuses a
+  // missing mode-specific service rather than leaving a pending plugin forever.
+  const mode = prepared.settings.mode;
+  const service = mode === "peer" ? "subagents" : "sessionController";
+  const scope = ctx.inject([service], (ctx) => {
     try {
       const scoped = captureContext(ctx);
-      scoped.context.sessionController = ctx.sessionController;
+      scoped.context[service] = ctx[service];
       mount(scoped);
     } catch (error) { fail(error); }
   });
   ctx.effect(() => captured.context.appReady.onReady(() => {
     if (!captured.active()) return;
     try {
-      const controller = captured.context.get ? captured.context.get("sessionController") : ctx.sessionController;
-      if (!controller) throw new Error("sessionController is unavailable at host readiness; lane mode requires it");
+      const value = captured.context.get ? captured.context.get(service) : ctx[service];
+      if (!value) throw new Error(`${service} is unavailable at host readiness; ${mode} mode requires it`);
     } catch (error) {
-      void lane.dispose();
+      void scope.dispose();
       fail(error);
     }
-  }), "sessionbus-dsh.lane-readiness");
+  }), "sessionbus-dsh.mode-readiness");
 }
 
 module.exports = { ACTIONS, NativeSession, activate, apply, connectionEnvironment, createRuntime, identity, inject, name, settings, terminal };

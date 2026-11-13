@@ -1,4 +1,11 @@
-# Operations: upgrading a project DSH install in place
+# Historical operations example: upgrading a project DSH install in place
+
+The version-pinned rollout below is retained as historical evidence, not a
+supported upgrade recipe for plugin0.2.0. The current family requires
+DSH0.2.2-rc.3 and Node>=24.9.0; use the current README's ordinary installation
+commands. Do not run the old dashi/DSH/kit pins below for the new release.
+Only the standalone public closure-checker block has been migrated and tested
+on rc.3 in W-155; it does not validate the rest of this old rollout procedure.
 
 This is an operations procedure for upgrading DSH in a long-lived **pnpm
 project** and preserving its existing profiles and daemon deployment. It is
@@ -511,8 +518,9 @@ for (const [name, pin] of Object.entries(pins)) {
   console.log(`CLI companion ${name}@${pin}: one version`)
 }
 NODE
-# This private-reflection checker does NOT support Cordis 4.1 / DSH 0.2.2 yet.
-# Its loader-row identity assumptions broke there; a public observable is a follow-up.
+# Public package selection and configured-provider inventory. The native product
+# gates separately prove active Sessionbus behavior; this check suppresses lane
+# launch and task UIs rather than claiming a live lane from package metadata.
 cat >"$ROLLBACK_ROOT/check-profile-closure.mjs" <<'NODE'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -528,7 +536,6 @@ const require = createRequire(anchor)
 const cli = JSON.parse(readFileSync(anchor, 'utf8'))
 const wanted = Object.fromEntries(Object.keys(cli.dependencies).filter(name => name.startsWith('@deepseek-ai/dsh')).map(name => [name, cli.version]))
 wanted['@deepseek-ai/dsh-base'] = cli.version
-const ownerFiber = impl => impl.ctx?.fiber ?? impl.fiber
 function assertRuntimeSelection(name, version, resolved) {
   const selected = resolved && JSON.parse(readFileSync(join(resolved.dir, 'package.json'), 'utf8'))
   if (resolved?.name !== name || resolved?.version !== version ||
@@ -537,9 +544,10 @@ function assertRuntimeSelection(name, version, resolved) {
   }
   console.log(`runtime ${name}@${selected.version} -> ${realpathSync(resolved.dir)}: PASS`)
 }
-const [{ runProfile }, { loadLayeredEnv }] = await Promise.all([
+const [{ runProfile }, { loadLayeredEnv }, { readPluginInventory }] = await Promise.all([
   import(pathToFileURL(require.resolve('@deepseek-ai/dsh/profile-boot')).href),
   import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')).href),
+  import(pathToFileURL(require.resolve('@deepseek-ai/dsh-host-plugin-inventory')).href),
 ])
 const overlay = mkdtempSync(join(tmpdir(), 'dsh-runtime-resolution-check-'))
 const patchFile = join(overlay, 'no-task-or-bus.yml')
@@ -557,7 +565,7 @@ try {
   shutdown = boot.shutdown
   process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite
   const packages = boot.ctx.pluginPackages
-  if (!packages?.current) throw new Error('native runtime resolution not mounted')
+  if (!packages?.resolution) throw new Error('native runtime resolution not mounted')
   const importer = pathToFileURL(join(dshHome, 'profiles', profile, 'cordis.yml')).href
   for (const [name, version] of Object.entries(wanted)) {
     const resolved = packages.packageOf(name, importer)
@@ -594,22 +602,24 @@ try {
     console.log(`runtime plugin/storage-domain zod@${selected.version}: PASS; plugin=${pluginZod}; producer=${producerZod}`)
   }
   if (ownsPlugin) {
-    const fibers = Reflect.ownKeys(boot.ctx.reflect.store).map(key => boot.ctx.reflect.store[key])
-      .filter(value => value?.name === 'fileUploads').map(ownerFiber).filter(fiber => fiber.state === 2)
-    if (fibers.length !== 1) throw new Error('expected one active fileUploads implementation')
-    const rows = [...boot.ctx.loader.entries()].filter(row => row.fiber === fibers[0])
-    if (rows.length !== 1) throw new Error('expected one mounted upload-provider row')
-    const row = rows[0], mounted = packages.packageOf(row.options.name, row.parent.tree.ctx.baseUrl)
-    if (!mounted) throw new Error('mounted upload provider has no native package owner')
-    if (pluginManifest?.exports?.['./file-uploads-none'] && profile === 'sessionbus') {
-      if (row.options.name !== '@sessionbus/dsh/file-uploads-none' || mounted.name !== '@sessionbus/dsh') throw new Error('lane must mount its own provider entry')
+    const inventory = await readPluginInventory(boot.ctx)
+    const rows = inventory.entries.filter(row => row.enabled && row.fiberPhase === 'active'
+      && ['@sessionbus/dsh/file-uploads-none', '@deepseek-ai/dsh-client-file-upload'].includes(row.moduleName))
+    if (rows.length !== 1) throw new Error('expected one active configured upload-provider row')
+    const row = rows[0], mounted = packages.packageOf(row.moduleName, importer)
+    if (!mounted) throw new Error('configured upload provider has no native package selection')
+    for (const method of ['registerAgentResolver', 'resolve', 'bindPrompt', 'retirePrompt']) {
+      if (typeof boot.ctx.fileUploads?.[method] !== 'function') throw new Error(`fileUploads.${method} unavailable`)
     }
-    console.log(`runtime upload row ${row.options.name}: ${mounted.name}@${mounted.version} -> ${realpathSync(mounted.dir)}; registered services=1: PASS`)
+    if (pluginManifest?.exports?.['./file-uploads-none'] && profile === 'sessionbus') {
+      if (row.moduleName !== '@sessionbus/dsh/file-uploads-none' || mounted.name !== '@sessionbus/dsh') throw new Error('lane must mount its own provider entry')
+    }
+    console.log(`runtime configured upload row ${row.moduleName}: ${mounted.name}@${mounted.version} -> ${realpathSync(mounted.dir)}; active known provider rows=1: PASS (behavior checked separately)`)
   } else if (plugin) {
     console.log(`fallback ${plugin.name}@${plugin.version} -> ${realpathSync(plugin.dir)}: REPORTED ONLY (profile does not own the plugin)`)
   }
   console.log(`runtime storage-domain zod@${JSON.parse(readFileSync(producerZod, 'utf8')).version} -> ${producerZod}: PASS`)
-  const entries = packages.current.entries
+  const entries = packages.resolution.entries
   let current = 0
   for (const entry of entries) {
     const manifest = JSON.parse(readFileSync(join(entry.packageDir, 'package.json'), 'utf8'))

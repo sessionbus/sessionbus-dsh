@@ -12,21 +12,16 @@ const installDir = resolve(installation);
 const anchor = realpathSync(join(installDir, 'node_modules/@deepseek-ai/dsh/package.json'));
 const require = createRequire(anchor);
 const expected = JSON.parse(readFileSync(require.resolve('@deepseek-ai/cordis/package.json'), 'utf8'));
-const negativeVersion = '4.0.4';
+const negativeVersion = '4.0.5';
 assert.notEqual(expected.version, negativeVersion, 'negative candidate must differ from the installation');
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const runbook = readFileSync(join(root, 'docs/HOST-INSTALL.md'), 'utf8');
 const matches = [...runbook.matchAll(/cat >"\$ROLLBACK_ROOT\/check-profile-closure.mjs" <<'NODE'\n([\s\S]*?)\nNODE/g)];
 assert.equal(matches.length, 1, 'extract exactly one documented native checker');
-// Exercise the identical documented selector before either native fixture.
-const selector = /^const ownerFiber = impl => (.+)$/m.exec(matches[0][1]);
-assert.ok(selector, 'documented checker must define its implementation-owner selector');
-const ownerFiber = new Function('impl', `return ${selector[1]}`);
-const current = { state: 2 }, legacy = { state: 2 };
-assert.equal(ownerFiber({ ctx: { fiber: current } }), current);
-assert.equal(ownerFiber({ fiber: legacy }), legacy);
-assert.equal(ownerFiber({ ctx: { fiber: current }, fiber: legacy }), current);
-assert.equal(ownerFiber({}), undefined, 'missing ownership must not manufacture an active fiber');
+assert.match(matches[0][1], /readPluginInventory/u);
+assert.match(matches[0][1], /packages\.resolution\.entries/u);
+assert.doesNotMatch(matches[0][1], /reflect\.store|ownerFiber|loader\.entries|moduleNamespace|packages\.current/u,
+  'the documented public observable must not regress to private implementation identity');
 const fixture = mkdtempSync(join(tmpdir(), 'sessionbus-runtime-oracle-'));
 try {
   const checker = join(fixture, 'check.mjs');
@@ -43,7 +38,7 @@ try {
     const plugin = join(profile, 'node_modules/@sessionbus/dsh');
     mkdirSync(plugin, { recursive: true });
     writeFileSync(join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', version: '0.1.0',
-      main: './plugin.cjs', peerDependencies: { '@deepseek-ai/cordis': '>=4.0.5-alpha.1' } }));
+      main: './plugin.cjs', peerDependencies: { '@deepseek-ai/cordis': '>=4.1.0' } }));
     writeFileSync(join(plugin, 'plugin.cjs'), 'exports.apply = () => {};\n');
     writeFileSync(join(candidate, 'package.json'), JSON.stringify({ ...expected, version }));
     const path = realpathSync(candidate);
@@ -57,7 +52,7 @@ try {
       assert.ok(checked.stdout.includes(`runtime plugin peer @deepseek-ai/cordis@${version} -> ${path}: PASS`), checked.stdout);
     } else {
       assert.equal(checked.status, 1, checked.stderr);
-      assert.ok(checked.stderr.includes(`unresolved or incompatible plugin peer @deepseek-ai/cordis@${version}: >=4.0.5-alpha.1`), checked.stderr);
+      assert.ok(checked.stderr.includes(`unresolved or incompatible plugin peer @deepseek-ai/cordis@${version}: >=4.1.0`), checked.stderr);
     }
     console.log(`native plugin importer @deepseek-ai/cordis@${version}: ${version === expected.version ? 'compatible local peer accepted' : 'below-range peer rejected'}: PASS`);
   }

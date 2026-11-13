@@ -10,7 +10,9 @@ assert.equal(process.argv.length, 4, 'usage: prove-mode-controller.mjs DSH_MANIF
 const native = createRequire(fs.realpathSync(dshManifest));
 const own = createRequire(fs.realpathSync(pluginManifest));
 const { Context } = await import(pathToFileURL(native.resolve('@deepseek-ai/cordis')));
-const { defineTool, ToolRuntime, renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tools')));
+const { defineTool, ToolRuntime, projectToolSchema } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tools')));
+const { NativeToolExecutor } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tool-executor-native')));
+const { renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tool-executor-ptc')));
 const toolsVersion = JSON.parse(fs.readFileSync(native.resolve('@deepseek-ai/dsh-tools/package.json'))).version;
 const plugin = own('./plugin.cjs');
 const tick = () => new Promise(setImmediate);
@@ -20,12 +22,13 @@ function fixture(mode) {
   const listeners = new Set();
   let ready = false;
   const appReady = { onReady(call) { if (ready) call(); else listeners.add(call); return () => listeners.delete(call); } };
-  const root = { session: { id: 'controller-scope-root', header: { cwd: '/synthetic-workspace' } }, options: {} };
+  const root = { id: 'controller-scope-root', session: { id: 'controller-scope-root', header: { cwd: '/synthetic-workspace' } }, options: {} };
   const provide = (name = 'sessionController', value = {}) => ctx.plugin(scope => scope.provide(name, value));
   const titleProvider = provide('sessionTitle', { get() {} });
+  const rootProvider = provide('subagents', { rootOf: agent => agent });
   for (const [name, value] of Object.entries({
     appReady, appExit: code => state.exits.push(code),
-    agents: { roots: () => [root] }, sessions: { flush: async () => {} },
+    agents: { list: () => [root], get: id => id === root.id ? root : undefined }, sessions: { flush: async () => {} },
     storageDomain: {}, permissionPresets: {},
     commands: { register: () => () => {} }, skills: { register: () => () => {} },
     tools: { register: () => () => {} },
@@ -50,24 +53,28 @@ function fixture(mode) {
   const mount = () => ctx.plugin({ ...plugin, apply: (scope, config) => plugin.apply(scope, config, deps) },
     { product: mode === 'lane' ? 'sessionbus-dsh' : 'dsh' });
   const commit = () => { if (ready) return; ready = true; for (const call of [...listeners]) call(); listeners.clear(); };
-  return { ctx, state, deps, mount, provide, commit, titleProvider };
+  return { ctx, state, deps, mount, provide, commit, titleProvider, rootProvider };
 }
 let cases = 0;
-const unverified = [];
 async function check(name, run) {
-  const before = unverified.length;
   await run(); cases++;
-  console.log('real Cordis ' + name + ': ' + (unverified.length > before ? 'UNVERIFIED' : 'PASS'));
+  console.log('real Cordis ' + name + ': PASS');
 }
-await check('reviewed 0.1.6 model-prefix bytes survive native compilation and projection', async () => {
-  const { baseline, prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
+await check('unchanged own bytes and explicitly pinned rc.3 renderer projections', async () => {
+  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));
+  const renderer = JSON.parse(fs.readFileSync(new URL('../fixtures/model-renderer-0.2.0.json', import.meta.url)));
+  assert.equal(toolsVersion, renderer.dshTools, `UNVERIFIED: ${toolsVersion} TypeScript/Python renderer; baseline is ${renderer.dshTools}, no fallback`);
+  const ptc = JSON.parse(fs.readFileSync(native.resolve('@deepseek-ai/dsh-tool-executor-ptc/package.json')));
+  assert.equal(`${ptc.name}@${ptc.version}`, renderer.producer);
+  Object.assign(prefix, renderer.prefix);
   for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {
     const ctx = new Context(), effects = [], captured = {};
     ctx.provide('systemPrompt', { tools() {} });
     const registry = new ToolRuntime(ctx);
+    registry.setExecutor(new NativeToolExecutor(ctx));
     const host = {
       logger: () => ({ error() {}, debug() {} }), appReady: { onReady: () => () => {} },
-      agents: { roots: () => [] }, on: () => () => {},
+      agents: { list: () => [], get: () => undefined }, subagents: { rootOf: agent => agent }, on: () => () => {},
       effect: call => { const dispose = call(); effects.push(dispose); return dispose; },
       tools: { register: value => { captured.registeredTool = value; return registry.register(value); } },
       skills: { register: value => { captured.skill = value; return () => {}; } }, commands: { register: () => () => {} },
@@ -78,8 +85,9 @@ await check('reviewed 0.1.6 model-prefix bytes survive native compilation and pr
         defineTool: value => { captured.rawTool = value; return defineTool(value); }, createUserMessage: value => value,
         domain: { table: () => ({ get() {} }), close: async () => {} },
       });
-      const values = { ...captured, nativeTools: registry.schemas(), sdkTools: registry.sdkSchemas(),
-        typescript: renderToolsSdk(registry.sdkSchemas()), python: renderToolsSdkPy(registry.sdkSchemas()),
+      const sdk = registry.definitions().map(definition => ({ ...projectToolSchema(definition, false), output: definition.output.schema }));
+      const values = { ...captured, nativeTools: registry.schemas(), sdkTools: sdk,
+        typescript: renderToolsSdk(sdk), python: renderToolsSdkPy(sdk),
         skillText: captured.skill.content };
       assert.equal(values.nativeTools.length, 1);
       assert.deepEqual(captured.registeredTool.parameters, own('./sessionbus-tool.json').inputSchema);
@@ -91,15 +99,9 @@ await check('reviewed 0.1.6 model-prefix bytes survive native compilation and pr
       assert.equal(await openRoot.execute({ action: 'list', arguments: {}, extra: true }, {}), 'open-root-control');
       for (const [name, value] of Object.entries(values)) {
         const bytes = typeof value === 'string' ? value : JSON.stringify(value);
-        if (['typescript', 'python'].includes(name) && toolsVersion !== baseline.dshTools) {
-          unverified.push(`${toolsVersion} ${product} ${name}`);
-          console.log('UNVERIFIED ' + JSON.stringify({ product, projection: name, toolsVersion,
-            bytes: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }));
-          continue;
-        }
-        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': reviewed 0.1.6 model-prefix length changed');
+        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + ': explicitly pinned model-prefix length changed');
         assert.equal(createHash('sha256').update(bytes).digest('hex'), prefix[name].sha256,
-          name + ': reviewed 0.1.6 model-prefix changed; explicit compatibility review is required');
+          name + ': pinned model-prefix changed; explicit compatibility review is required');
       }
     } finally { for (const dispose of effects.reverse()) await dispose(); await ctx.fiber.dispose(); }
   }
@@ -115,6 +117,29 @@ await check('controller-free peer survives unrelated controller removal', async 
     assert.deepEqual(f.state.exits, []);
   } finally { await f.ctx.fiber.dispose(); }
   assert.equal(f.state.stopped, 1);
+});
+await check('missing peer root authority refuses once at readiness; late authority cannot revive it', async () => {
+  const f = fixture('peer');
+  try {
+    await f.rootProvider.dispose(); f.mount(); await settled();
+    assert.equal(f.state.peers, 0); assert.deepEqual(f.state.exits, []);
+    f.commit(); f.commit(); await settled();
+    assert.deepEqual(f.state.exits, [1]); assert.equal(f.state.stderr.length, 1);
+    assert.match(f.state.stderr[0], /subagents.*readiness.*peer mode/u);
+    f.provide('subagents', { rootOf: agent => agent }); await settled();
+    assert.equal(f.state.peers, 0);
+  } finally { await f.ctx.fiber.dispose(); }
+});
+await check('native peer root authority replacement owns exactly one current activation', async () => {
+  const f = fixture('peer');
+  try {
+    f.mount(); await settled(); f.commit(); await settled();
+    assert.equal(f.state.peers, 1);
+    await f.rootProvider.dispose(); await settled(); assert.equal(f.state.stopped, 1);
+    f.provide('subagents', { rootOf: agent => agent }); await settled();
+    assert.equal(f.state.peers, 2); assert.deepEqual(f.state.exits, []);
+  } finally { await f.ctx.fiber.dispose(); }
+  assert.equal(f.state.stopped, 2);
 });
 await check('missing lane fails once at readiness; late controller cannot revive it', async () => {
   const f = fixture('lane');
@@ -185,6 +210,4 @@ for (const mode of ['lane', 'peer']) for (const outcome of ['resolve', 'reject']
 }
 console.log(JSON.stringify({ cases, dsh: JSON.parse(fs.readFileSync(dshManifest)).version,
   plugin: JSON.parse(fs.readFileSync(pluginManifest)).version,
-  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false,
-  ...(unverified.length ? { result: 'UNVERIFIED', unverified } : {}) }));
-if (unverified.length) process.exitCode = 1;
+  cordis: native.resolve('@deepseek-ai/cordis'), workerTransport: 'synthetic', nativeProfileAcceptance: false }));

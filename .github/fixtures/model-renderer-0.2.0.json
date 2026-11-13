@@ -1,0 +1,8 @@
+{
+  "dshTools": "0.2.2-rc.3",
+  "producer": "@deepseek-ai/dsh-tool-executor-ptc@0.2.2-rc.3",
+  "prefix": {
+    "typescript": { "bytes": 9076, "sha256": "e02cad11e886f77d7af214911a5ed7dd5a59313379146abd099e297b99d7c8e7" },
+    "python": { "bytes": 9323, "sha256": "44334eb1f1ec509bff103b90991b43c8607aef2b174e6c1071fdfaafc48cbd3a" }
+  }
+}

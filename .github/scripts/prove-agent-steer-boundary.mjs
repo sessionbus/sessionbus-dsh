@@ -7,6 +7,7 @@ import SessionStore, { SessionId } from "@deepseek-ai/dsh-session";
 import SessionProjectionRegistry from "@deepseek-ai/dsh-session-projection";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
+import * as NativeExecutor from "@deepseek-ai/dsh-tool-executor-native";
 
 const chunks = (text) => [
   { type: "block-start", index: 0, blockType: "text" },
@@ -29,6 +30,7 @@ async function run(hop) {
   await ctx.plugin(SessionProjectionRegistry);
   await ctx.plugin(SystemPrompt, {});
   await ctx.plugin(ToolRuntime);
+  await ctx.plugin(NativeExecutor);
   await ctx.plugin(AgentRegistry);
   await ctx.plugin(AgentLoop, { agents: [] });
   ctx.llm.registerAdapter(["w100"], new FakeAdapter());

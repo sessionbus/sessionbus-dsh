@@ -1,3 +1,4 @@
+// HISTORY ONLY: the pre.20 runtime reproduction is not called by current gates.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';

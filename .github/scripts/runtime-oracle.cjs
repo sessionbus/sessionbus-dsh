@@ -5,25 +5,30 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 const { pathToFileURL } = require("node:url");
 
-// Called inside the executing native DSH, never by locating a CLI from a bin or HOME layout.
-function inspectRuntime(ctx, { version, mode }) {
+// Public inventory is read by DSH itself; no loader entries, implementation
+// records, Fiber identities, namespace equality or writable mirror are used.
+async function inspectRuntime(ctx, expected) {
+  const anchor = fs.realpathSync(ctx.profileContext.installAnchor);
+  const { readPluginInventory } = await import(pathToFileURL(createRequire(anchor).resolve("@deepseek-ai/dsh-host-plugin-inventory")));
+  return inspectFacts(ctx, expected, await readPluginInventory(ctx));
+}
+
+function inspectFacts(ctx, { version, mode }, inventory) {
   const context = ctx.profileContext;
-  assert.ok(context?.installAnchor && ctx.pluginPackages?.current, "native profile context and resolution must be mounted");
+  assert.ok(context?.installAnchor && context.dir && ctx.pluginPackages?.resolution, "native profile context and resolution must be mounted");
   const cliFile = fs.realpathSync(context.installAnchor);
   const cli = JSON.parse(fs.readFileSync(cliFile));
-  const entries = [...ctx.loader.entries()];
-  const buses = entries.filter(entry => entry.options.name === "@sessionbus/dsh");
+  const entries = inventory.entries;
+  const buses = entries.filter(entry => entry.moduleName === "@sessionbus/dsh");
   assert.equal(buses.length, 1, "one mounted Sessionbus row, not a physical package count");
   const bus = buses[0];
-  assert.notEqual(bus.options.disabled, true);
-  assert.equal(bus.fiber?.state, 2, "a pending or failed Sessionbus row is never PASS, whatever the CLI exit status");
-  const importer = bus.parent.tree.ctx.baseUrl;
-  const plugin = ctx.pluginPackages.packageOf(bus.options.name, importer);
+  assert.equal(bus.enabled, true);
+  assert.equal(bus.fiberPhase, "active", "a pending or failed Sessionbus row is never PASS, whatever the CLI exit status");
+  const importer = pathToFileURL(path.join(context.dir, "cordis.yml")).href;
+  const plugin = ctx.pluginPackages.packageOf(bus.moduleName, importer);
   assert.equal(plugin?.name, "@sessionbus/dsh");
   assert.equal(plugin.version, version);
   const pluginImporter = pathToFileURL(fs.realpathSync(path.join(plugin.dir, "plugin.cjs"))).href;
-  assert.equal(bus.moduleNamespace.apply ?? bus.moduleNamespace.default?.apply,
-    createRequire(fs.realpathSync(plugin.manifestPath))("./plugin.cjs").apply, "metadata must describe the actually mounted callback");
   const boot = ctx.pluginPackages.packageOf("@deepseek-ai/dsh-app-boot", pluginImporter);
   assert.ok(boot?.manifestPath, "native app-boot producer");
   const semver = createRequire(fs.realpathSync(boot.manifestPath))("semver");
@@ -38,35 +43,35 @@ function inspectRuntime(ctx, { version, mode }) {
   });
   assert.equal(semver.satisfies(cli.version, plugin.manifest.peerDependencies["@deepseek-ai/dsh-agent"], { includePrerelease: true }), true);
   const dsh = new Map();
-  for (const entry of ctx.pluginPackages.current.entries) {
+  for (const entry of ctx.pluginPackages.resolution.entries) {
     if (!entry.name.startsWith("@deepseek-ai/dsh")) continue;
     const selected = ctx.pluginPackages.packageOf(entry.name, pluginImporter);
     assert.equal(selected?.version, cli.version, `mixed runtime ${entry.name}`);
     dsh.set(entry.name, selected.version);
   }
-  const implementations = Reflect.ownKeys(ctx.reflect.store).map(key => ctx.reflect.store[key])
-    .filter(implementation => implementation?.name === "fileUploads" && implementation.fiber.state === 2);
-  assert.equal(implementations.length, 1, "one registered upload provider, not one lock/physical copy");
-  const owners = entries.filter(entry => entry.fiber === implementations[0].fiber);
-  assert.equal(owners.length, 1, "one actual service-owning row");
+  const owners = entries.filter(entry => ["@sessionbus/dsh/file-uploads-none", "@deepseek-ai/dsh-client-file-upload"].includes(entry.moduleName)
+    && entry.enabled && entry.fiberPhase === "active");
+  assert.equal(owners.length, 1, "one active configured upload provider, not one lock/physical copy");
   const owner = owners[0];
-  const provider = ctx.pluginPackages.packageOf(owner.options.name, owner.parent.tree.ctx.baseUrl);
+  for (const method of ["registerAgentResolver", "resolve", "bindPrompt", "retirePrompt"]) assert.equal(typeof ctx.fileUploads?.[method], "function", `native fileUploads.${method}`);
+  const provider = ctx.pluginPackages.packageOf(owner.moduleName, importer);
   assert.ok(provider?.manifestPath);
   if (mode === "lane") {
-    assert.equal(owner.options.name, "@sessionbus/dsh/file-uploads-none", "plugin own no-upload provider must own the active service");
+    assert.equal(owner.moduleName, "@sessionbus/dsh/file-uploads-none", "plugin own no-upload provider must own the active configured row");
     assert.equal(provider.name, "@sessionbus/dsh");
     assert.equal(fs.realpathSync(provider.manifestPath), fs.realpathSync(plugin.manifestPath));
   } else if (mode === "web") {
     assert.equal(provider.name, "@deepseek-ai/dsh-client-file-upload");
-    assert.equal(entries.some(entry => entry.options.name === "@sessionbus/dsh/file-uploads-none"), false);
+    assert.equal(entries.some(entry => entry.moduleName === "@sessionbus/dsh/file-uploads-none" && entry.enabled), false);
   } else throw new Error(`unsupported runtime proof mode ${mode}`);
   assert.equal(plugin.manifest.dependencies?.["@antst/dsh-file-uploads-none"], undefined);
   assert.equal(plugin.manifest.peerDependencies?.["@antst/dsh-file-uploads-none"], undefined);
   return { cli: { version: cli.version, path: cliFile }, profile: context.name,
     plugin: { version: plugin.version, importer, path: fs.realpathSync(plugin.manifestPath) },
     peers, dshVersions: [...new Set(dsh.values())], resolvedDshPackages: dsh.size,
-    upload: { row: owner.options.name, importer: owner.parent.tree.ctx.baseUrl, name: provider.name,
-      version: provider.version, path: fs.realpathSync(provider.manifestPath), registeredServices: implementations.length } };
+    inventory: { bus: bus.entryId, upload: owner.entryId },
+    upload: { row: owner.moduleName, importer, name: provider.name,
+      version: provider.version, path: fs.realpathSync(provider.manifestPath), activeConfiguredProviders: owners.length } };
 }
 async function promptUploadRefusal(ctx) {
   const controller = ctx.sessionController;
@@ -88,11 +93,9 @@ async function promptUploadRefusal(ctx) {
 }
 
 async function ownUploadRefusal(ctx, version) {
-  const runtime = inspectRuntime(ctx, { version, mode: "lane" });
-  const owner = [...ctx.loader.entries()].find(entry => entry.options.name === runtime.upload.row);
-  const provider = createRequire(runtime.upload.path)("./file-uploads-none.mjs");
-  assert.equal(owner.moduleNamespace.apply ?? owner.moduleNamespace.default?.apply, provider.apply,
-    "native upload callback is the plugin's actually loaded entry");
+  const runtime = await inspectRuntime(ctx, { version, mode: "lane" });
+  // The public inventory and package table identify configuration and selection;
+  // the real service and native receipt refusal prove behavior, not callback identity.
   return { provider: runtime.upload, ...await promptUploadRefusal(ctx) };
 }
-module.exports = { inspectRuntime, ownUploadRefusal, promptUploadRefusal };
+module.exports = { inspectRuntime, inspectFacts, ownUploadRefusal, promptUploadRefusal };

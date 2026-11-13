@@ -50,7 +50,7 @@ export async function stopOwnedChild(child, nativePid = child.pid, cleanup = fal
   let bound;
   try {
     const result = await Promise.race([child.ended, new Promise((_, reject) => {
-      // DSH alpha.1/alpha.2 profile-boot createProcessShutdown:11-12,43-46:
+      // DSH0.2.2-rc.3 profile-boot createProcessShutdown keeps the same bound:
       // native shutdown grace 5000 + margin 5000; cleanup escalation stays 5000.
       bound = setTimeout(() => {
         if (cleanup) signalOwnedGroup(child, 'SIGKILL');

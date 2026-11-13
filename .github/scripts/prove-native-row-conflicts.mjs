@@ -16,7 +16,9 @@ const beforeSpawn = installInterruptCleanup(children);
 let primary;
 async function run(args, label, observedFile) {
   beforeSpawn();
-  const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Native stdio apps exit on EOF at readiness. Keep our observer input open
+  // until the public inventory is collected, rather than racing host disposal.
+  const child = spawn(cli[0], [...cli.slice(1), ...args], { cwd: work, env, detached: true, stdio: [observedFile ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
   children.add(child); let output = '';
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; fs.appendFileSync(path.join(work, `${label}.log`), chunk); });
   child.ended = new Promise((resolve, reject) => { child.once('error', reject); child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }); });
@@ -37,16 +39,26 @@ async function run(args, label, observedFile) {
 }
 const observer = path.join(work, 'observe.cjs');
 fs.writeFileSync(observer, `const fs=require('node:fs');
-exports.inject=['loader','pluginPackages','appReady'];
-exports.apply=(ctx,config)=>ctx.appReady.onReady(()=>{
- const rows=[...ctx.loader.entries()], bus=rows.find(row=>row.options.id==='sessionbus');
- const implementations=Reflect.ownKeys(ctx.reflect.store).map(key=>ctx.reflect.store[key]).filter(value=>value?.name==='fileUploads'&&value.fiber.state===2);
- const provider=rows.find(row=>row.fiber===implementations[0]?.fiber);
- if(implementations.length!==1||!provider)throw Error('expected sole native upload service');
- const owner=ctx.pluginPackages.packageOf(provider.options.name,provider.parent.tree.ctx.baseUrl);
- fs.writeFileSync(config.destination+'.tmp',JSON.stringify({nativePid:process.pid,product:bus?.options.config?.product,provider:provider.options.name,owner:{name:owner.name,version:owner.version,path:owner.manifestPath},services:implementations.length}));
+const path=require('node:path'),{createRequire}=require('node:module'),{pathToFileURL}=require('node:url');
+exports.inject=['loader','pluginPackages','profileContext','fileUploads','appReady'];
+exports.apply=async(ctx,config)=>{
+ const native=createRequire(ctx.profileContext.installAnchor);
+ const {readPluginInventory}=await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-host-plugin-inventory')));
+ const {composeEntries,readProfilePatches}=await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-app-boot')));
+ ctx.appReady.onReady(async()=>{
+ const composed=composeEntries(readProfilePatches('dsh',ctx.profileContext)), buses=[];
+ const walk=value=>{if(!value||typeof value!=='object')return;if(value.id==='sessionbus')buses.push(value);for(const child of Object.values(value))walk(child);};
+ walk(composed);
+ const rows=(await readPluginInventory(ctx)).entries;
+ const providers=rows.filter(row=>row.enabled&&row.fiberPhase==='active'&&['@antst/dsh-file-uploads-none','@sessionbus/dsh/file-uploads-none'].includes(row.moduleName));
+ if(providers.length!==1)throw Error('expected sole active configured upload row');
+ for(const method of ['registerAgentResolver','resolve','bindPrompt','retirePrompt'])if(typeof ctx.fileUploads[method]!=='function')throw Error('missing native upload behavior '+method);
+ const provider=providers[0],importer=pathToFileURL(path.join(ctx.profileContext.dir,'cordis.yml')).href;
+ const owner=ctx.pluginPackages.packageOf(provider.moduleName,importer);
+ fs.writeFileSync(config.destination+'.tmp',JSON.stringify({nativePid:process.pid,product:buses.at(-1)?.config?.product,provider:provider.moduleName,owner:{name:owner.name,version:owner.version,path:owner.manifestPath},services:providers.length,productEvidence:'public composition; actual hello covered by native lane/peer gates'}));
  fs.renameSync(config.destination+'.tmp',config.destination);
-});\n`);
+ });
+};\n`);
 try {
   for (const kind of ['sessionbus', 'file-uploads-none']) {
     const name = `overlap-${kind}`, bundle = path.join(work, `${kind}-bundle`);
@@ -70,7 +82,9 @@ try {
     async function observe(label) {
       const destination = path.join(work, `${kind}-${label}.json`), overlay = path.join(work, `${kind}-${label}.yml`);
       fs.writeFileSync(overlay, `- id: headless-startup\n  disabled: true\n- id: headless-runner\n  disabled: true\n- insert:\n    - name: ${JSON.stringify(observer)}\n      config: ${JSON.stringify({ destination })}\n`);
-      const result = await run(['--profile', name, '--patch', overlay, '--help'], `${kind}-${label}`, destination);
+      // --help disposes the host while this async public inventory is reading.
+      // Observe an ordinary live composition, then stop our own process below.
+      const result = await run(['--profile', name, '--patch', overlay], `${kind}-${label}`, destination);
       assert.equal(result.code, 0, result.output);
       return { ...JSON.parse(fs.readFileSync(destination)), output: result.output };
     }
