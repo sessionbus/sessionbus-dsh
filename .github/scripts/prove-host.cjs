@@ -1,4 +1,5 @@
 "use strict";
+// Historical fleet observer (W-128); not a W-155 native host acceptance driver.
 const executingSource =
   typeof require === "undefined" ? module.source : require("node:fs").readFileSync(__filename, "utf8");
 

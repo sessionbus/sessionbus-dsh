@@ -1,0 +1,1269 @@
+[
+  {
+    "path": ".github/dashi-app-version",
+    "line": 1,
+    "text": "0.2.0-alpha.2",
+    "class": "b",
+    "reason": "Historical selector; no current packed/universal driver reads it; the unit pins non-use."
+  },
+  {
+    "path": ".github/fixtures/bundle-provides-sessionbus/cordis.patch.yml",
+    "line": 5,
+    "text": "    - { id: sessionbus, name: '@sessionbus/dsh', config: { product: dashi } }",
+    "class": "b",
+    "reason": "Synthetic bundle-conflict baseline with a dashi-labelled product; no dashi-app or launcher boot."
+  },
+  {
+    "path": ".github/fixtures/file-uploads-none-alpha/package.json",
+    "line": 3,
+    "text": "  \"version\": \"0.2.0-alpha.1\",",
+    "class": "b",
+    "reason": "Byte-preserved published legacy-provider metadata used by installer/coexistence controls, not the supported DSH/Node floor."
+  },
+  {
+    "path": ".github/fixtures/file-uploads-none-alpha/package.json",
+    "line": 10,
+    "text": "    \"url\": \"https://github.com/antst/dashi\",",
+    "class": "b",
+    "reason": "Byte-preserved published legacy-provider metadata used by installer/coexistence controls, not the supported DSH/Node floor."
+  },
+  {
+    "path": ".github/fixtures/file-uploads-none-alpha/package.json",
+    "line": 25,
+    "text": "    \"node\": \"^22.19.0 || >=24.0.0\"",
+    "class": "b",
+    "reason": "Byte-preserved published legacy-provider metadata used by installer/coexistence controls, not the supported DSH/Node floor."
+  },
+  {
+    "path": ".github/fixtures/file-uploads-none-alpha/package.json",
+    "line": 28,
+    "text": "    \"@deepseek-ai/cordis\": \">=4.0.5-alpha.1\"",
+    "class": "b",
+    "reason": "Byte-preserved published legacy-provider metadata used by installer/coexistence controls, not the supported DSH/Node floor."
+  },
+  {
+    "path": ".github/fixtures/model-prefix-0.1.4.json",
+    "line": 6,
+    "text": "    \"dsh\": \"0.2.1-alpha.3\"",
+    "class": "b",
+    "reason": "Immutable historical model-byte fixture, not the current renderer baseline."
+  },
+  {
+    "path": ".github/fixtures/model-prefix-0.1.6.json",
+    "line": 4,
+    "text": "    \"version\": \"0.1.6\",",
+    "class": "b",
+    "reason": "Immutable historical model-byte fixture; six independent oracles stay exact, renderer oracle is separately rc.3."
+  },
+  {
+    "path": ".github/fixtures/model-prefix-0.1.6.json",
+    "line": 7,
+    "text": "    \"dshTools\": \"0.2.1-alpha.3\"",
+    "class": "b",
+    "reason": "Immutable historical model-byte fixture; six independent oracles stay exact, renderer oracle is separately rc.3."
+  },
+  {
+    "path": ".github/scripts/dsh-cli-pins.mjs",
+    "line": 6,
+    "text": "// Same CLI-minimum rule as dashi's W-109 helper; one pin map for every consumer.",
+    "class": "b",
+    "reason": "Shared helper provenance comment, not a dashi runtime/version selection."
+  },
+  {
+    "path": ".github/scripts/fake-permission-sessionbus.mjs",
+    "line": 9,
+    "text": "  from: { session_id: \"child@host\", name: \"Child\", product: \"dashi\", groups: [\"web-proof\"] },",
+    "class": "b",
+    "reason": "Synthetic sender product label for receipt/envelope controls; does not launch that product."
+  },
+  {
+    "path": ".github/scripts/fake-permission-sessionbus.mjs",
+    "line": 79,
+    "text": "          send({ id: 200, method: \"message.deliver\", params: { message_id: \"peer-delivery-proof\", from: { session_id: \"other-peer\", name: \"Other\", product: \"dashi\", groups: [\"web-proof\"] }, body: deliveryInput } });",
+    "class": "b",
+    "reason": "Synthetic sender product label for receipt/envelope controls; does not launch that product."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 7,
+    "text": "/** Metadata-only coexistence oracle; dashi's own matrix proves its mounted provider. */",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 10,
+    "text": "  const app = ctx.pluginPackages.packageOf('@antst/dashi-app', importer);",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 43,
+    "text": "  const profile = loadProfileDirectory('dsh', path.join(home, 'profiles/dashi'), anchor);",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 51,
+    "text": "      ? `dashi shared plugin: candidate ${candidateVersion} equals app pin ${report.dashiAppImporter.version}; ONE canonical copy: PASS (metadata, not TUI boot)`",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 52,
+    "text": "      : `dashi coexistence: direct ${candidateVersion} beside app pin ${report.dashiAppImporter.version}; TWO resolved copies: PASS; candidate-inside-dashi not claimed`);",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-dashi-resolution.mjs",
+    "line": 53,
+    "text": "    console.log('candidate contributes no external provider package; dashi provider mounting is owned by the dashi matrix, not this metadata proof');",
+    "class": "b",
+    "reason": "Public metadata-only coexistence oracle kept for unit controls; not a native dashi boot; W-156 owns live cross-dashi."
+  },
+  {
+    "path": ".github/scripts/prove-host.cjs",
+    "line": 59,
+    "text": "  insist(p.sessionsDir === `${p.dshHome}/sessions`, \"only the stock alpha.2 sessions root is supported\");",
+    "class": "b",
+    "reason": "Historical W-128 fleet observer/protocol validation, not a W-155 host/native gate."
+  },
+  {
+    "path": ".github/scripts/prove-host.cjs",
+    "line": 77,
+    "text": "      (p.mode !== \"lane\" || [\"sessionbus-dsh\", \"dashi\"].includes(p.product)),",
+    "class": "b",
+    "reason": "Historical W-128 fleet observer/protocol validation, not a W-155 host/native gate."
+  },
+  {
+    "path": ".github/scripts/prove-lane-options-before.mjs",
+    "line": 1,
+    "text": "// HISTORY ONLY: the pre.20 runtime reproduction is not called by current gates.",
+    "class": "b",
+    "reason": "Explicit HISTORY ONLY pre.20 reproduction; no current driver references it (asserted by unit)."
+  },
+  {
+    "path": ".github/scripts/prove-lane-options-before.mjs",
+    "line": 21,
+    "text": "assert.equal(JSON.parse(fs.readFileSync(pluginFile)).version, '0.1.0-pre.20');",
+    "class": "b",
+    "reason": "Explicit HISTORY ONLY pre.20 reproduction; no current driver references it (asserted by unit)."
+  },
+  {
+    "path": ".github/scripts/prove-lane-options-before.mjs",
+    "line": 45,
+    "text": "  console.log(`W-126 published pre.20 failing-first: native async profile mutation caught by the SAME options proof: PASS (${Date.now() - began} ms)`);",
+    "class": "b",
+    "reason": "Explicit HISTORY ONLY pre.20 reproduction; no current driver references it (asserted by unit)."
+  },
+  {
+    "path": ".github/scripts/prove-mode-controller.mjs",
+    "line": 15,
+    "text": "const { renderToolsSdk, renderToolsSdkPy } = await import(pathToFileURL(native.resolve('@deepseek-ai/dsh-tool-executor-ptc')));",
+    "class": "b",
+    "reason": "Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current."
+  },
+  {
+    "path": ".github/scripts/prove-mode-controller.mjs",
+    "line": 64,
+    "text": "  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));",
+    "class": "b",
+    "reason": "Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current."
+  },
+  {
+    "path": ".github/scripts/prove-mode-controller.mjs",
+    "line": 70,
+    "text": "  for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {",
+    "class": "b",
+    "reason": "Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current."
+  },
+  {
+    "path": ".github/scripts/prove-mode-controller.mjs",
+    "line": 90,
+    "text": "        typescript: renderToolsSdk(sdk), python: renderToolsSdkPy(sdk),",
+    "class": "b",
+    "reason": "Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current."
+  },
+  {
+    "path": ".github/scripts/prove-native-row-conflicts.mjs",
+    "line": 78,
+    "text": "    const added = await run(['plugin', '--profile', name, 'add', '--save-exact', candidate, bundle, '@antst/dsh-file-uploads-none@0.2.0-alpha.2'], `${kind}-native-add`);",
+    "class": "b",
+    "reason": "Intentional legacy external-provider coexistence negative control under current DSH; not an old DSH/dashi runtime."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 219,
+    "text": "for profile in sessionbus web dashi; do",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 226,
+    "text": "  DSH_HOME=\"$home\" \"$dsh\" plugin --profile \"$profile\" add --save-exact @sessionbus/dsh@0.1.5 @antst/dsh-file-uploads-none@0.2.0-alpha.2",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 244,
+    "text": "DSH_HOME=\"$home\" \"$dsh\" plugin --profile dashi add \"$root/.github/fixtures/bundle-provides-sessionbus\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 245,
+    "text": "for profile in sessionbus web dashi; do",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 254,
+    "text": "cp \"$home/profiles/dashi/package.json\" \"$work/dashi-manifest-before-refusal.json\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 255,
+    "text": "cp \"$home/profiles/dashi/cordis.patch.yml\" \"$work/dashi-patch-before-refusal.yml\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 257,
+    "text": "PATH=\"$home/node_modules/.bin:$PATH\" DSH_HOME=\"$home\" \"$home/profiles/dashi/node_modules/.bin/sessionbus-dsh-install\" --product dashi dashi >\"$work/dashi-install.stdout\" 2>\"$work/dashi-install.stderr\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 258,
+    "text": "dashi_install_status=$?",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 260,
+    "text": "[[ \"$dashi_install_status\" -eq 2 ]]",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 261,
+    "text": "grep -F 'profile \"dashi\" app \"@sessionbus/w090-bundle-row\" already provides Sessionbus; there is nothing to install' \"$work/dashi-install.stderr\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 262,
+    "text": "cmp -s \"$work/dashi-manifest-before-refusal.json\" \"$home/profiles/dashi/package.json\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 263,
+    "text": "cmp -s \"$work/dashi-patch-before-refusal.yml\" \"$home/profiles/dashi/cordis.patch.yml\"",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 264,
+    "text": "for profile in sessionbus web dashi; do",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 280,
+    "text": "const dashi = readPatch(\"dashi\");",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 290,
+    "text": "assert.doesNotMatch(dashi, /id: sessionbus/u);",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 291,
+    "text": "const dashiManifest = JSON.parse(fs.readFileSync(`${home}/profiles/dashi/package.json`, \"utf8\"));",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 343,
+    "text": "echo 'NOT RUN here: cross-dashi launcher/app leg belongs to W-156 on the same reviewed archive; plugin publication is held until it passes'",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-packed-install.sh",
+    "line": 434,
+    "text": "echo 'Cross-dashi: NOT RUN (W-156 publication gate); known native gaps are observations, not continuity PASS'",
+    "class": "b",
+    "reason": "Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh."
+  },
+  {
+    "path": ".github/scripts/prove-peer-pending-input.mjs",
+    "line": 112,
+    "text": "  `    - { id: sessionbus, name: ${JSON.stringify(pluginFile)}, config: ${JSON.stringify({ product: 'dashi', socket: env.SESSIONBUS_SOCKET, groups: ['pending-proof'] })} }`,",
+    "class": "b",
+    "reason": "Synthetic dashi product label in its own controller composition, or wording forbidding plugin scheduler compensation; not a dashi launcher/old daemon."
+  },
+  {
+    "path": ".github/scripts/prove-peer-pending-input.mjs",
+    "line": 215,
+    "text": "    assert.fail(`Upstream DSH now wakes pending input after ${ending}; update this known-gap assertion and documentation, not the plugin scheduler.`);",
+    "class": "b",
+    "reason": "Synthetic dashi product label in its own controller composition, or wording forbidding plugin scheduler compensation; not a dashi launcher/old daemon."
+  },
+  {
+    "path": ".github/scripts/prove-runtime-resolution.mjs",
+    "line": 23,
+    "text": "assert.doesNotMatch(matches[0][1], /reflect\\.store|ownerFiber|loader\\.entries|moduleNamespace|packages\\.current/u,",
+    "class": "b",
+    "reason": "Negative assertion that retired private-reflection API names must be absent."
+  },
+  {
+    "path": ".github/scripts/stale-proof-audit.mjs",
+    "line": 6,
+    "text": "const stale = /0\\.5\\.12|(?:0\\.2\\.1-)?alpha\\.\\d+|0\\.2\\.1-rc\\.\\d+|0\\.1\\.6|pre\\.20|\\bdashi(?:\\b|[-_/])|(?:node|Node)[\\s\":=v-]*22(?:\\.[\\dx]+)*|\\b22\\.(?:x|\\d+)\\b|sdkSchemas|selectionFor|selectForNextRequest|serializeImageAdmission|agents\\.roots|isOwnedBy|reflect\\.store|ownerFiber|moduleNamespace|packages\\.current|stateOf\\(|listChildren|exit_plan_mode|interrupt_agent|web_search|schedul|(?:create|cancel|delete|update|list|pause|resume)_(?:task|job)s?|tools\\.execute|renderToolsSdk|prove-lane-options-before|dashi-app-version/u;",
+    "class": "b",
+    "reason": "The deny-pattern definition and explicit historical-selector scan; not a runtime assumption."
+  },
+  {
+    "path": ".github/scripts/stale-proof-audit.mjs",
+    "line": 18,
+    "text": "  files.push('.github/dashi-app-version');",
+    "class": "b",
+    "reason": "The deny-pattern definition and explicit historical-selector scan; not a runtime assumption."
+  },
+  {
+    "path": "host-proof.test.cjs",
+    "line": 213,
+    "text": "      else if (label === \"dsh-version\") stdout = \"0.2.1-alpha.2\\n\";",
+    "class": "b",
+    "reason": "Synthetic historical observer packet/command fixture; no native old DSH boot."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 63,
+    "text": "    writeFileSync(path.join(root, \"registry-version.mjs\"), \"export function registryHasVersion(name, version) { if (name !== '@deepseek-ai/dsh-invariants' || version !== '0.2.1-alpha.2') throw new Error('unexpected registry query'); return false; }\\n\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 75,
+    "text": "        input: `check_dsh_graph() { :; }\\n${fixed ? source : source.replace(fix, \"\")}\\nrepair_dsh_graph \"$ROLLBACK_ROOT\" 0.2.1-alpha.2\\n`,",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 108,
+    "text": "  install([], { ...f, product: \"dashi\" });",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 109,
+    "text": "  assert.equal(readFileSync(f.file(\"sessionbus\"), \"utf8\"), first.replace(\"product: sessionbus-dsh\", \"product: dashi\"));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 131,
+    "text": "    writeFileSync(path.join(profile, \"package.json\"), JSON.stringify({ dependencies: { \"@sessionbus/dsh\": packageVersion, [uploads]: \"0.2.0-alpha.1\" } }));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 144,
+    "text": "  const profile = path.join(home, \"profiles\", \"dashi\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 152,
+    "text": "  assert.throws(() => install([\"dashi\"], { home, product: \"dashi\", run: () => assert.fail(\"preflight must not install\") }), error => {",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 163,
+    "text": "  const dashi = path.join(home, \"profiles\", \"dashi\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 164,
+    "text": "  mkdirSync(dashi, { recursive: true });",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 165,
+    "text": "  writeFileSync(path.join(dashi, \"package.json\"), JSON.stringify({ dependencies: { \"@sessionbus/dsh\": packageVersion, [uploads]: \"0.2.0-alpha.1\" } }));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 167,
+    "text": "  writeFileSync(path.join(dashi, \"cordis.patch.yml\"), patch);",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 168,
+    "text": "  install([\"dashi\"], { home, root: path.resolve(\".\"), product: \"dashi\", run: () => assert.fail(\"dependency already installed\") });",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 169,
+    "text": "  const installed = readFileSync(path.join(dashi, \"cordis.patch.yml\"), \"utf8\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 172,
+    "text": "  assert.match(installed, /product: dashi/u);",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 174,
+    "text": "  install([\"dashi\"], { home, root: path.resolve(\".\"), product: \"dashi\", run: () => assert.fail(\"dependency already installed\") });",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 175,
+    "text": "  assert.equal(readFileSync(path.join(dashi, \"cordis.patch.yml\"), \"utf8\"), installed);",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 182,
+    "text": "  writeFileSync(path.join(web, \"package.json\"), JSON.stringify({ dependencies: { \"@sessionbus/dsh\": packageVersion, [uploads]: \"0.2.0-alpha.1\" } }));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 190,
+    "text": "  assert.throws(() => install([\"sessionbus\"], { home: \"/unused\", product: \"dsh\" }), /must be sessionbus-dsh or dashi/u);",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 245,
+    "text": "  const dependencies = { \"@sessionbus/dsh\": packageVersion, [uploads]: \"0.2.0-alpha.1\" };",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 246,
+    "text": "  writeFileSync(path.join(profile, \"package.json\"), JSON.stringify({ dependencies: { ...dependencies, \"@antst/dashi-app\": \"0.2.0-alpha.1\" } }));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 248,
+    "text": "  const app = path.join(profile, \"node_modules/@antst/dashi-app\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 250,
+    "text": "  writeFileSync(path.join(app, \"package.json\"), JSON.stringify({ version: \"0.2.0-alpha.1\", dependencies: { [uploads]: \"0.2.0-alpha.1\" } }));",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "install.test.mjs",
+    "line": 275,
+    "text": "  assert.equal(JSON.parse(readFileSync(path.join(profile, \"package.json\"), \"utf8\")).dependencies[uploads], \"0.2.0-alpha.1\");",
+    "class": "b",
+    "reason": "Synthetic installer product/bundle/legacy-provider baseline; no old native runtime."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 52,
+    "text": "  for (const version of ['0.2.1-alpha.3', '0.2.1-rc.2', '0.2.2-rc.2', '0.2.2-rc.4']) {",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 95,
+    "text": "  for (const other of ['0.2.1-alpha.3', '0.2.1-rc.2', '0.2.2-rc.2', '0.2.2-rc.4']) assert.throws(() => version(other), /UNVERIFIED/u);",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 170,
+    "text": "      && error.message.includes(\"update this known-gap assertion and documentation, not the plugin scheduler\"));",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 259,
+    "text": "test(\"dashi metadata multiplicity derives from the app pin, never provider physical counts\", async t => {",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 260,
+    "text": "  const { inspectDashiResolution } = await import(\"./.github/scripts/prove-dashi-resolution.mjs\");",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 262,
+    "text": "  function fixture({ candidate = \"0.1.0-pre.20\", separate = false, wrongBundled = false, candidateProvider = false } = {}) {",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 263,
+    "text": "    const dir = fs.mkdtempSync(path.join(os.tmpdir(), \"sessionbus-dashi-oracle-\"));",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 268,
+    "text": "      if (name === \"@antst/dashi-app\") manifest.dsh = { bundle: { patch: \"./cordis.patch.yml\" } };",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 273,
+    "text": "    const app = pkg(path.join(dir, \"node_modules/@antst/dashi-app\"), \"@antst/dashi-app\", \"0.2.0-alpha.2\", {",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 274,
+    "text": "      \"@sessionbus/dsh\": \"0.1.0-pre.20\", \"@antst/dsh-file-uploads-none\": \"0.2.0-alpha.2\",",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 279,
+    "text": "    const bundled = separate ? pkg(path.join(app.dir, \"node_modules/@sessionbus/dsh\"), \"@sessionbus/dsh\", wrongBundled ? \"0.1.0-pre.18\" : \"0.1.0-pre.20\") : direct;",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 281,
+    "text": "      if (name === \"@antst/dashi-app\") return app;",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 303,
+    "text": "    name: \"@deepseek-ai/dsh\", dependencies: { \"@deepseek-ai/dsh-storage-domain\": \"0.2.1-alpha.2\" },",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 310,
+    "text": "  const pins = deriveCliPins({ \"@deepseek-ai/cordis\": \"^4.0.5-alpha.1\" }, directory);",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 323,
+    "text": "  assert.doesNotThrow(() => assertPinnedGraph(\"packages:\\n  zod@3.25.76:\\n  zod@4.5.4:\\n\", { zod: pins.zod }, \"0.2.1-alpha.2\"));",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "package.test.cjs",
+    "line": 324,
+    "text": "  assert.throws(() => assertPinnedGraph(\"packages:\\n  zod@3.25.76:\\n\", { zod: pins.zod }, \"0.2.1-alpha.2\"), /storage-domain zod 4.5.4 is missing/u);",
+    "class": "b",
+    "reason": "Intentional non-baseline refusal input, immutable-prefix baseline, or synthetic metadata/Zod/companion negative control; no old native boot."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 25,
+    "text": "    from: { session_id: \"sender@host\", name: \"Sender\", product: \"dashi\", groups: [\"team\"] },",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 159,
+    "text": "  apply(ctx, { product: \"dashi\" }, {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 188,
+    "text": "test(\"W-154 registered tool and skill bytes stay pinned to the reviewed 0.1.6 declaration\", async () => {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 189,
+    "text": "  const { prefix } = JSON.parse(fs.readFileSync(path.join(__dirname, \".github/fixtures/model-prefix-0.1.6.json\"), \"utf8\"));",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 190,
+    "text": "  for (const product of [\"dsh\", \"dashi\", \"sessionbus-dsh\"]) {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 206,
+    "text": "        assert.equal(Buffer.byteLength(bytes), prefix[name].bytes, name + \": reviewed 0.1.6 model-prefix length changed\");",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 208,
+    "text": "          name + \": reviewed 0.1.6 model-prefix bytes changed; review deliberately, never refresh this golden silently\");",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 344,
+    "text": "        else if (cause === \"capture\") { ctx.on = undefined; apply(ctx, { product: \"dashi\" }, deps); }",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 346,
+    "text": "          apply(ctx, { product: \"dashi\" }, {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 361,
+    "text": "          runtime = await activate(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 430,
+    "text": "    const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 441,
+    "text": "  const runtime = await activate(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 457,
+    "text": "  apply(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 480,
+    "text": "  apply(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 543,
+    "text": "  ctx.agents.roots = () => { throw new Error(\"removed roots API used\"); };",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 710,
+    "text": "  assert.deepEqual(settings(ctx, { product: \"dashi\", groups: [\"config\"], socket: \"/config.sock\", local_key: \"config-key\" }), {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 711,
+    "text": "    mode: \"peer\", product: \"dashi\", groups: [\"config\"], socket: \"/config.sock\", localKey: \"config-key\",",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 714,
+    "text": "  assert.throws(() => settings(ctx, { product: \"dashi\", mode: \"lane\" }), /conflicts/);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 715,
+    "text": "  assert.throws(() => settings(new Context(), { product: \"dashi\", groups: [\"same\", \"same\"] }, {}), /groups/);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 716,
+    "text": "  assert.equal(settings(new Context(), { product: \"dashi\" }, { SESSIONBUS_SOCKET: \"relative.sock\" }).socket, path.resolve(\"relative.sock\"));",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 717,
+    "text": "  assert.equal(settings(new Context(), { product: \"dashi\" }, { SESSIONBUS_SOCKET: \"/absolute.sock\" }).socket, \"/absolute.sock\");",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 718,
+    "text": "  assert.equal(settings(new Context(), { product: \"dashi\" }, { XDG_RUNTIME_DIR: \"/run/user/123\" }).socket, \"/run/user/123/sessionbus/presence.sock\");",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 719,
+    "text": "  assert.equal(settings(new Context(), { product: \"dashi\" }, {}).socket, `/tmp/sessionbus-${process.getuid()}/presence.sock`);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 909,
+    "text": "  const scheduled = [];",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 912,
+    "text": "  deps.schedule = (call, delay) => { assert.equal(delay, 2000); scheduled.push(call); };",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 924,
+    "text": "    while (scheduled.length === 0) await new Promise(setImmediate);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 929,
+    "text": "    scheduled.shift()();",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 930,
+    "text": "    while (scheduled.length === 0) await new Promise(setImmediate);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 954,
+    "text": "    scheduled.shift()();",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 962,
+    "text": "    while (scheduled.length === 0) await new Promise(setImmediate);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 963,
+    "text": "    scheduled.shift()();",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 964,
+    "text": "    while (scheduled.length === 0) await new Promise(setImmediate);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 969,
+    "text": "    scheduled.shift()();",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 970,
+    "text": "    while (scheduled.length === 0) await new Promise(setImmediate);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 976,
+    "text": "    scheduled.shift()();",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 978,
+    "text": "    assert.equal(ctx.logs.length, 3, \"shutdown does not schedule a new publication or log stale errors\");",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1065,
+    "text": "      const runtime = createRuntime(ctx, { product: mode === \"peer\" ? \"dashi\" : \"sessionbus-dsh\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1069,
+    "text": "      assert.deepEqual(await ctx.tool.execute({ action: \"spawn\", arguments: { product: \"dashi\", name: \"trace-child\", open: {} } }, { agent: native }), result);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1074,
+    "text": "    assert.deepEqual(spawns, Array(2).fill({ product: \"dashi\", name: \"trace-child\", open: {} }));",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1700,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1720,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1745,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1754,
+    "text": "    from: { session_id: \"child@host\", name: \"Child\", product: \"dashi\", groups: [\"team\"] },",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1776,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1806,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1826,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 1846,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2089,
+    "text": "test(\"candidate retains the kit scheduling contract even before map adoption\", async () => {",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2091,
+    "text": "  const scheduled = [], connect = deps.connectPeer;",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2092,
+    "text": "  deps.schedule = (call, delay) => { scheduled.push(delay); call(); };",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2097,
+    "text": "    assert.equal(args[3].schedule, deps.schedule);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2098,
+    "text": "    args[3].schedule(() => { resumed++; }, 2000);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2104,
+    "text": "  assert.deepEqual(scheduled, [2000]);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2333,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2352,
+    "text": "  assert.deepEqual(deps.peers[0].identity, { product: \"dashi\", session_id: one.id, name: \"Original\", groups: [\"team\"], info: { cwd: \"/workspace\", model: \"provider/default\" } });",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2427,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2439,
+    "text": "    product: \"dashi\", session_id: \"session-authoritative\", name: \"Bound\", groups: [\"team\"], info: { cwd: \"/workspace\", model: \"provider/default\" },",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2448,
+    "text": "  createRuntime(ctx, { product: \"dashi\" }, first);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2457,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, second);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2483,
+    "text": "  const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2498,
+    "text": "  createRuntime(ctx, { product: \"dashi\" }, dependencies(ctx));",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2513,
+    "text": "  createRuntime(ctx, { product: \"dashi\" }, dependencies(ctx));",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2535,
+    "text": "  assert.throws(() => createRuntime(ctx, { product: \"dashi\" }, dependencies(ctx)),",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2591,
+    "text": "      const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "plugin.test.cjs",
+    "line": 2603,
+    "text": "      [\"spawn\", { product: \"dashi\", name: \"worker\", extra_groups: [\"team\"], persistent: true, notify: false, notify_target: \"owner\", auto_close_ms: 0, trace: \"events\", open: { cwd: \"/workspace\", permission_mode: \"ask\", model: \"model\", reasoning_effort: \"high\", arguments: [\"--flag\"] } }],",
+    "class": "b",
+    "reason": "Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 66,
+    "text": "  const floor = make(); floor.ctx.profileContext.installAnchor = packageAt('below-floor-cli', { version: '0.2.1-alpha.1' }).manifestPath; assert.throws(() => check(floor));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 94,
+    "text": "  for (const text of [\"const expected = '0.5.12';\", \"agents.roots()\", \"const node = '22.x';\", \"tools.sdkSchemas()\"])",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 98,
+    "text": "  assert.doesNotMatch(packed + universal, /prove-lane-options-before|dashi-app-version/u, 'historical runtime before-proofs are not current gates');",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 162,
+    "text": "  assert.doesNotMatch(packed, /daemon-v0\\.5\\.12/u);",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 179,
+    "text": "  writeFileSync(path.join(cli, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 187,
+    "text": "      private: true, custom: { keep: true }, dependencies: { '@sessionbus/dsh': version, [helper]: '0.2.0-alpha.2', keeper: '1.2.3' },",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 193,
+    "text": "  return { home, installAnchor: path.join(cli, 'package.json'), query: () => ({ status: 0, stdout: '[\"0.2.0-alpha.2\"]' }),",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 207,
+    "text": "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 212,
+    "text": "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 224,
+    "text": "    assert.throws(() => install(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes('sessionbus') && error.message.includes('package.json'));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 248,
+    "text": "  assert.throws(() => install(['web', 'sessionbus', 'custom'], { ...f, product: 'dashi' }), /failed writing profile \"sessionbus\".*completed profiles: web; this profile may be partially written; profiles not attempted: custom/u);",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 341,
+    "text": "test('pre.20 marked no-upload row upgrades to the own entry without touching dependency pins', t => {",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 502,
+    "text": "  const bus = `- id: sessionbus ${marker}\\n  name: '@sessionbus/dsh'\\n  config: { mode: lane, product: dashi }\\n`;",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 533,
+    "text": "  assert.throws(() => install(['web', 'custom'], { ...f, product: 'dashi' }), error => error.exitCode === 2",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 541,
+    "text": "    `# header\\n- insert:\\n    - { name: '@sessionbus/dsh', config: { groups: [native], product: dashi }, id: sessionbus } ${marker}\\n# footer\\n`,",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 546,
+    "text": "    assert.equal(readFileSync(f.file('web'), 'utf8'), body.replace('product: dashi', 'product: dsh'));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 617,
+    "text": "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 640,
+    "text": "    if (operation === remove) install(['web', 'sessionbus'], { ...f, product: 'dashi' });",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 648,
+    "text": "      assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), /profile \"sessionbus\".*changed.*rerun.*completed profiles: web/u);",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 714,
+    "text": "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')) && /UTF-8/u.test(error.message));",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 740,
+    "text": "test('dashi metadata proof uses the actual CLI owner when app-boot is not hoisted', t => {",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 750,
+    "text": "  writeFileSync(path.join(cli, 'package.json'), '{\"name\":\"@deepseek-ai/dsh\",\"version\":\"0.2.1-alpha.2\"}');",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 758,
+    "text": "  const source = readFileSync(new URL('./.github/scripts/prove-dashi-resolution.mjs', import.meta.url), 'utf8');",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 800,
+    "text": "  assert.doesNotMatch(prepared, /installer_exec .*--product dashi/u, 'cross-dashi call is retired to W-156, not retried');",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  },
+  {
+    "path": "universal-install.test.mjs",
+    "line": 801,
+    "text": "  assert.match(prepared, /prove-lane-options\\.mjs\" .*\"\\$root\" sessionbus-dsh/u, 'standalone options proof expects its actual product, not the retired cross-dashi product');",
+    "class": "b",
+    "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
+  }
+]

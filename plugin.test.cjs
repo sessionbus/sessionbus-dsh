@@ -60,7 +60,16 @@ class Context {
       put: async (key, value) => { this.groupWrites.push(["put", key, value]); this.groupRecords.set(key, [...value]); },
       delete: async (key) => { this.groupWrites.push(["delete", key]); return this.groupRecords.delete(key); },
     };
-    this.agents = { roots: () => [...this.roots], get: (id) => this.roots.find((agent) => agent.session?.id === id) };
+    this.agents = { list: () => [...this.roots], get: (id) => this.roots.find((agent) => agent.id === id) };
+    this.rootOwners = new Map();
+    this.subagents = { rootOf: value => {
+      if (this.rootOwners.has(value)) {
+        const owner = this.rootOwners.get(value);
+        if (!owner) throw Object.assign(new Error("agent has no active runtime owner"), { code: "UNAUTHORIZED" });
+        return owner;
+      }
+      return value;
+    } };
     const ready = new Set();
     let committed = false;
     this.ready = () => { if (committed) return; committed = true; for (const call of [...ready]) call(); ready.clear(); };
@@ -77,11 +86,6 @@ class Context {
     } };
     this.agentDefaultModel = { currentSelection: () => ({ provider: "provider", model: "default" }) };
     this.sessionController = {
-      agents: {
-        selectionFor: (agent) => agent.selection,
-        serializeImageAdmission: async (_agent, operation) => operation(),
-        selectForNextRequest: (agent, selection) => { agent.selection.current = { ...selection }; this.calls.push(["selection", agent.id, selection]); },
-      },
       create: async (request) => {
         this.calls.push(["create", request]);
         if (request.cwd) this.byID.get("session-fresh").session.header.cwd = request.cwd;
@@ -222,7 +226,8 @@ test("W-150 a peer applies without reading or waiting for a controller", async (
   root.steer = message => ctx.emit("session/event", root.session,
     { type: "agent/inbox/spliced", data: { inserted: [message] } });
   Object.defineProperty(ctx, "sessionController", { get() { throw new Error("peer controller read"); } });
-  ctx.inject = () => { throw new Error("peer created a controller scope"); };
+  const scope = ctx.inject.bind(ctx);
+  ctx.inject = (names, callback) => { assert.deepEqual(names, ["subagents"]); return scope(names, callback); };
   apply(ctx, { product: "dsh" }, deps);
   await new Promise(setImmediate);
   ctx.ready();
@@ -471,7 +476,7 @@ test("W-146 capture first preserves startup without a live launch-environment se
   const ctx = new Context(), deps = dependencies(ctx);
   agent(ctx);
   Object.defineProperty(ctx, "launchEnvironment", { get() { throw new Error("service unavailable"); } });
-  ctx.get = () => undefined;
+  ctx.get = name => name === "launchEnvironment" ? undefined : ctx[name];
   apply(ctx, { product: "dashi" }, deps);
   try {
     await new Promise(setImmediate);
@@ -502,10 +507,109 @@ function agent(ctx, id = "session-fresh") {
     cancel: (...args) => ctx.calls.push(["cancel", ...args]),
     whenIdle: async () => { ctx.calls.push(["idle", id]); },
   };
+  value.model = {
+    current: () => ({ ...value.selection.current }),
+    select: selection => { value.selection.current = { ...selection }; ctx.calls.push(["selection", id, selection]); },
+  };
+  let maintaining = false;
+  value.runMaintenance = async operation => {
+    if (value.status !== "idle" || maintaining) throw new Error(`agent "${id}" already has active work`);
+    maintaining = true;
+    try { return await operation(new AbortController().signal); }
+    finally { maintaining = false; }
+  };
   ctx.roots.push(value);
   ctx.byID.set(id, value);
   return value;
 }
+
+test("W-155 missing subagents refuses peer startup once without publishing", async () => {
+  const ctx = new Context(), deps = dependencies(ctx); agent(ctx);
+  delete ctx.subagents;
+  apply(ctx, { product: "dsh" }, deps);
+  await new Promise(setImmediate); ctx.ready(); ctx.ready();
+  assert.deepEqual(ctx.exits, [1]);
+  assert.equal(deps.peers.length, 0);
+  assert.equal(deps.errors.length, 1);
+  assert.match(deps.errors[0], /subagents.*readiness.*peer mode/u);
+  await ctx.dispose();
+});
+
+test("W-155 public root ownership publishes ordinary forks but excludes managed and unmanaged children", async () => {
+  const ctx = new Context(), parent = agent(ctx, "parent"), fork = agent(ctx, "fork");
+  fork.session.header.parentSession = parent.id;
+  const child = agent(ctx, "child"), unmanaged = agent(ctx, "unmanaged");
+  ctx.rootOwners.set(child, parent); ctx.rootOwners.set(unmanaged, undefined);
+  ctx.agents.roots = () => { throw new Error("removed roots API used"); };
+  const deps = dependencies(ctx), runtime = createRuntime(ctx, { product: "dsh" }, deps);
+  try {
+    ctx.ready();
+    assert.deepEqual(deps.peers.map(value => value.identity.session_id), [parent.id, fork.id]);
+    assert.equal(runtime.peers.has(child), false);
+    assert.deepEqual(await ctx.command.handler({ agent: child, rawInput: "" }),
+      { kind: "error", text: "sessionbus-groups requires an exact live DSH root" });
+  } finally { await ctx.dispose(); }
+});
+
+test("W-155 lane selection uses public model and maintenance only", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx);
+  Object.defineProperty(ctx.sessionController, "agents", { get() { throw new Error("private selector read"); } });
+  let inside = false;
+  native.runMaintenance = async operation => {
+    inside = true;
+    try { return await operation(new AbortController().signal); } finally { inside = false; }
+  };
+  native.model.select = selection => {
+    assert.equal(inside, true);
+    native.selection.current = { ...selection };
+  };
+  await deps.callbacks.open(new AbortController().signal, { name: "public", open: { model: "vendor/new", reasoning_effort: "high" } });
+  assert.deepEqual(native.selection.current, { provider: "vendor", model: "new", reasoningEffort: "high" });
+});
+
+test("W-155 busy resumed lane options refuse without rename, selection or maintenance queue", async () => {
+  for (const open of [{ model: "vendor/new" }, { reasoning_effort: "low" }]) {
+    const ctx = new Context(), native = agent(ctx, "busy"), { deps } = lane(ctx);
+    native.status = "running";
+    native.runMaintenance = () => { throw new Error("busy operation must not queue"); };
+    await assert.rejects(deps.callbacks.open(null, { name: "busy", resume_session_id: native.id, open }),
+      /lane is busy; model\/reasoning_effort can only be set while idle/u);
+    assert.equal(ctx.calls.some(([call]) => ["rename", "selection", "create"].includes(call)), false);
+    assert.deepEqual(native.selection.current, { provider: "provider", model: "default" });
+  }
+});
+
+test("W-155 abort after model append reports cancellation without rolling back its durable selection", async () => {
+  const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx), cancellation = new AbortController();
+  const failure = new Error("cancelled after append");
+  const select = native.model.select;
+  native.model.select = selection => { select(selection); cancellation.abort(failure); };
+  await assert.rejects(deps.callbacks.open(cancellation.signal, { name: "applied", open: { model: "vendor/new" } }), error => error === failure);
+  assert.deepEqual(native.selection.current, { provider: "vendor", model: "new" });
+  assert.equal(ctx.calls.filter(([call]) => call === "selection").length, 1);
+  assert.equal(ctx.calls.some(([call]) => call === "flush"), false);
+});
+
+test("W-155 a blank resumed model refuses effort but leaves a later explicit model usable", async () => {
+  const ctx = new Context(), native = agent(ctx, "blank"), { deps } = lane(ctx);
+  native.model.current = () => undefined;
+  await assert.rejects(deps.callbacks.open(null, { name: "blank", resume_session_id: native.id, open: { reasoning_effort: "low" } }),
+    /DSH lane has no current model for reasoning_effort/u);
+  assert.equal(ctx.calls.some(([call]) => call === "selection" || call === "create"), false);
+  await deps.callbacks.open(null, { name: "chosen", resume_session_id: native.id, open: { model: "vendor/chosen" } });
+  assert.deepEqual(native.selection.current, { provider: "vendor", model: "chosen" });
+});
+
+test("W-155 rename races refuse busy admission and maintenance cancellation never appends a choice", async () => {
+  for (const cause of ["became-busy", "native-cancel"]) {
+    const ctx = new Context(), native = agent(ctx, cause), { deps } = lane(ctx);
+    if (cause === "became-busy") ctx.sessionController.rename = async () => { native.status = "running"; };
+    else native.runMaintenance = operation => operation(AbortSignal.abort(new Error("native maintenance cancelled")));
+    await assert.rejects(deps.callbacks.open(null, { name: cause, resume_session_id: native.id, open: { model: "vendor/chosen" } }),
+      cause === "became-busy" ? /lane is busy/u : /native maintenance cancelled/u);
+    assert.equal(ctx.calls.some(([call]) => call === "selection" || call === "flush"), false);
+  }
+});
 
 function dependencies(ctx) {
   let sequence = 0;
@@ -1025,17 +1129,14 @@ test("no-option lanes do not read the optional resolver or private selector", as
   assert.deepEqual(await deps.callbacks.open(null, { name: "defaults", open: {} }), { session_id: "session-fresh" });
 });
 
-test("missing selector methods fail with the resolved native version, never a GUI fallback", async t => {
-  const load = Module._load;
-  t.mock.method(Module, "_load", function (request, ...args) {
-    return request === "@deepseek-ai/dsh-api-session-controller/package.json" ? { version: "0.2.1-alpha.2" } : load.call(this, request, ...args);
-  });
-  for (const missing of ["agents", "selectionFor", "selectForNextRequest", "serializeImageAdmission"]) {
-    const ctx = new Context(); agent(ctx);
-    if (missing === "agents") delete ctx.sessionController.agents;
-    else delete ctx.sessionController.agents[missing];
+test("missing public selection methods refuse the open without a GUI fallback", async () => {
+  for (const missing of ["model", "current", "select", "runMaintenance"]) {
+    const ctx = new Context(), native = agent(ctx);
+    if (["model", "runMaintenance"].includes(missing)) delete native[missing];
+    else delete native.model[missing];
     const { deps } = lane(ctx);
-    await assert.rejects(deps.callbacks.open(null, { name: "missing", open: { reasoning_effort: "low" } }), /sessionController\.agents.*DSH.*0\.2\.1-alpha\.2/u);
+    await assert.rejects(deps.callbacks.open(null, { name: "missing", resume_session_id: native.id, open: { reasoning_effort: "low" } }),
+      /DSH agent\.model\.current\/select and agent\.runMaintenance are required/u);
     assert.equal(ctx.calls.some(([call]) => ["create", "rename", "model", "selection"].includes(call)), false);
   }
 });
@@ -1058,10 +1159,10 @@ test("missing-seam diagnostics survive real unexported or invalid version metada
       // a DSH installation. This tests real resolution, not physical absence.
       for (const metadata of [JSON.stringify({ name: "@deepseek-ai/dsh-api-session-controller", exports: { ".": "./index.js" } }), "{invalid}"]) {
         fs.writeFileSync(path.join(dir, "package.json"), metadata);
-        const ctx = new Context(); agent(ctx); delete ctx.sessionController.agents;
+        const ctx = new Context(), root = agent(ctx); delete root.model;
         const native = new NativeSession(ctx);
-        await assert.rejects(native.open({ name: "missing", open: { model: "vendor/model" } }), error => {
-          assert.match(error.message, /sessionController\.agents missing selectionFor, selectForNextRequest, serializeImageAdmission on DSH unknown version/u);
+        await assert.rejects(native.open({ name: "missing", resume_session_id: root.id, open: { model: "vendor/model" } }), error => {
+          assert.match(error.message, /DSH agent\.model\.current\/select and agent\.runMaintenance are required/u);
           assert.equal(error.message.includes(directory), false);
           assert.equal(error.message.includes("Require stack"), false);
           return true;
@@ -1201,9 +1302,9 @@ test("a capability change between validation moments refuses commit without dele
   assert.equal(ctx.byID.get(native.id), native);
 });
 
-test("effort-only reads the current selection after native serialization admits the operation", async () => {
+test("effort-only reads the current selection inside native maintenance admission", async () => {
   const ctx = new Context(), native = agent(ctx), { deps } = lane(ctx), admission = deferred();
-  ctx.sessionController.agents.serializeImageAdmission = async (_agent, operation) => { await admission.promise; return operation(); };
+  native.runMaintenance = async operation => { await admission.promise; return operation(new AbortController().signal); };
   const opening = deps.callbacks.open(null, { name: "serialized", open: { reasoning_effort: "low" } });
   native.selection.current = { provider: "later", model: "current", reasoningEffort: "high" };
   admission.resolve();
@@ -2331,6 +2432,7 @@ test("peer waits for a native session id and replaces it atomically when it chan
   ctx.emit("agent/created", { agent: one });
   assert.equal(deps.peers.length, 1);
   one.session.id = "session-authoritative";
+  one.id = one.session.id;
   ctx.emit("session/event", one.session, { type: "session/title", data: { title: "Bound" } });
   await runtime.peers.get(one).rehello;
   assert.deepEqual(deps.peers[0].replaced, {
@@ -2573,4 +2675,46 @@ test("a pending option Open aborted by transport still warns on unopened close",
   assert.deepEqual(deps.errors, ["sessionbus: sessionbus connection closed\n"]);
   assert.deepEqual(ctx.exits, [1]);
   assert.equal(ctx.calls.some(call => call[0] === "create"), false);
+});
+
+test("deferred admission firing after activation disposal reads no context or native service and writes nothing", async () => {
+  for (const mode of ["peer", "lane"]) {
+    const ctx = new Context(), root = agent(ctx), deps = dependencies(ctx);
+    let workerSignal;
+    if (mode === "lane") {
+      const { Duplex } = require("node:stream");
+      deps.ambient = { SESSIONBUS_LAUNCH_TOKEN: "controlled-token", SESSIONBUS_SOCKET: "/controlled-unused.sock" };
+      deps.serveWorker = (callbacks, environment) => serveWorker({ ...callbacks,
+        hello: signal => { workerSignal = signal; return callbacks.hello(signal); },
+      }, environment, { connect: () => new Duplex({ read() {}, write(_bytes, _encoding, done) { done(); } }) });
+    }
+    const fiber = ctx.fiber;
+    deps.active = () => fiber.uid !== null;
+    const runtime = createRuntime(ctx, { product: mode === "peer" ? "dsh" : "sessionbus-dsh" }, deps);
+    ctx.ready();
+    if (mode === "lane") await new Promise(setImmediate); // The actual kit owns the connected cancellation signal.
+    runtime.native.agent = root;
+    const record = {}, token = { Native: record };
+    runtime.native.active = record;
+    root.status = "running";
+    const pending = mode === "peer" ? deps.peers[0].deliver(null, delivery("disposed admission"))
+      : runtime.native.laneDeliver(workerSignal, delivery("disposed admission"), token);
+    assert.equal(runtime.native.admissionScheduled, true);
+    assert.equal(runtime.native.deferredAdmissions.length, 1);
+    ctx.fiber.uid = null;
+    await ctx.dispose();
+    if (mode === "lane") assert.equal(workerSignal.aborted, true, 'real kit shutdown cancels delivery synchronously');
+    const observed = { errors: deps.errors, calls: ctx.calls, logs: ctx.logs, exits: ctx.exits };
+    const before = JSON.stringify(observed);
+    const trap = label => ({ configurable: true, get() { assert.fail(`disposed admission reached ${label}`); } });
+    for (const name of Object.keys(ctx)) Object.defineProperty(ctx, name, trap(`ctx.${name}`));
+    for (const name of ["status", "session", "steer"]) Object.defineProperty(root, name, trap(`agent.${name}`));
+    if (mode === "peer") assert.deepEqual(await pending, { disposition: "rejected", reason: "native owner closed" });
+    else await assert.rejects(pending, error => error.code === -32004 && error.message === "not_running");
+    assert.equal(runtime.native.admissionScheduled, false);
+    assert.equal(runtime.native.deferredAdmissions.length, 0, 'uncleared timer actually fired and settled its pending entry');
+    // Inspect captured arrays without reading the trapped context.
+    assert.equal(JSON.stringify(observed), before);
+    if (mode === "lane") await runtime.workerExit;
+  }
 });

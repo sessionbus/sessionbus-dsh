@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { installInterruptCleanup, stopOwnedChild } from './proof-process-group.mjs';
+import { installInterruptCleanup, stopOwnedChild, signalOwnedGroup } from './proof-process-group.mjs';
 
 function checkDaemonSocketPaths(socket, platform) {
   assert.equal(platform, 'linux', `Linux-only proof; socket limit is not established for ${platform}`);
@@ -27,10 +27,18 @@ function daemonSocketReady(daemon, socket, stderrFile) {
   }
   return fs.existsSync(socket);
 }
+function assertOracleVersion(version) {
+  assert.equal(version, '0.2.2-rc.3', `UNVERIFIED: pending-input oracle baseline is 0.2.2-rc.3, found ${version}`);
+}
+function assertPreparationRefusalGap(facts) {
+  assert.deepEqual(facts, { admitted: true, claimed: 1, refused: 1, committed: false,
+    retained: false, attempts: 1, terminal: { kind: 'blocked' } },
+  'rc.3 preparation-refusal KNOWN-GAP changed; re-evaluate the native fix, not this oracle');
+}
 
-const [dshManifest, pluginManifest, work, daemonBin] = process.argv.slice(2);
-assert.equal(process.argv.length, 6, 'usage: prove-peer-pending-input.mjs DSH_MANIFEST PLUGIN_MANIFEST WORK DAEMON_BIN');
-for (const file of [dshManifest, pluginManifest, work, daemonBin]) assert.ok(path.isAbsolute(file));
+const [dshManifest, pluginManifest, work, daemonBin, archive] = process.argv.slice(2);
+assert.equal(process.argv.length, 7, 'usage: prove-peer-pending-input.mjs DSH_MANIFEST PLUGIN_MANIFEST WORK DAEMON_BIN CANDIDATE_ARCHIVE');
+for (const file of [dshManifest, pluginManifest, work, daemonBin, archive]) assert.ok(path.isAbsolute(file));
 assert.equal(fs.existsSync(work), false, 'use a fresh private capture directory; do not append to earlier evidence');
 fs.mkdirSync(work, { recursive: true, mode: 0o700 });
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -40,7 +48,7 @@ const append = (name, value) => fs.appendFileSync(path.join(work, name),
 const source = fileURLToPath(import.meta.url);
 save('running-source.json', { sha256: hash(fs.readFileSync(source)), at: new Date().toISOString() });
 fs.copyFileSync(source, path.join(work, 'proof-source.mjs'));
-save('inputs.json', { dshManifest, pluginManifest, work, daemonBin });
+save('inputs.json', { dshManifest, pluginManifest, work, daemonBin, archive });
 const fixtureSource = fileURLToPath(new URL('../fixtures/pending-input-model/plugin.cjs', import.meta.url));
 const fixtureFile = path.join(work, 'adapter-source.cjs');
 fs.copyFileSync(fixtureSource, fixtureFile);
@@ -57,17 +65,17 @@ const requireDSH = createRequire(fs.realpathSync(dshManifest));
 const requirePlugin = createRequire(fs.realpathSync(pluginManifest));
 const { connectPeer } = requirePlugin('@sessionbus/kit');
 const fixture = requirePlugin(fixtureFile);
-const pluginFile = requirePlugin.resolve('@sessionbus/dsh');
+const pluginFile = '@sessionbus/dsh';
 const version = JSON.parse(fs.readFileSync(pluginManifest)).version;
 const expectedVersion = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url))).version;
 assert.equal(version, expectedVersion, 'the proof must mount the packed candidate, not another plugin copy');
-const sources = { plugin: { version, file: pluginFile, sha256: hash(fs.readFileSync(pluginFile)) },
+const sourcePlugin = requirePlugin.resolve('@sessionbus/dsh');
+const sources = { plugin: { version, file: sourcePlugin, sha256: hash(fs.readFileSync(sourcePlugin)) },
   fixture: { file: fixtureFile, sha256: hash(fs.readFileSync(fixtureFile)) } };
 for (const name of ['@deepseek-ai/dsh-agent-loop', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-llm-retry',
   '@deepseek-ai/dsh-api-session-controller']) {
   const file = requireDSH.resolve(name), manifest = JSON.parse(fs.readFileSync(requireDSH.resolve(name + '/package.json')));
-  assert.equal(manifest.version, '0.2.1-alpha.3',
-    `Known-gap proof pins ${name} to DSH 0.2.1-alpha.3; found ${manifest.version}. Re-run the known-gap cases against the new DSH version and update the pin.`);
+  assertOracleVersion(manifest.version);
   sources[name] = { file, version: manifest.version, sha256: hash(fs.readFileSync(file)) };
 }
 save('sources.json', sources);
@@ -79,18 +87,37 @@ const profile = path.join(env.DSH_HOME, 'profiles/pending-proof');
 fs.mkdirSync(profile, { recursive: true });
 fs.writeFileSync(path.join(profile, 'package.json'), JSON.stringify({ name: 'pending-input-private-peer', private: true,
   type: 'module', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }, null, 2) + '\n');
+const cliPackage = JSON.parse(fs.readFileSync(dshManifest));
+const cli = path.join(path.dirname(dshManifest), cliPackage.bin.dsh);
+fs.mkdirSync(env.XDG_CONFIG_HOME, { recursive: true });
+const npmConfig = path.join(env.XDG_CONFIG_HOME, 'empty-npm.conf'); fs.writeFileSync(npmConfig, '');
+const install = spawnSync(process.execPath, [cli, 'plugin', '--profile', 'pending-proof', 'add', '--save-exact', archive], {
+  env: { ...env, NPM_CONFIG_USERCONFIG: npmConfig, NPM_CONFIG_GLOBALCONFIG: npmConfig,
+    NPM_CONFIG_CACHE: path.join(work, 'npm-cache'), npm_config_store_dir: path.join(work, 'pnpm-store') },
+  cwd: workspace, encoding: 'utf8', timeout: 180000,
+});
+save('candidate-install.json', { status: install.status, signal: install.signal, error: install.error?.message,
+  stdout: install.stdout, stderr: install.stderr });
+assert.equal(install.status, 0, install.stderr);
+const installed = path.join(profile, 'node_modules/@sessionbus/dsh');
+assert.equal(JSON.parse(fs.readFileSync(path.join(installed, 'package.json'))).version, version);
+assert.equal(hash(fs.readFileSync(path.join(installed, 'plugin.cjs'))), sources.plugin.sha256);
 fs.writeFileSync(path.join(profile, 'cordis.patch.yml'), [
   '- id: session-title-llm', '  disabled: true', '- id: session-telemetry-otel', '  disabled: true',
   '- id: agent-default-model', '  config: { provider: pending-proof, model: controlled }', '- insert:',
   "    - { id: workspace, name: '@deepseek-ai/dsh-workspace' }",
-  `    - { id: uploads, name: ${JSON.stringify(path.join(path.dirname(pluginManifest), 'file-uploads-none.mjs'))} }`,
+  "    - { id: uploads, name: '@sessionbus/dsh/file-uploads-none' }",
   "    - { id: session-controller, name: '@deepseek-ai/dsh-api-session-controller' }",
   `    - { id: controlled-adapter, name: ${JSON.stringify(fixtureFile)}, config: ${JSON.stringify({ manifest: dshManifest, capture: work })} }`,
   `    - { id: sessionbus, name: ${JSON.stringify(pluginFile)}, config: ${JSON.stringify({ product: 'dashi', socket: env.SESSIONBUS_SOCKET, groups: ['pending-proof'] })} }`,
 ].join('\n') + '\n');
 
 const children = new Set(), beforeSpawn = installInterruptCleanup(children);
-const results = [];
+// appExit is a real process exit; keep ownership even if startup exits before
+// runProfile can return and the asynchronous finally cannot run.
+const exitCleanup = () => { for (const child of children) signalOwnedGroup(child, 'SIGTERM'); };
+process.once('exit', exitCleanup);
+const results = [], claims = [];
 let boot, sender, serial = 0, current = 'setup', primary;
 async function until(read, label) {
   const end = Date.now() + 10000;
@@ -127,10 +154,7 @@ const requests = model => fixture.plans.get(model).requests;
 const includes = (request, text) => request.messages.some(message =>
   message.content?.some(part => part.type === 'text' && part.text.includes(text)));
 function snapshot(agent, label) {
-  const phase = agent.phase; // Read-only diagnostic of this published test Agent, never a product dependency.
-  const value = { case: current, label, status: agent.status, phase: { kind: phase.kind, turn: phase.turn,
-    lastTurn: phase.lastTurn, step: phase.step, wakeRequested: phase.wakeRequested,
-    aborted: phase.abort?.signal.aborted, abortReason: phase.abort?.signal.reason },
+  const value = { case: current, label, status: agent.status,
   nextStep: agent.inbox.nextStep, nextTurn: agent.inbox.nextTurn, turnStarts: turnStarts(agent),
   events: agent.session.snapshotEvents() };
   save(current + '-' + label + '.json', value);
@@ -191,15 +215,15 @@ function knownGap(ended, pending, turns, count, ending) {
     assert.fail(`Upstream DSH now wakes pending input after ${ending}; update this known-gap assertion and documentation, not the plugin scheduler.`);
   }
   assert.equal(ended.status, 'idle', 'known-gap observation must be at native idle');
-  assert.equal(ended.phase.kind, 'idle');
   assert.deepEqual(ended.nextStep, [pending], 'known-gap pending state changed without evidence of an automatic wake');
   assert.equal(ended.nextTurn.length, 0);
   assert.equal(ended.turnStarts, turns, 'known-gap turn count changed');
   assert.equal(requests(current).length, count, 'known-gap request count changed');
 }
 function reported(facts) {
-  results.push(facts);
-  console.log(`${facts.case}: PASS`);
+  const classification = facts.case.startsWith('known-gap') ? 'KNOWN-GAP' : 'PASS';
+  results.push({ ...facts, classification });
+  console.log(`${facts.case}: ${classification}${classification === 'KNOWN-GAP' ? ' (observed, not continuity)' : ''}`);
 }
 try {
   save('daemon-socket-paths.json', checkDaemonSocketPaths(env.SESSIONBUS_SOCKET, process.platform));
@@ -207,7 +231,7 @@ try {
   save('daemon-version.json', { argv: [daemonBin, '-version'], stdout: versionResult.stdout,
     stderr: versionResult.stderr, code: versionResult.status, signal: versionResult.signal });
   assert.equal(versionResult.status, 0);
-  assert.match(versionResult.stdout, /0\.5\.12/u);
+  assert.match(versionResult.stdout, /^sessionbus v0\.5\.16 /u);
   const args = ['-socket', env.SESSIONBUS_SOCKET, '-table', path.join(work, 'daemon-table.json'), '-host', 'pending-proof',
     '-hub', '', '-products', '', '-comms-log', 'content', '-comms-log-dir', path.join(work, 'comms')];
   save('daemon.request.json', { argv: [daemonBin, ...args], environmentKeys: Object.keys(env) });
@@ -229,8 +253,48 @@ try {
   boot = await runProfile({ environment: loadLayeredEnv('dsh', workspace), profile: 'pending-proof', patchFiles: [], args: [] });
   await bounded(fixture.ready, 'controlled adapter mount');
   boot.ctx.on('session/event', (session, event) => append('session-events.jsonl', { session: String(session.id), event }), { global: true });
+  boot.ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
+    const claim = { session: String(agent.id), messageId: String(message.id), turn };
+    claims.push(claim); append('inbox-claims.jsonl', claim);
+  }, { global: true });
   boot.ctx.on('agent/error', payload => append('agent-errors.jsonl', { turn: payload.turn, step: payload.step,
     error: { name: payload.error?.name, message: payload.error?.message, failure: payload.error?.failure } }), { global: true });
+  // Ruling W2: pin the observed rc.3 loss, never call this continuity PASS.
+  // A native fix must fail this exact oracle and require re-evaluation.
+  current = 'known-gap-rc3-preparation-refusal';
+  {
+    const agent = await rootAgent(current, ['normal']);
+    const first = current + ' UNATTEMPTED_PEER';
+    let refused = 0;
+    const remove = boot.ctx.on('agent/pre-step', async (payload, next) => {
+      if (payload.agent === agent && payload.messages.some(message => message.content?.some(part => part.text?.includes(first)))) {
+        refused++;
+        return { kind: 'reject' };
+      }
+      return next();
+    }, { global: true });
+    try {
+      await prompt(agent, current + ' INITIAL_TYPED');
+      await held(current, 1);
+      await peer(agent, first);
+      const admitted = snapshot(agent, 'admitted');
+      const inserted = admitted.events.filter(event => event.type === 'agent/inbox/spliced')
+        .flatMap(event => event.data.inserted ?? []).find(message => message.content?.some(part => part.text?.includes(first)));
+      assert.ok(inserted);
+      await release(current);
+      const ended = await quiet(agent, 'after-refusal');
+      assert.equal(refused, 1);
+      assert.equal(requests(current).some(request => includes(request, first)), false, 'refused relay never reached the controlled model');
+      const committed = ended.events.some(event => event.type === 'user/message' && event.data.id === inserted.id);
+      const retained = [...ended.nextStep, ...ended.nextTurn].some(message => message.id === inserted.id);
+      const facts = { admitted: true, claimed: claims.filter(claim => claim.messageId === inserted.id).length,
+        refused, committed, retained, attempts: requests(current).length,
+        terminal: ended.events.filter(event => event.type === 'turn/end').at(-1)?.data.reason };
+      save('preparation-refusal-facts.json', facts);
+      assertPreparationRefusalGap(facts);
+      reported({ case: current, ...facts });
+    } finally { remove(); }
+  }
   for (const arrival of ['active', 'idle-after-error']) {
     for (const ending of ['error', 'cancel', 'normal']) {
       for (const recovery of ['peer', 'prompt']) {
@@ -344,7 +408,7 @@ try {
   // A failed observation may leave our adapter held. Dispose the private roots
   // before releasing those gates, so cleanup cannot turn a failure into recovery.
   try {
-    if (boot) for (const agent of boot.ctx.agents.roots()) {
+    if (boot) for (const agent of boot.ctx.agents.list()) {
       if (agent.status === 'running') agent.cancel({ kind: 'disposed' });
     }
     for (const plan of fixture.plans.values()) plan.held?.gate.resolve();
@@ -364,6 +428,7 @@ try {
     }
   }
   save('cleanup.json', { ownedGroupsEmpty: children.size === 0, errors: cleanupErrors.map(error => error?.message) });
+  if (children.size === 0) process.off('exit', exitCleanup);
   if (cleanupErrors.length) primary = new AggregateError([...(primary ? [primary] : []), ...cleanupErrors], 'proof and cleanup failures');
 }
 const files = [];
@@ -380,4 +445,4 @@ if (primary) {
   console.error(`peer pending-input STOP: ${current}; ${primary.message}`);
   throw primary;
 }
-console.log(`DSH ${sources['@deepseek-ai/dsh-agent-loop'].version} peer pending-input known gaps and recovery: ${results.length}/13 PASS; evidence=${work}`);
+console.log(`DSH ${sources['@deepseek-ai/dsh-agent-loop'].version} pending-input controls: ${results.filter(row => row.classification === 'PASS').length} ordinary PASS, ${results.filter(row => row.classification === 'KNOWN-GAP').length} KNOWN-GAP observations (not continuity); evidence=${work}`);

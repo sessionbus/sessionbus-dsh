@@ -8,13 +8,11 @@ daemon releases come from
 It depends on the exact `@sessionbus/kit` version `0.5.16`.
 The installer reads configuration with `js-yaml@4.3.2`; it never executes
 `!!js` expressions or rewrites unrelated configuration.
-It requires DeepSeek Harness `0.2.1-alpha.2` or later.
-Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor (with kit 0.5.15; to be re-validated on 0.5.16).
-DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit
-model or reasoning_effort is refused there (spawn_failed), and other DSH
-0.2.2 changes are under review (W-155).
-Pre.17 is a DSH flag day: keep pre.16 on older DSH hosts
-until the host graph is upgraded. Sessionbus daemon v0.5.9 or newer is required.
+Version 0.2.0 requires DeepSeek Harness `0.2.2-rc.3` or later and Node `>=24.9.0`;
+the exact native validation target is DSH `0.2.2-rc.3`.
+Support for the DSH 0.2.1 line is retired; its earlier evidence is historical,
+not validation of this release. Upgrade the uniform host DSH graph first.
+Sessionbus daemon v0.5.9 or newer is required.
 The default grant applies only to the `sessionbus` tool through DSH's
 `tools/pre-execute` waterfall; every other tool continues through native DSH
 permission policy. Native messages use the producer-owned V4 kind
@@ -37,7 +35,7 @@ lane worker remain unjoined.
 
 ## Installation
 
-Have DSH `0.2.1-alpha.2` or newer on `PATH`. Global npm, global pnpm, npx and
+Have DSH `0.2.2-rc.3` or newer and Node `>=24.9.0` on `PATH`. Global npm, global pnpm, npx and
 project installations are supported; choose the intended `dsh` on `PATH` when
 several installs coexist. DSH's own `plugin` command manages the profile's
 packages (and requires pnpm as DSH documents), regardless of how DSH was installed.
@@ -61,7 +59,7 @@ Disable the global virtual store and reinstall DSH:
 <!-- install:pnpm-global-remedy -->
 ```sh
 pnpm config set --global --json enableGlobalVirtualStore false
-pnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.3
+pnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.2-rc.3
 ```
 
 The setting affects subsequent installations; it does not migrate existing
@@ -72,14 +70,14 @@ installations by itself.
 Configure the lane profile for the `sessionbus-dsh` product:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.6
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.2.0
 dsh plugin --profile sessionbus exec sessionbus-dsh-install
 ```
 
 On a host that already uses dashi, one product can own both peers and lanes:
 
 ```sh
-dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.1.6
+dsh plugin --profile sessionbus add --save-exact @sessionbus/dsh@0.2.0
 dsh plugin --profile sessionbus exec sessionbus-dsh-install --product dashi
 ```
 
@@ -89,7 +87,7 @@ and the daemon maps it to `@antst/dashi-launcher`'s `dashi` bin.
 Add the peer plugin to another profile, such as `web`, with:
 
 ```sh
-dsh plugin --profile web add --save-exact @sessionbus/dsh@0.1.6
+dsh plugin --profile web add --save-exact @sessionbus/dsh@0.2.0
 dsh plugin --profile web exec sessionbus-dsh-install --product dsh web
 ```
 
@@ -111,8 +109,13 @@ entry. There is no dependency or peer on `@antst/dsh-file-uploads-none`; web
 receives no no-upload row, and dashi-app keeps ownership of its own provider.
 Peer mode does not require the Session Controller: the same add/exec commands
 work for `acp`, `headless` and `sdk`, replacing `web` with the profile name.
-Lane mode still requires the controller at host readiness. If it is missing,
-startup prints one fatal reason and exits 1 instead of waiting indefinitely.
+Peer publication follows DSH's required `subagents.rootOf` contract
+(`dsh-subagent` 0.2.2-rc.3, `lib/index.js:1643-1651`): only exact live agents
+that are their own runtime root are published. Unit and real-Cordis controls
+cover that predicate; a native fork/subagent control was not run.
+Lane mode requires the controller at host readiness. If the mode's required
+service is missing, startup prints one named fatal reason and exits 1 instead
+of waiting indefinitely.
 For a lane or web profile upgraded in place in a Linux project, re-running
 the installer upgrades its marked pre.20 entries. Any old provider pin
 is left untouched and reported, not removed. An unmarked plugin or upload row belongs to
@@ -149,7 +152,7 @@ not packages added to the profile.
 exits 0; this is expected because the executing DSH supplies those peers.
 
 DSH enforces the supported version, including the refusal
-`Plugin @sessionbus/dsh@0.1.6 is incompatible with dsh 0.2.1-alpha.1`.
+`Plugin @sessionbus/dsh@0.2.0 is incompatible with dsh 0.2.2-rc.2`.
 Do not grant a version exemption to bypass it. A model provider must already be
 configured and registered in each profile that will run turns; see the operations
 runbook's provider-parity step when upgrading an existing project.
@@ -186,8 +189,8 @@ the plugin's non-fatal diagnostics reaches it. On a terminal host, use
 `/sessionbus-groups` in a session to see the last connection attempt's failure.
 Redirect stderr to a file or pipe to retain service-style diagnostics when
 starting a profile from a terminal, including inside tmux or screen.
-DSH 0.2.1-alpha.2 keeps
-the logger record in memory but does not present it; that is a DSH visibility gap.
+Logger presentation is host-owned; the plugin's in-session visibility surface
+for a connection failure is `/sessionbus-groups`.
 `/sessionbus-groups` adds the last connection attempt's error when it failed;
 it makes no bus call and does not wait or promise current admission.
 Set `SESSIONBUS_DSH_TRACE=1` for mode, readiness, root-lifecycle,
@@ -203,6 +206,11 @@ Both options must be non-empty strings; an empty model is an error, not a reques
 For fresh lanes, model/effort and permission options are checked before creating
 the session; effort alone uses the profile's current default. The session's actual
 selection is checked again before committing it. A default or capability change,
+or a busy resumed lane, can refuse the open. Model/effort options require native
+idle maintenance admission; a busy lane is never queued for a later change.
+Cancellation after the durable selection append reports cancellation but does
+not undo that selection. The public selection API never saves a profile default.
+An intervening
 cancellation, native setup or storage error between these checks can still leave
 a created session behind. The plugin does not archive
 or delete DSH's sessions. Resume creates no new session, but its rename can
@@ -261,6 +269,20 @@ fits how long your model takes to answer) make this less frequent, but do not
 guarantee an answer.
 DSH has discussions about [error-ended turns](https://github.com/deepseek-ai/deepseek-harness/discussions/4952)
 and [retained input after cancellation](https://github.com/deepseek-ai/deepseek-harness/discussions/4832).
+
+Another DSH 0.2.2-rc.3 gap: a native `agent/pre-step` refusal drops messages
+already claimed for that step from pending input without adding them to the
+transcript or sending them to the model. Shipped refusals are the Session
+Controller's archived-session gate, the Subagent runtime's archived-ancestor
+gate and experimental Liveshare access checks; a custom pre-step hook can
+refuse too. The goal-round driver also refuses stale reservations but restores
+other claimed inputs on its own rejection paths. An `injected` receipt means native
+admission, not consumption. The plugin does not replay or restore that input.
+Source: `dsh-agent-loop@0.2.2-rc.3/lib/index.js:103-110,683,712-714,759-761`;
+`dsh-api-session-controller@0.2.2-rc.3/lib/index.js:3358,3371-3383`;
+`dsh-subagent@0.2.2-rc.3/lib/index.js:532-535`.
+Liveshare: `dsh-experimental-liveshare@0.2.2-rc.3/lib/index.js:8136-8153`;
+goal exception: `dsh-goal-round-driver@0.2.2-rc.3/lib/index.js:100-105,307-315,346-350`.
 
 ## Per-session groups
 

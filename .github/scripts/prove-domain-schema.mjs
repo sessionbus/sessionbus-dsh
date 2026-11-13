@@ -17,7 +17,7 @@ const [StorageDomain, Storage, StorageJson, { Context }] = await Promise.all([
   import(pathToFileURL(requireNative.resolve('@deepseek-ai/cordis')).href),
 ]);
 const own = createRequire(fs.realpathSync(fileURLToPath(import.meta.url))).resolve('zod/package.json');
-assert.equal(JSON.parse(fs.readFileSync(own)).version, '4.5.4', 'exact test dev pin');
+assert.equal(JSON.parse(fs.readFileSync(own)).version, '4.6.6', 'exact test dev pin');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sessionbus-domain-schema-'));
 const foreignManifest = path.join(root, 'foreign-zod/package.json');
 fs.cpSync(fs.realpathSync(path.dirname(own)), path.dirname(foreignManifest), { recursive: true });
@@ -78,7 +78,7 @@ try {
   console.log(JSON.stringify({
     dsh: JSON.parse(fs.readFileSync(native.producer)).version,
     nativeZod: { path: native.zod, version: native.version },
-    foreignZod: { path: foreignManifest, version: '4.5.4' },
+    foreignZod: { path: foreignManifest, version: '4.6.6' },
     factoriesDistinct: true,
   }));
   console.log('native domain foreign Zod: open, parsed read, durable write/reopen, invalid-record rejection, repair, delete: PASS');

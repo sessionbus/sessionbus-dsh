@@ -6,15 +6,21 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertEmptyGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
+import { captureRedacted } from './web-proof-client.mjs';
 
-const [home, work, daemonBin, root] = process.argv.slice(2);
+const [home, work, daemonBin, root, commandJSON] = process.argv.slice(2);
 assert.ok(home && work && daemonBin && root, 'usage: prove-session-groups.mjs HOME WORK DAEMON_BIN REPO');
-const { connectPeer } = createRequire(fs.realpathSync(path.join(home, 'profiles/web/node_modules/@sessionbus/dsh/plugin.cjs')))('@sessionbus/kit');
-const socket = path.join(work, 'groups.sock'), bin = path.join(work, 'groups-bin');
+const dsh = commandJSON ? JSON.parse(commandJSON) : [path.join(home, 'node_modules/.bin/dsh')];
+assert.ok(Array.isArray(dsh) && dsh.length && dsh.every(arg => typeof arg === 'string'));
+const profileRequire = createRequire(fs.realpathSync(path.join(home, 'profiles/web/node_modules/@sessionbus/dsh/package.json')));
+const kitEntry = profileRequire.resolve('@sessionbus/kit');
+const { connectPeer } = profileRequire('@sessionbus/kit');
+let socket, socketDirectory;
+const bin = path.join(work, 'groups-bin');
 const sessionRoot = path.join(work, 'groups-sessions');
 fs.mkdirSync(bin);
 fs.symlinkSync(path.join(root, '.github/fixtures/groups-worker/worker.cjs'), path.join(bin, 'w120-worker'));
-const cleanEnv = { ...process.env, PATH: `${bin}:${home}/node_modules/.bin:${process.env.PATH}`, W120_WORK: work };
+const cleanEnv = { ...process.env, PATH: `${bin}:${home}/node_modules/.bin:${process.env.PATH}`, W120_WORK: work, W120_KIT_ENTRY: kitEntry };
 for (const key of Object.keys(cleanEnv)) if (key.startsWith('SESSIONBUS_')) delete cleanEnv[key];
 const processes = new Set(), peers = new Set();
 const beforeSpawn = installInterruptCleanup(processes);
@@ -24,8 +30,10 @@ const run = (command, args, env, label) => {
   const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'], cwd: work, detached: true });
   processes.add(child);
   child.output = ''; child.errors = '';
-  child.stdout.on('data', chunk => { child.output += chunk; fs.appendFileSync(path.join(work, `${label}.stdout`), chunk); });
-  child.stderr.on('data', chunk => { child.errors += chunk; fs.appendFileSync(path.join(work, `${label}.stderr`), chunk); });
+  child.stdout.on('data', chunk => { child.output += chunk; });
+  child.stderr.on('data', chunk => { child.errors += chunk; });
+  captureRedacted(child.stdout, text => fs.appendFileSync(path.join(work, `${label}.stdout`), text));
+  captureRedacted(child.stderr, text => fs.appendFileSync(path.join(work, `${label}.stderr`), text));
   child.ended = new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); });
@@ -71,7 +79,7 @@ const pluginLog = file => fs.existsSync(file)
   ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
 const launchWeb = async label => {
   const logFile = path.join(work, `${label}.plugin-log.jsonl`);
-  const child = run(path.join(home, 'node_modules/.bin/dsh'), [
+  const child = run(dsh[0], [...dsh.slice(1),
     '--profile', 'web', '--patch', path.join(root, '.github/fixtures/sessionbus-groups.patch.yml'),
     '--no-open', '--host', '127.0.0.1', '--port', '0',
   ], { ...cleanEnv, DSH_HOME: home, SESSIONBUS_SOCKET: socket, SESSIONBUS_GROUPS: '["default"]',
@@ -129,7 +137,15 @@ const launchWeb = async label => {
   return { child, rpc, command };
 };
 
+function assertShortSocket(socket) {
+  const bytes = Buffer.byteLength(socket);
+  assert.ok(bytes < 100, `groups proof socket path must be below 100 bytes: ${socket} (${bytes} bytes)`);
+}
+
 try {
+  socketDirectory = fs.mkdtempSync('/tmp/sbg.');
+  socket = path.join(socketDirectory, 'groups.sock');
+  assertShortSocket(socket);
   const daemon = run(daemonBin, ['-socket', socket, '-table', path.join(work, 'groups-table.json'), '-host', 'w120', '-products', 'w120-worker'], {
     ...cleanEnv, XDG_STATE_HOME: path.join(work, 'groups-state'),
   }, 'groups-daemon');
@@ -212,7 +228,7 @@ try {
   // Well-formed native record, invalid plugin-owned value: strict activation refusal, no fallback.
   const invalid = { version: 1, record: ['invalid', 'invalid'] };
   fs.writeFileSync(stored(second), JSON.stringify(invalid));
-  const bad = run(path.join(home, 'node_modules/.bin/dsh'), ['--profile', 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'], {
+  const bad = run(dsh[0], [...dsh.slice(1), '--profile', 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'], {
     ...cleanEnv, DSH_HOME: home, SESSIONBUS_SOCKET: socket,
   }, 'groups-invalid-record');
   await until(() => bad.hasEnded, 'invalid record refuses profile');
@@ -225,5 +241,7 @@ try {
 } finally {
   console.log(`group command responses: immediate=${groupResponses.immediate} progress=${groupResponses.progress}; observation bound=10000ms`);
   for (const peer of peers) peer.shutdown();
-  await Promise.all([...processes].map(async child => { await stopOwnedChild(child, child.pid, true); processes.delete(child); }));
+  try {
+    await Promise.all([...processes].map(async child => { await stopOwnedChild(child, child.pid, true); processes.delete(child); }));
+  } finally { if (socketDirectory) fs.rmSync(socketDirectory, { recursive: true, force: true }); }
 }

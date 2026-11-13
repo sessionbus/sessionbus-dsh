@@ -29,50 +29,30 @@ test("W-154 ships the byte-exact frozen common declaration", () => {
   }
 });
 
-test("W-154 renderer observations are UNVERIFIED off-baseline and preserve every prefix oracle", async () => {
+test("W-155 deliberate rc.3 re-baseline pins every projection and refuses any other renderer", () => {
   const { createHash } = require("node:crypto");
   const source = fs.readFileSync(path.join(__dirname, ".github/scripts/prove-mode-controller.mjs"), "utf8");
   const start = source.indexOf("      for (const [name, value] of Object.entries(values)) {");
   const end = source.indexOf("\n    } finally", start);
   assert.ok(start >= 0 && end > start);
-  const check = new Function("assert", "createHash", "values", "prefix", "baseline", "toolsVersion", "product", "console", "unverified", source.slice(start, end));
+  const check = new Function("assert", "createHash", "values", "prefix", source.slice(start, end));
   const native = ["rawTool", "registeredTool", "nativeTools", "sdkTools", "skill", "skillText"];
   const values = Object.fromEntries([...native, "typescript", "python"].map(name => [name, name]));
   const prefix = Object.fromEntries(Object.entries(values).map(([name, bytes]) => [name,
     { bytes: Buffer.byteLength(bytes), sha256: createHash("sha256").update(bytes).digest("hex") }]));
-  const run = (version, actual) => {
-    const unverified = [], logs = [];
-    check(assert, createHash, actual, prefix, { dshTools: "0.2.1-alpha.3" }, version, "synthetic",
-      { log: line => logs.push(line) }, unverified);
-    assert.deepEqual(unverified, version === "0.2.1-alpha.3" ? [] : ["typescript", "python"].map(name => `${version} synthetic ${name}`));
-    assert.equal(logs.length, unverified.length);
-    for (const line of logs) { assert.match(line, /^UNVERIFIED /u); assert.doesNotMatch(line, /oracle|PASS/u); }
-    return unverified;
-  };
-  const labelStart = source.indexOf("async function check(name, run) {");
-  const labelEnd = source.indexOf("\nawait check(", labelStart);
-  const summaryStart = source.indexOf("\nconsole.log(JSON.stringify({ cases, dsh:");
-  assert.ok(labelStart >= 0 && labelEnd > labelStart && summaryStart > labelEnd);
-  for (const version of ["0.2.1-alpha.3", "0.2.1-rc.2", "0.2.2-rc.2"]) {
-    const unverified = run(version, values), logs = [], process = { exitCode: 0 };
-    const console = { log: line => logs.push(line) };
-    const label = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")([], console);
-    await label("prefix", async () => {});
-    assert.match(logs.pop(), /: PASS$/u);
-    const marked = [];
-    const incomplete = new Function("unverified", "console", "let cases = 0;\n" + source.slice(labelStart, labelEnd) + "\nreturn check;")(marked, console);
-    await incomplete("prefix", async () => marked.push(...unverified));
-    assert.match(logs.pop(), version === "0.2.1-alpha.3" ? /: PASS$/u : /: UNVERIFIED$/u);
-    new Function("console", "process", "unverified", "cases", "fs", "dshManifest", "pluginManifest", "native", source.slice(summaryStart))(
-      console, process, unverified, 10, { readFileSync: () => JSON.stringify({ version }) }, "synthetic-dsh", "synthetic-plugin", { resolve: () => "synthetic-cordis" });
-    assert.equal(process.exitCode, version === "0.2.1-alpha.3" ? 0 : 1);
-    if (unverified.length) { assert.equal(JSON.parse(logs.pop()).result, "UNVERIFIED"); }
-    for (const name of native) assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
-    for (const name of ["typescript", "python"]) {
-      if (version === "0.2.1-alpha.3") assert.throws(() => run(version, { ...values, [name]: "changed" }), assert.AssertionError);
-      else run(version, { ...values, [name]: "changed" });
-    }
+  check(assert, createHash, values, prefix);
+  for (const name of Object.keys(values)) assert.throws(() => check(assert, createHash,
+    { ...values, [name]: "changed" }, prefix), assert.AssertionError, name);
+  const baseline = source.split('\n').find(line => line.includes('assert.equal(toolsVersion, renderer.dshTools'));
+  assert.ok(baseline);
+  const refuse = new Function('assert', 'toolsVersion', 'renderer', baseline);
+  const renderer = JSON.parse(fs.readFileSync(path.join(__dirname, '.github/fixtures/model-renderer-0.2.0.json')));
+  assert.equal(renderer.dshTools, '0.2.2-rc.3');
+  refuse(assert, renderer.dshTools, renderer);
+  for (const version of ['0.2.1-alpha.3', '0.2.1-rc.2', '0.2.2-rc.2', '0.2.2-rc.4']) {
+    assert.throws(() => refuse(assert, version, renderer), /UNVERIFIED.*TypeScript\/Python/u);
   }
+  assert.doesNotMatch(source.slice(start, end), /continue|unverified|oracle:false/u);
 });
 
 test("W-146 deferred groups proof rejects both stderr-only and logger-only diagnostics", async () => {
@@ -101,6 +81,28 @@ test("W-146 deferred groups proof rejects both stderr-only and logger-only diagn
     else await assert.rejects(result, error => error.code === "ERR_ASSERTION"
       && error.message.includes(cause === "stderr" ? "generated negative control" : "no deferred plugin diagnostic"), cause);
   }
+});
+
+test("W-155 preparation refusal is an exact rc.3 known-gap oracle, never continuity PASS", () => {
+  const source = fs.readFileSync(path.join(__dirname, '.github/scripts/prove-peer-pending-input.mjs'), 'utf8');
+  const get = name => {
+    const start = source.indexOf(`function ${name}(`), end = source.indexOf('\n}', start) + 2;
+    assert.ok(start >= 0 && end > start);
+    return new Function('assert', source.slice(start, end) + `\nreturn ${name};`)(assert);
+  };
+  const version = get('assertOracleVersion'), gap = get('assertPreparationRefusalGap');
+  version('0.2.2-rc.3');
+  for (const other of ['0.2.1-alpha.3', '0.2.1-rc.2', '0.2.2-rc.2', '0.2.2-rc.4']) assert.throws(() => version(other), /UNVERIFIED/u);
+  const observed = { admitted: true, claimed: 1, refused: 1, committed: false, retained: false, attempts: 1, terminal: { kind: 'blocked' } };
+  gap(observed);
+  for (const [field, value] of Object.entries({ admitted: false, claimed: 0, refused: 0, committed: true, retained: true,
+    attempts: 2, terminal: { kind: 'completed' } })) assert.throws(() => gap({ ...observed, [field]: value }), /KNOWN-GAP changed/u);
+  const start = source.indexOf('function reported('), end = source.indexOf('\n}', start) + 2;
+  const logs = [], results = [];
+  const report = new Function('results', 'console', source.slice(start, end) + '\nreturn reported;')(results, { log: value => logs.push(value) });
+  report({ case: 'known-gap-rc3-preparation-refusal', ...observed });
+  assert.match(logs[0], /KNOWN-GAP/u); assert.doesNotMatch(logs[0], /PASS/u);
+  assert.equal(results[0].classification, 'KNOWN-GAP');
 });
 
 test("private pending-input daemon checks hosted and platform socket limits before starting", () => {
@@ -239,14 +241,16 @@ test("package metadata stays rooted in the standalone repository with its own pr
   assert.equal(manifest.peerDependencies["@antst/dsh-file-uploads-none"], undefined);
   assert.equal(manifest.dependencies["js-yaml"], "4.3.2");
   assert.match(manifest.dependencies["@sessionbus/kit"], /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
-  for (const [name, range] of Object.entries(manifest.peerDependencies)) if (name.startsWith("@deepseek-ai/dsh-")) assert.equal(range, ">=0.2.1-alpha.2");
-  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis"], ">=4.0.5-alpha.1");
-  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-include"], ">=1.0.10-alpha.1");
-  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-loader"], ">=1.0.6-alpha.1");
-  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-timer"], ">=1.1.7-alpha.1");
-  assert.equal(manifest.peerDependencies["@deepseek-ai/schemastery"], ">=3.18.5-alpha.1");
+  for (const [name, range] of Object.entries(manifest.peerDependencies)) if (name.startsWith("@deepseek-ai/dsh-")) assert.equal(range, ">=0.2.2-rc.3");
+  assert.equal(manifest.peerDependencies["@deepseek-ai/dsh-subagent"], ">=0.2.2-rc.3");
+  assert.deepEqual(manifest.engines, { node: ">=24.9.0" });
+  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis"], ">=4.1.0");
+  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-include"], ">=1.1.0");
+  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-loader"], ">=1.1.0");
+  assert.equal(manifest.peerDependencies["@deepseek-ai/cordis-plugin-timer"], ">=1.2.0");
+  assert.equal(manifest.peerDependencies["@deepseek-ai/schemastery"], ">=3.19.0");
   assert.equal(manifest.peerDependencies.zod, "^4.4.3");
-  assert.equal(manifest.devDependencies.zod, "4.5.4");
+  assert.equal(manifest.devDependencies.zod, "4.6.6");
   assert.equal(Object.hasOwn(manifest.dependencies, "zod"), false);
   assert.deepEqual(fs.readFileSync(path.join(__dirname, "file-uploads-none.mjs")),
     fs.readFileSync(path.join(__dirname, ".github/fixtures/file-uploads-none-alpha/lib/index.js")), "published helper service copied byte-identically");

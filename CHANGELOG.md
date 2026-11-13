@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.1.6 — 2026-11-12
+## 0.2.0 — unreleased
+
+- Name and pin the DSH 0.2.2-rc.3 preparation-refusal gap: a pre-step rejection drops already-claimed peer input without consumption; injected is native admission only. No plugin compensation is added.
+
+- Require DSH 0.2.2-rc.3 and Node >=24.9.0, retiring older supported DSH lines. Keep their sealed evidence as history, not current validation; use one public API family without a legacy adapter.
+- Use public `subagents.rootOf` over `agents.list` for peer publication, delivery and groups. Peer compositions require `subagents`; missing root authority gives a named startup refusal instead of publishing all agents or waiting indefinitely.
+- Select lane model and effort with `llm.resolveCallConfig` and `agent.model.select` inside public `runMaintenance`, never the profile-saving GUI API or a private selection lock. A busy resumed lane opened with model or effort refuses cleanly; it is not queued. Cancellation after a durable selection does not roll it back.
+- Fold the unreleased 0.1.6 file-transfer work below into 0.2.0. **0.1.6 was never published.** Kit 0.5.16, the frozen common declaration and the packaged skill stay unchanged by the DSH migration.
+- Native validation results are recorded in the W-155 proof map; the held live-model transfer acceptance is NOT RUN. No historical PASS establishes this candidate's result.
+
+### Unreleased 0.1.6 work included in 0.2.0
 
 - Support Sessionbus file transfers in interactive peers and lanes with kit 0.5.16's default filesystem executor and existing notice delivery. Local paths use the executing session's cwd without cleaning symlink/..; no transfer mirror, queue or replay is added. Transfers run as the OS user and are not subject to DSH permission modes.
 - Kit 0.5.16 distinguishes SDK-local unknown/ended transfer accepts as `unknown_transfer` while preserving field/role/path conflicts, and negotiates `unknown_transfer` for status with no accessible live transfer; old kits retain their legacy status answer.

@@ -30,12 +30,12 @@ async function run(argv, label) {
   finally { clearTimeout(bound); clearTimeout(hardBound); }
 }
 try {
-  const stock = await run([...cli, '--profile', 'headless', '--help'], 'stock-alpha1');
+  const stock = await run([...cli, '--profile', 'headless', '--help'], 'stock-below-floor');
   assert.equal(stock.code, 0, stock.output);
   const version = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'))).version;
   const added = await run([...cli, 'plugin', '--profile', 'sessionbus', 'add', '--save-exact', candidate], 'native-add-refusal');
   assert.notEqual(added.code, 0, added.output);
-  assert.ok(added.output.includes(`Plugin @sessionbus/dsh@${version} is incompatible with dsh 0.2.1-alpha.1`), added.output);
+  assert.ok(added.output.includes(`Plugin @sessionbus/dsh@${version} is incompatible with dsh 0.2.2-rc.2`), added.output);
   const profile = path.join(home, 'profiles/sessionbus');
   assert.equal(JSON.parse(fs.readFileSync(path.join(profile, 'package.json'))).dependencies?.['@sessionbus/dsh'], undefined);
 
@@ -46,7 +46,7 @@ try {
   assert.equal(rows.code, 0, rows.output);
   const manifest = fs.readFileSync(path.join(profile, 'package.json')), patch = fs.readFileSync(path.join(profile, 'cordis.patch.yml'));
   const boot = start([...cli, '--profile', 'sessionbus'], 'forced-native-refusal');
-  const wanted = `Plugin @sessionbus/dsh@${version} is incompatible with dsh 0.2.1-alpha.1`;
+  const wanted = `Plugin @sessionbus/dsh@${version} is incompatible with dsh 0.2.2-rc.2`;
   let observed = false;
   for (let count = 0; count < 300; count++) {
     if (boot.output.includes(wanted) && boot.output.includes('disabling profile plugin row')) { observed = true; break; }
@@ -57,8 +57,8 @@ try {
   assert.deepEqual(fs.readFileSync(path.join(profile, 'package.json')), manifest);
   assert.deepEqual(fs.readFileSync(path.join(profile, 'cordis.patch.yml')), patch);
   fs.writeFileSync(path.join(work, 'result.json'), JSON.stringify({ nativeAddRefused: true, forcedBootDisabledRows: true,
-    stop: stopped, profileBytesUnchanged: true, version: '0.2.1-alpha.1', candidate: version }, null, 2));
-  console.log('native alpha.1 add refuses the declared floor; forced boot disables rows readably; no installer CLI inference: PASS');
+    stop: stopped, profileBytesUnchanged: true, version: '0.2.2-rc.2', candidate: version }, null, 2));
+  console.log('native rc.2 add refuses the declared floor; forced boot disables rows readably; no installer CLI inference: PASS');
 } catch (error) { primary = error; throw error; }
 finally {
   const outcomes = await Promise.allSettled([...children].map(async child => {

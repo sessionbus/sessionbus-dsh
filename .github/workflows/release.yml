@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         dsh:
-          - 0.2.1-alpha.3
+          - 0.2.2-rc.3
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,7 +34,7 @@ jobs:
           version: 10.28.1
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24.9.0
       - run: pnpm install --frozen-lockfile --ignore-scripts --config.auto-install-peers=false
       - run: npm test
         env:
@@ -51,7 +51,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24.9.0
           registry-url: https://registry.npmjs.org
       - name: Validate annotated release tag
         id: release

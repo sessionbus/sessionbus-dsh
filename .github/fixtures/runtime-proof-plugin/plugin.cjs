@@ -13,23 +13,32 @@ module.exports = {
       fs.writeFileSync(`${destination}.tmp`, JSON.stringify(value, null, 2));
       fs.renameSync(`${destination}.tmp`, destination);
     };
-    ctx.appReady.onReady(async () => {
-      try {
-        const runtime = inspectRuntime(ctx, { version, mode });
-        const controller = ctx.sessionController;
-        let uploadRefusal;
-        if (mode === "lane") uploadRefusal = await ownUploadRefusal(ctx, version);
-        else {
-          // Real stock provider: the same receipt refusal alone is a false
-          // positive. The complete own-provider assertion MUST reject it.
-          await assert.rejects(ownUploadRefusal(ctx, version), /plugin own no-upload provider must own/u);
-          uploadRefusal = { stockNegative: true, ...await promptUploadRefusal({ sessionController: controller }) };
+    let alive = true;
+    ctx.effect(() => {
+      const removeReady = ctx.appReady.onReady(async () => {
+        if (!alive) return;
+        try {
+          const runtime = await inspectRuntime(ctx, { version, mode });
+          if (!alive) return;
+          const controller = ctx.sessionController;
+          let uploadRefusal;
+          if (mode === "lane") uploadRefusal = await ownUploadRefusal(ctx, version);
+          else {
+            // Real stock provider: the same receipt refusal alone is a false
+            // positive. The complete own-provider assertion MUST reject it.
+            await assert.rejects(ownUploadRefusal(ctx, version), /plugin own no-upload provider must own/u);
+            if (!alive) return;
+            uploadRefusal = { stockNegative: true, ...await promptUploadRefusal({ sessionController: controller }) };
+          }
+          if (!alive) return;
+          save({ ok: true, nativePid: process.pid, ...runtime, uploadRefusal });
+        } catch (error) {
+          if (!alive) return;
+          save({ ok: false, nativePid: process.pid, error: String(error), stack: error.stack });
+          throw error;
         }
-        save({ ok: true, nativePid: process.pid, ...runtime, uploadRefusal });
-      } catch (error) {
-        save({ ok: false, nativePid: process.pid, error: String(error), stack: error.stack });
-        throw error;
-      }
+      });
+      return () => { alive = false; removeReady(); };
     });
   },
 };

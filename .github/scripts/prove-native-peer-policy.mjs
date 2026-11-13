@@ -35,7 +35,7 @@ fs.writeFileSync(path.join(directory, 'pnpm-workspace.yaml'), 'packages:\n  - .\
 const patch = fs.readFileSync(path.join(directory, 'cordis.patch.yml'));
 const output = await run(['plugin', '--profile', 'policy-proof', 'add', '--save-exact', '--strict-peer-dependencies', candidate], 'native-add');
 assert.ok(output.includes('Issues with peer dependencies found'), output);
-assert.ok(output.includes('missing peer @deepseek-ai/dsh-agent@>=0.2.1-alpha.2'), output);
+assert.ok(output.includes('missing peer @deepseek-ai/dsh-agent@>=0.2.2-rc.3'), output);
 assert.deepEqual(fs.readFileSync(path.join(directory, 'cordis.patch.yml')), patch);
 fs.writeFileSync(path.join(work, 'result.json'), JSON.stringify({ settings: { nodeLinker: 'isolated', autoInstallPeers: false, strictPeerDependencies: true }, command: 'dsh plugin add --save-exact --strict-peer-dependencies <candidate>', exit: 0, missingPeerWarning: true, patchUnchanged: true }, null, 2));
 console.log('Linux operator isolated/auto-install-off/strict policy: ordinary native add warns about missing DSH peers and exits 0; no installer/pin/remedy invoked: PASS');

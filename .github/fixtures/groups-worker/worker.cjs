@@ -3,7 +3,10 @@
 // Test-only native worker: a file gate holds a Run across the owner's attachment swap.
 const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
-const { serveWorker } = require("@sessionbus/kit");
+const { isAbsolute } = require("node:path");
+const kitEntry = process.env.W120_KIT_ENTRY;
+if (!isAbsolute(kitEntry || "")) throw new Error("W120_KIT_ENTRY must name the installed profile kit entry");
+const { serveWorker } = require(kitEntry);
 let owner;
 const worker = serveWorker({
   hello: async () => ({ product: "w120-worker", supports_message_run: true, supported_open_fields: [], extra_arguments: [] }),

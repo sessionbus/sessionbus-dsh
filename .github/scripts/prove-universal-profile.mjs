@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { performance } from 'node:perf_hooks';
 import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
+import { captureRedacted, redactWebOutput } from './web-proof-client.mjs';
 
 const [work, commandJSON, candidate, repo] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate && repo, 'usage: prove-universal-profile.mjs WORK DSH_ARGV_JSON TARBALL REPO');
@@ -23,15 +24,17 @@ const children = new Set(), timings = [];
 const beforeSpawn = installInterruptCleanup(children);
 let primary;
 const sockets = fs.mkdtempSync('/tmp/sb-w125-');
-const redact = value => String(value).replace(/([?&]token=)[^\s]+/gu, '$1<redacted>');
+const redact = redactWebOutput;
 function start(argv, env, label) {
   beforeSpawn();
   fs.writeFileSync(path.join(work, `${label}.request.json`), JSON.stringify({ argv, cwd: workspace, time: new Date().toISOString() }));
   const child = spawn(argv[0], argv.slice(1), { cwd: workspace, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   children.add(child);
   child.stdoutText = ''; child.stderrText = '';
-  child.stdout.on('data', chunk => { child.stdoutText += chunk; fs.appendFileSync(path.join(work, `${label}.stdout`), redact(chunk)); });
-  child.stderr.on('data', chunk => { child.stderrText += chunk; fs.appendFileSync(path.join(work, `${label}.stderr`), redact(chunk)); });
+  child.stdout.on('data', chunk => { child.stdoutText += chunk; });
+  child.stderr.on('data', chunk => { child.stderrText += chunk; });
+  captureRedacted(child.stdout, text => fs.appendFileSync(path.join(work, `${label}.stdout`), text));
+  captureRedacted(child.stderr, text => fs.appendFileSync(path.join(work, `${label}.stderr`), text));
   child.ended = new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code, signal) => { child.hasEnded = true; fs.writeFileSync(path.join(work, `${label}.exit.json`), JSON.stringify({ code, signal })); resolve({ code, signal }); });
@@ -72,7 +75,7 @@ try {
   // The same documented version command absorbs cold npx acquisition first;
   // registry waits are bounded by CI's 25-minute leg, not native-state timers.
   const selected = await operation(['--version'], 'executing-version', 0, true);
-  assert.equal(selected.stdoutText.trim(), '0.2.1-alpha.3');
+  assert.equal(selected.stdoutText.trim(), '0.2.2-rc.3');
   // EXACT README order. No hook, cutoff, provider lookup, cleanup or companion preparation.
   for (const profile of profiles) {
     const upgrade = process.env.W125_INSTALL_MODE?.endsWith('-global');
@@ -106,7 +109,7 @@ try {
   }
   // Only now add test-only replay/approval fixtures. They are not install prerequisites.
   for (const profile of ['sessionbus', 'web']) await operation(['plugin', '--profile', profile, 'add', '--save-exact',
-    '@deepseek-ai/dsh-llm-replay@0.2.1-alpha.3', path.join(repo, '.github/fixtures/ask-all-plugin')], `${profile}-proof-fixtures`, 0, true);
+    '@deepseek-ai/dsh-llm-replay@0.2.2-rc.3', path.join(repo, '.github/fixtures/ask-all-plugin')], `${profile}-proof-fixtures`, 0, true);
 
   for (const [profile, mode] of [['sessionbus', 'lane'], ['web', 'web']]) {
     const runtime = path.join(work, `${mode}-runtime.json`), capture = path.join(work, `${mode}-bus.json`);
@@ -168,6 +171,24 @@ try {
     assert.deepEqual(await stop(child, state(runtime).nativePid), { code: 0, signal: null });
     await stop(server);
     console.log(`${mode}: executing native resolution, mounted provider, round trip, durable text, permission control${mode === 'web' ? ', cookie HTTP empty-request root and idle wake without socket override' : ''}: PASS`);
+  }
+  // One released-daemon row per OS, not one per package manager. All adverse
+  // permission/trace fixtures above stay synthetic and unchanged.
+  if (process.env.W125_INSTALL_MODE === 'project') {
+    const began = performance.now();
+    const provision = start([process.execPath, path.join(repo, '.github/scripts/provision-sessionbus.mjs'), path.join(work, 'daemon-v0.5.16')], base, 'released-daemon-provision');
+    assert.deepEqual(await provision.ended, { code: 0, signal: null }, provision.stderrText);
+    assertEmptyGroup(provision); children.delete(provision);
+    await operation(['plugin', '--profile', 'web', 'add', path.join(repo, '.github/fixtures/groups-proof-plugin')], 'released-groups-fixture-add', 0, true);
+    const groupWork = path.join(work, 'released-groups'); fs.mkdirSync(groupWork);
+    const groups = start([process.execPath, path.join(repo, '.github/scripts/prove-session-groups.mjs'),
+      home, groupWork, provision.stdoutText.trim(), repo, JSON.stringify(dsh)], base, 'released-groups-proof');
+    groups.stdout.on('data', bytes => process.stdout.write(bytes));
+    assert.deepEqual(await groups.ended, { code: 0, signal: null }, redact(groups.stderrText));
+    assertEmptyGroup(groups); children.delete(groups);
+    const milliseconds = Math.round(performance.now() - began);
+    timings.push({ label: 'released-groups-0.5.16', milliseconds });
+    console.log(`released daemon0.5.16 groups on ${process.platform}, Node${process.version}: PASS (${milliseconds} ms added)`);
   }
   const optionProof = start([process.execPath, path.join(repo, '.github/scripts/prove-lane-options.mjs'),
     path.join(work, 'lane-options'), JSON.stringify(dsh), home, repo], base, 'lane-options-proof');

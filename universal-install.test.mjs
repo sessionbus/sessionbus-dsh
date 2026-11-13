@@ -18,7 +18,7 @@ const marker = '# sessionbus-dsh-install owned';
 
 test('runtime oracle rejects wrong native facts, not harmless extra physical packages', async t => {
   const require = createRequire(import.meta.url);
-  const { inspectRuntime } = require('./.github/scripts/runtime-oracle.cjs');
+  const { inspectFacts } = require('./.github/scripts/runtime-oracle.cjs');
   const { pathToFileURL } = await import('node:url');
   const root = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-runtime-oracle-unit-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -28,9 +28,9 @@ test('runtime oracle rejects wrong native facts, not harmless extra physical pac
     writeFileSync(manifestPath, JSON.stringify(manifest));
     return { name, version: manifest.version, manifest, manifestPath, dir };
   };
-  const cli = packageAt('@deepseek-ai/dsh', { version: '0.2.1-alpha.2' });
+  const cli = packageAt('@deepseek-ai/dsh', { version: '0.2.2-rc.3' });
   const plugin = packageAt('@sessionbus/dsh', { version, peerDependencies: {
-    '@deepseek-ai/dsh-agent': '>=0.2.1-alpha.2', '@deepseek-ai/cordis': '>=4.0.5-alpha.1' }, dependencies: {} });
+    '@deepseek-ai/dsh-agent': '>=0.2.2-rc.3', '@deepseek-ai/cordis': '>=4.1.0' }, dependencies: {} });
   writeFileSync(path.join(plugin.dir, 'plugin.cjs'), 'exports.apply = function apply() {};\n');
   const producer = packageAt('@deepseek-ai/dsh-app-boot', { version: cli.version });
   mkdirSync(path.join(producer.dir, 'node_modules'), { recursive: true });
@@ -38,41 +38,135 @@ test('runtime oracle rejects wrong native facts, not harmless extra physical pac
   assert.ok(npm, 'npm test supplies its published semver resolver');
   symlinkSync(path.dirname(createRequire(npm).resolve('semver/package.json')), path.join(producer.dir, 'node_modules/semver'));
   const agent = packageAt('@deepseek-ai/dsh-agent', { version: cli.version });
-  const cordis = packageAt('@deepseek-ai/cordis', { version: '4.0.5-alpha.1' });
-  const module = require(path.join(plugin.dir, 'plugin.cjs'));
+  const cordis = packageAt('@deepseek-ai/cordis', { version: '4.1.0' });
   const make = () => {
-    const parent = { tree: { ctx: { baseUrl: pathToFileURL(path.join(root, 'cordis.yml')).href } } };
-    const bus = { options: { name: '@sessionbus/dsh' }, fiber: { state: 2 }, parent, moduleNamespace: module };
-    const owner = { options: { name: ownEntry }, fiber: { state: 2 }, parent };
+    const bus = { entryId: 'sessionbus', moduleName: '@sessionbus/dsh', enabled: true, fiberPhase: 'active' };
+    const owner = { entryId: 'uploads', moduleName: ownEntry, enabled: true, fiberPhase: 'active' };
     const entries = [bus, owner], records = new Map([[agent.name, agent], [cordis.name, cordis], [producer.name, producer]]);
-    const ctx = { profileContext: { name: 'sessionbus', installAnchor: cli.manifestPath },
-      loader: { entries: () => entries }, reflect: { store: { upload: { name: 'fileUploads', fiber: owner.fiber } } },
-      pluginPackages: { current: { entries: [agent] }, packageOf(name, importer) {
+    const ctx = { profileContext: { name: 'sessionbus', dir: root, installAnchor: cli.manifestPath },
+      fileUploads: { registerAgentResolver() {}, resolve() {}, bindPrompt() {}, retirePrompt() {} },
+      pluginPackages: { resolution: { entries: [agent] }, packageOf(name, importer) {
         if (name === '@sessionbus/dsh' || name === ownEntry) return plugin;
         assert.equal(importer, pathToFileURL(path.join(plugin.dir, 'plugin.cjs')).href, 'peer reads use the native plugin importer');
         return records.get(name);
       } } };
     return { ctx, entries, bus, owner, records };
   };
-  const check = state => inspectRuntime(state.ctx, { version, mode: 'lane' });
-  assert.equal(check(make()).upload.registeredServices, 1);
-  for (const phase of [0, 1, 3]) {
-    const state = make(); state.bus.fiber.state = phase;
+  const check = state => inspectFacts(state.ctx, { version, mode: 'lane' }, { entries: state.entries });
+  assert.equal(check(make()).upload.activeConfiguredProviders, 1);
+  for (const phase of [null, 'pending', 'loading', 'failed', 'unloading']) {
+    const state = make(); state.bus.fiberPhase = phase;
     assert.throws(() => check(state), /pending or failed Sessionbus row/u);
   }
-  const disabled = make(); disabled.bus.options.disabled = true; assert.throws(() => check(disabled));
+  const disabled = make(); disabled.bus.enabled = false; assert.throws(() => check(disabled));
   const duplicate = make(); duplicate.entries.push(duplicate.bus); assert.throws(() => check(duplicate), /one mounted Sessionbus/u);
   const peer = make(); peer.records.set(cordis.name, { ...cordis, version: '4.0.4' }); assert.throws(() => check(peer), /does not satisfy/u);
   const missing = make(); missing.records.delete(agent.name); assert.throws(() => check(missing), /unresolved plugin peer/u);
-  const mixed = make(); mixed.records.set(agent.name, { ...agent, version: '0.2.1-alpha.3' }); assert.throws(() => check(mixed), /mixed DSH peer/u);
+  const mixed = make(); mixed.records.set(agent.name, { ...agent, version: '0.2.2-rc.4' }); assert.throws(() => check(mixed), /mixed DSH peer/u);
   const floor = make(); floor.ctx.profileContext.installAnchor = packageAt('below-floor-cli', { version: '0.2.1-alpha.1' }).manifestPath; assert.throws(() => check(floor));
-  const services = make(); services.ctx.reflect.store.second = { name: 'fileUploads', fiber: { state: 2 } }; assert.throws(() => check(services), /one registered upload provider/u);
+  const services = make(); services.entries.push({ ...services.owner, entryId: 'second' }); assert.throws(() => check(services), /one active configured upload provider/u);
+  const absent = make(); delete absent.ctx.fileUploads; assert.throws(() => check(absent), /native fileUploads/u);
+  const unmounted = make(); unmounted.owner.fiberPhase = 'pending'; assert.throws(() => check(unmounted), /one active configured upload provider/u);
+  const coexist = make(); coexist.entries.push({ ...coexist.owner, entryId: 'legacy', moduleName: helper });
+  assert.throws(() => check(coexist), /one active configured upload provider/u, 'an active legacy provider cannot hide beside the owned lane row');
+  for (const legacy of [{ enabled: false, fiberPhase: 'active' }, { enabled: true, fiberPhase: 'pending' }]) {
+    const inactive = make(); inactive.entries.push({ ...coexist.entries.at(-1), ...legacy }); assert.equal(check(inactive).upload.activeConfiguredProviders, 1);
+  }
+  const web = make(), stock = packageAt('@deepseek-ai/dsh-client-file-upload', { version: cli.version });
+  web.owner.moduleName = stock.name; web.entries.push({ ...coexist.entries.at(-1) });
+  const webPackageOf = web.ctx.pluginPackages.packageOf;
+  web.ctx.pluginPackages.packageOf = (name, importer) => name === stock.name ? stock : webPackageOf(name, importer);
+  assert.equal(inspectFacts(web.ctx, { version, mode: 'web' }, { entries: web.entries }).upload.activeConfiguredProviders, 1,
+    'web keeps its existing exclusion until native coexistence is reviewed');
   const wrongRow = make(), packageOf = wrongRow.ctx.pluginPackages.packageOf;
-  wrongRow.owner.options.name = helper;
+  wrongRow.owner.moduleName = helper;
   wrongRow.ctx.pluginPackages.packageOf = (name, importer) => name === helper ? { ...plugin, name: helper } : packageOf(name, importer);
   assert.throws(() => check(wrongRow));
   // An unused package elsewhere is not consulted or counted by this oracle.
   packageAt(helper, { version: '0.1.3' }); assert.equal(check(make()).upload.name, '@sessionbus/dsh');
+});
+
+test('stale-target sweep permits only the exact classified baseline and negative-control hits', async () => {
+  const { collectStaleHits, assertClassified } = await import('./.github/scripts/stale-proof-audit.mjs');
+  const root = new URL('.', import.meta.url).pathname;
+  const allow = JSON.parse(readFileSync(new URL('./.github/fixtures/w155-stale-allowlist.json', import.meta.url)));
+  const hits = collectStaleHits(root); assertClassified(hits, allow);
+  for (const text of ["const expected = '0.5.12';", "agents.roots()", "const node = '22.x';", "tools.sdkSchemas()"])
+    assert.throws(() => assertClassified([...hits, { path: '.github/scripts/prove-packed-install.sh', line: 1, text }], allow), /unclassified stale proof assumption/u);
+  const packed = readFileSync(new URL('./.github/scripts/prove-packed-install.sh', import.meta.url), 'utf8');
+  const universal = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(packed + universal, /prove-lane-options-before|dashi-app-version/u, 'historical runtime before-proofs are not current gates');
+});
+
+test('web proof keeps its login and cookie in RAM, including split output chunks and native argv', { timeout: 15000 }, async t => {
+  const { createServer } = await import('node:http');
+  const { redactWebOutput, nativeArguments } = await import('./.github/scripts/web-proof-client.mjs');
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-web-privacy-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const token = 'unit-login-' + Math.random().toString(16).slice(2), cookie = 'unit-cookie-' + Math.random().toString(16).slice(2);
+  const methods = []; let prompted;
+  const prompt = new Promise(resolve => { prompted = resolve; });
+  const server = createServer(async (request, response) => {
+    if (request.url === `/?token=${token}`) {
+      response.writeHead(303, { 'set-cookie': `session=${cookie}; HttpOnly`, location: '/' }); response.end(); return;
+    }
+    assert.equal(request.headers.cookie, `session=${cookie}`);
+    let body = ''; for await (const chunk of request) body += chunk;
+    const rpc = JSON.parse(body); methods.push(rpc.method);
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ result: { ok: true, value: rpc.method === 'session/create' ? { sessionId: 'unit-root' } : {} } }));
+    if (rpc.method === 'session/prompt') prompted();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/?token=${token}`;
+  const native = path.join(work, 'native.cjs'), argvFile = path.join(work, 'native-argv.json');
+  writeFileSync(native, `#!/usr/bin/env node\nconst fs=require('node:fs');
+fs.writeFileSync(${JSON.stringify(argvFile)},JSON.stringify(process.argv));
+process.on('SIGTERM',()=>process.exit(0));
+process.stdout.write(${JSON.stringify('dsh web: ' + url.slice(0, -9))});
+setTimeout(()=>{process.stdout.write(${JSON.stringify(url.slice(-9) + '\n')});process.stderr.write('native stderr retained\\n');},100);
+setInterval(()=>{},1000);\n`, { mode: 0o700 });
+  const capture = path.join(work, 'bus.json'); writeFileSync(capture, '{"hello":true}');
+  const args = [new URL('./.github/scripts/web-proof-client.mjs', import.meta.url).pathname, native, 'unit.patch', '0', path.join(work, 'session-id'), capture];
+  const child = childProcess.spawn(process.execPath, args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  child.ended = new Promise(resolve => child.once('close', (code, signal) => { child.hasEnded = true; resolve({ code, signal }); }));
+  let output = ''; for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { output += chunk; });
+  try {
+    await Promise.race([prompt, child.ended.then(() => { throw new Error('client ended before prompt: ' + output); })]);
+    assert.deepEqual(await stopOwnedChild(child), { code: 0, signal: null });
+    assert.deepEqual(methods, ['session/create', 'session/selectModel', 'session/prompt']);
+    assert.equal(readFileSync(path.join(work, 'session-id'), 'utf8'), 'unit-root');
+    assert.match(output, /dsh web: \[login redacted\]/u); assert.match(output, /native stderr retained/u);
+    for (const value of [output, JSON.stringify(args), readFileSync(argvFile, 'utf8'), JSON.stringify(nativeArguments('unit.patch', '0'))]) {
+      assert.doesNotMatch(value, /https?:\/\/\S*[?&]token=|[?&]token=|set-cookie:/iu);
+      assert.equal(value.includes(token), false); assert.equal(value.includes(cookie), false); assert.equal(value.includes(url), false);
+    }
+    assert.equal(redactWebOutput(`dsh web: ${url}\n`), 'dsh web: [login redacted]\n');
+    const shell = readFileSync(new URL('./.github/scripts/prove-packed-install.sh', import.meta.url), 'utf8');
+    assert.doesNotMatch(shell, /launch_url/u);
+  } finally { await stopOwnedChild(child, child.pid, true); }
+});
+
+test('real-daemon gates pin the published release, while universal adverse fixtures stay synthetic', async () => {
+  const { createHash } = await import('node:crypto');
+  const { verify, hostHashes, manifestHash } = await import('./.github/scripts/provision-sessionbus.mjs');
+  assert.deepEqual(Object.keys(hostHashes).sort(), ['darwin-amd64', 'darwin-arm64', 'linux-amd64', 'linux-arm64']);
+  assert.equal(manifestHash, 'ea2447b581a024d870c0c2d0b3833b168b793ea98cbb44649c8533b4ddff748a');
+  const bytes = Buffer.from('controlled checksum input');
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  verify(bytes, sha); assert.throws(() => verify(Buffer.from('changed'), sha), /published daemon release checksum/u);
+  assert.throws(() => verify(bytes, '0'.repeat(64)), /published daemon release checksum/u);
+  const packed = readFileSync(new URL('./.github/scripts/prove-packed-install.sh', import.meta.url), 'utf8');
+  assert.match(packed, /provision-sessionbus\.mjs" "\$work\/daemon-v0\.5\.16"/u);
+  assert.doesNotMatch(packed, /daemon-v0\.5\.12/u);
+  const pending = readFileSync(new URL('./.github/scripts/prove-peer-pending-input.mjs', import.meta.url), 'utf8');
+  assert.match(pending, /assert\.match\(versionResult\.stdout, \/\^sessionbus v0\\\.5\\\.16 \/u\)/u);
+  const universal = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
+  assert.match(universal, /if \(process\.env\.W125_INSTALL_MODE === 'project'\) \{/u);
+  assert.match(universal, /fake-permission-sessionbus\.mjs/u);
+  assert.match(universal, /provision-sessionbus\.mjs/u);
+  assert.match(universal, /released-groups-0\.5\.16/u);
 });
 
 function fixture(t, names = ['sessionbus']) {
@@ -682,7 +776,7 @@ test('pnpm 11 remedy is the actual README fenced text and exec has its own short
   const output = path.join(directory, 'remedy.sh');
   const run = childProcess.spawnSync(process.execPath, ['--input-type=module', '-', new URL('./README.md', import.meta.url).pathname, output], { input: block, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
-  assert.equal(readFileSync(output, 'utf8'), 'set -eu\npnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.1-alpha.3\n');
+  assert.equal(readFileSync(output, 'utf8'), 'set -eu\npnpm config set --global --json enableGlobalVirtualStore false\npnpm remove -g @deepseek-ai/dsh && pnpm add -g @deepseek-ai/dsh@0.2.2-rc.3\n');
   const driver = readFileSync(new URL('./.github/scripts/prove-universal-profile.mjs', import.meta.url), 'utf8');
   const line = driver.split('\n').find(line => line.includes('const milliseconds = args.includes(\'exec\')'));
   assert.ok(line); const bound = new Function('args', `${line}; return milliseconds`);
@@ -692,7 +786,19 @@ test('pnpm 11 remedy is the actual README fenced text and exec has its own short
 test('prepared and conflict candidate execs retain the same ten-second native completion bound', () => {
   const read = file => readFileSync(new URL(`./.github/scripts/${file}`, import.meta.url), 'utf8');
   const prepared = read('prove-packed-install.sh');
-  assert.equal(prepared.split('\n').filter(line => /^\s*installer_exec --profile /u.test(line)).length, 4);
+  // Includes the retained ordinary published-0.1.5 installer-upgrade baseline.
+  assert.equal(prepared.split('\n').filter(line => /^\s*installer_exec --profile /u.test(line)).length, 5);
+  const baseline = prepared.indexOf('add --save-exact @sessionbus/dsh@0.1.5');
+  const candidate = prepared.indexOf('add --save-exact "$tarball"');
+  const expected = [
+    'installer_exec --profile sessionbus exec sessionbus-dsh-install',
+    'installer_exec --profile web exec sessionbus-dsh-install --product dsh web',
+  ];
+  assert.ok(baseline >= 0 && candidate > baseline);
+  assert.deepEqual(prepared.slice(baseline, candidate).split('\n').filter(line => line.startsWith('installer_exec ')), expected);
+  assert.deepEqual(prepared.slice(candidate).split('\n').filter(line => line.startsWith('installer_exec ')), expected);
+  assert.doesNotMatch(prepared, /installer_exec .*--product dashi/u, 'cross-dashi call is retired to W-156, not retried');
+  assert.match(prepared, /prove-lane-options\.mjs" .*"\$root" sessionbus-dsh/u, 'standalone options proof expects its actual product, not the retired cross-dashi product');
   assert.match(prepared, /run "\$work\/exec-\$group_sequence\.json" exec env DSH_HOME=/u);
   const runner = read('proof-process-group-runner.mjs');
   assert.match(runner, /role === 'exec' \? setTimeout\(.*10_000\)/u);
@@ -866,4 +972,152 @@ test('the shared Node-proof interrupt handler closes its owned detached group be
     if (owned && !emptyGroup(owned)) signalOwnedGroup(owned, 'SIGKILL');
     signalOwnedGroup(parent, 'SIGKILL'); await parent.ended;
   }
+});
+
+function runtimeObserverFixture(destination, oracle) {
+  const sourceFile = new URL('./.github/fixtures/runtime-proof-plugin/plugin.cjs', import.meta.url).pathname;
+  const native = createRequire(import.meta.url), module = { exports: {} };
+  new Function('require', 'module', '__filename', readFileSync(sourceFile, 'utf8'))
+    (name => name === '../../scripts/runtime-oracle.cjs' ? oracle : native(name), module, sourceFile);
+  const effects = [], listeners = new Set();
+  let disposed = false, reads = 0;
+  const ctx = {
+    appReady: { onReady(call) { listeners.add(call); return () => listeners.delete(call); } },
+    get sessionController() { reads++; assert.equal(disposed, false, 'retired context read'); return {}; },
+    effect(call) { const cleanup = call(); effects.push(cleanup); return cleanup; },
+  };
+  module.exports.apply(ctx, { destination, version, mode: 'lane' });
+  return { ready: () => [...listeners].map(call => call()),
+    dispose() { disposed = true; for (const cleanup of effects.reverse()) cleanup(); },
+    get reads() { return reads; }, get listeners() { return listeners.size; } };
+}
+const observerDeferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+
+test('runtime observer cancels readiness and suppresses only disposed continuations', async t => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-observer-owner-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  for (const stage of ['inventory', 'upload']) for (const outcome of ['resolve', 'reject']) {
+    const destination = path.join(work, `${stage}-${outcome}.json`), held = observerDeferred();
+    let uploads = 0;
+    const fixture = runtimeObserverFixture(destination, {
+      inspectRuntime: () => stage === 'inventory' ? held.promise : Promise.resolve({ inventory: 'controlled' }),
+      ownUploadRefusal: () => { uploads++; return held.promise; },
+    });
+    const [running] = fixture.ready(); await Promise.resolve();
+    fixture.dispose();
+    if (outcome === 'resolve') held.resolve({ controlled: true }); else held.reject(new Error('retired failure'));
+    await running;
+    assert.equal(existsSync(destination), false, 'disposed observer cannot record any result');
+    assert.equal(fixture.reads, stage === 'inventory' ? 0 : 1);
+    assert.equal(uploads, stage === 'inventory' ? 0 : 1);
+    assert.equal(fixture.listeners, 0);
+  }
+  const destination = path.join(work, 'before-ready.json');
+  const before = runtimeObserverFixture(destination, { inspectRuntime() { assert.fail('cancelled readiness ran'); } });
+  before.dispose(); assert.deepEqual(before.ready(), []); assert.equal(before.reads, 0);
+  const active = runtimeObserverFixture(destination, {
+    inspectRuntime: async () => ({ inventory: 'controlled' }), ownUploadRefusal: async () => ({ refused: true }),
+  });
+  await Promise.all(active.ready());
+  assert.equal(JSON.parse(readFileSync(destination)).ok, true, 'live complete probe alone records success');
+  active.dispose();
+});
+
+test('runtime observer keeps the first active fatal error through retired teardown callbacks', async t => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-observer-error-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const destination = path.join(work, 'runtime.json'), late = observerDeferred();
+  const old = runtimeObserverFixture(destination, { inspectRuntime: () => late.promise });
+  const [retired] = old.ready(); old.dispose();
+  const first = new Error('first active fatal');
+  const current = runtimeObserverFixture(destination, { inspectRuntime: async () => { throw first; } });
+  const [failed] = current.ready();
+  await assert.rejects(failed, error => error === first);
+  const recorded = readFileSync(destination, 'utf8');
+  assert.equal(JSON.parse(recorded).ok, false); assert.equal(JSON.parse(recorded).error, String(first));
+  current.dispose(); late.reject(new Error('later disposal error'));
+  await retired;
+  assert.equal(readFileSync(destination, 'utf8'), recorded, 'teardown must not replace the first fatal record');
+});
+
+test('groups proof bounds short socket bytes before daemon boot and uses the selected CLI for every boot', () => {
+  const source = readFileSync(new URL('./.github/scripts/prove-session-groups.mjs', import.meta.url), 'utf8');
+  const checkSource = source.match(/function assertShortSocket\(socket\) \{[\s\S]*?\n\}/u)?.[0];
+  assert.ok(checkSource, 'socket preflight is an actual driver function');
+  const check = new Function('assert', `${checkSource}; return assertShortSocket`)(assert);
+  check('/tmp/' + 'a'.repeat(94)); check('/tmp/' + 'é'.repeat(47));
+  for (const socket of ['/tmp/' + 'a'.repeat(95), '/tmp/' + 'é'.repeat(48)]) {
+    assert.throws(() => check(socket), error => error.message.includes(socket)
+      && error.message.includes(`${Buffer.byteLength(socket)} bytes`) && /below 100/u.test(error.message));
+  }
+  assert.match(source, /socketDirectory = fs\.mkdtempSync\('\/tmp\/sbg\.'\)/u);
+  assert.ok(source.indexOf('assertShortSocket(socket);') < source.indexOf('const daemon = run('));
+  assert.match(source, /finally \{[\s\S]*?fs\.rmSync\(socketDirectory, \{ recursive: true, force: true \}\)/u);
+  assert.equal((source.match(/run\(dsh\[0\], \[\.\.\.dsh\.slice\(1\),/gu) || []).length, 2);
+  assert.doesNotMatch(source, /run\(path\.join\(home, 'node_modules\/\.bin\/dsh'\)/u);
+});
+
+test('groups worker requires the selected installed-profile kit with no ambient dependency tree', t => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-worker-kit-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const plugin = path.join(work, 'installed/profiles/web/node_modules/@sessionbus/dsh');
+  const kit = path.join(plugin, 'node_modules/@sessionbus/kit');
+  mkdirSync(kit, { recursive: true });
+  writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', dependencies: { '@sessionbus/kit': '0.5.16' } }));
+  writeFileSync(path.join(kit, 'package.json'), JSON.stringify({ name: '@sessionbus/kit', version: '0.5.16', main: 'index.cjs' }));
+  writeFileSync(path.join(kit, 'index.cjs'), 'exports.serveWorker=()=>{console.log("selected-installed-kit");return {closed:Promise.resolve(),serving:Promise.resolve()}};\n');
+  const entry = createRequire(fs.realpathSync(path.join(plugin, 'package.json'))).resolve('@sessionbus/kit');
+  const isolated = path.join(work, 'isolated'); mkdirSync(isolated);
+  const worker = path.join(isolated, 'worker.cjs');
+  fs.copyFileSync(path.resolve('.github/fixtures/groups-worker/worker.cjs'), worker);
+  for (const ambient of [false, true]) {
+    if (ambient) {
+      const poison = path.join(isolated, 'node_modules/@sessionbus/kit'); mkdirSync(poison, { recursive: true });
+      writeFileSync(path.join(poison, 'index.js'), 'throw new Error("ambient kit must never load");\n');
+    }
+    const result = childProcess.spawnSync(process.execPath, [worker], { env: { W120_KIT_ENTRY: entry }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, 'selected-installed-kit\n');
+  }
+  const missing = childProcess.spawnSync(process.execPath, [worker], { env: {}, encoding: 'utf8' });
+  assert.notEqual(missing.status, 0); assert.match(missing.stderr, /W120_KIT_ENTRY/u);
+  const driver = readFileSync('.github/scripts/prove-session-groups.mjs', 'utf8');
+  assert.match(driver, /createRequire\(fs\.realpathSync\(path\.join\(home, 'profiles\/web\/node_modules\/@sessionbus\/dsh\/package\.json'\)\)\)/u);
+  assert.match(driver, /W120_KIT_ENTRY: kitEntry/u);
+});
+
+test('CI keeps every exact-floor universal cell and adds one logged newest-Node Linux cell', () => {
+  const workflow = yaml.load(readFileSync('.github/workflows/ci.yml', 'utf8'));
+  const job = workflow.jobs.universal, matrix = job.strategy.matrix;
+  assert.deepEqual(matrix.os, ['ubuntu-latest', 'macos-15']);
+  assert.deepEqual(matrix.mode, ['npm-global', 'pnpm10-global', 'pnpm11-global', 'pnpm12-global', 'npx', 'project', 'mixed']);
+  assert.deepEqual(matrix.node, ['24.9.0']);
+  assert.deepEqual(matrix.include, [{ os: 'ubuntu-latest', mode: 'npm-global', node: '26' }]);
+  assert.equal(job.steps.find(step => step.uses?.startsWith('actions/setup-node@')).with['node-version'], '${{ matrix.node }}');
+  assert.ok(job.steps.some(step => step.run === 'node --version'), 'resolve and record the floating newest version');
+  assert.equal(job.strategy['fail-fast'], false);
+});
+
+test('upload-provider consumers share one list and the standalone checker copy equals it', () => {
+  const { UPLOAD_PROVIDER_MODULES, LEGACY_UPLOAD_PROVIDER } = createRequire(import.meta.url)('./.github/scripts/upload-providers.cjs');
+  assert.equal(UPLOAD_PROVIDER_MODULES.length, 3);
+  assert.equal(new Set(UPLOAD_PROVIDER_MODULES).size, 3);
+  assert.equal(LEGACY_UPLOAD_PROVIDER, helper);
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes(helper));
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes(ownEntry));
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes('@deepseek-ai/dsh-client-file-upload'));
+  assert.equal(Object.isFrozen(UPLOAD_PROVIDER_MODULES), true);
+  const operator = readFileSync('docs/HOST-INSTALL.md', 'utf8');
+  const copied = operator.match(/const uploadProviderModules = (\[[^\n]*\])/u);
+  assert.ok(copied); assert.deepEqual(JSON.parse(copied[1]), UPLOAD_PROVIDER_MODULES);
+  const oracle = readFileSync('.github/scripts/runtime-oracle.cjs', 'utf8');
+  assert.match(oracle, /require\("\.\/upload-providers\.cjs"\)/u);
+  assert.match(oracle, /UPLOAD_PROVIDER_MODULES\.includes\(entry\.moduleName\)/u);
+  const conflicts = readFileSync('.github/scripts/prove-native-row-conflicts.mjs', 'utf8');
+  assert.match(conflicts, /import \{ UPLOAD_PROVIDER_MODULES \} from '\.\/upload-providers\.cjs'/u);
+  assert.ok(conflicts.includes('const uploadProviderModules=${JSON.stringify(UPLOAD_PROVIDER_MODULES)};'));
+  assert.match(conflicts, /uploadProviderModules\.includes\(row\.moduleName\)/u);
 });
