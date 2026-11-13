@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 const { pathToFileURL } = require("node:url");
+const { LEGACY_UPLOAD_PROVIDER, UPLOAD_PROVIDER_MODULES } = require("./upload-providers.cjs");
 
 // Public inventory is read by DSH itself; no loader entries, implementation
 // records, Fiber identities, namespace equality or writable mirror are used.
@@ -49,7 +50,8 @@ function inspectFacts(ctx, { version, mode }, inventory) {
     assert.equal(selected?.version, cli.version, `mixed runtime ${entry.name}`);
     dsh.set(entry.name, selected.version);
   }
-  const owners = entries.filter(entry => ["@sessionbus/dsh/file-uploads-none", "@deepseek-ai/dsh-client-file-upload"].includes(entry.moduleName)
+  const owners = entries.filter(entry => UPLOAD_PROVIDER_MODULES.includes(entry.moduleName)
+    && (mode === "lane" || entry.moduleName !== LEGACY_UPLOAD_PROVIDER)
     && entry.enabled && entry.fiberPhase === "active");
   assert.equal(owners.length, 1, "one active configured upload provider, not one lock/physical copy");
   const owner = owners[0];

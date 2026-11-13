@@ -541,7 +541,7 @@ function createRuntime(ctx, config, dependencies, prepared) {
     execute,
   });
   // DSH GAP: its parameter-map DSL omits root openness. The returned schema is
-  // also the validation closure's schema (dsh-tools rc.2:838-863); pin this seam.
+  // also the validation closure's schema (dsh-tools rc.3 lib/types/schema.js:296-320); pin this seam.
   definition.parameters.additionalProperties = declaration.inputSchema.additionalProperties;
   const removeTool = ctx.tools.register(definition);
   const removeSkill = ctx.skills.register({

@@ -93,6 +93,6 @@ README names shipped archive gates rather than inventing budget/policy triggers.
 5. One branch/PR, architect review and exact-head CI/bot. No merge/tag/publish,
    owner-host installs, real credentials, owner process signal, or fleet action.
 
-df before install/gate/pack/native run. Coordinate windows with dsh-exec; remove
+df before install/gate/pack/native run. Coordinate windows with the other builder; remove
 generated dependencies/caches/stores/unpacked/capture scratch after checks,
 retaining source, archives and cited evidence. Roller is serial after this PR.

@@ -67,6 +67,17 @@ test('runtime oracle rejects wrong native facts, not harmless extra physical pac
   const services = make(); services.entries.push({ ...services.owner, entryId: 'second' }); assert.throws(() => check(services), /one active configured upload provider/u);
   const absent = make(); delete absent.ctx.fileUploads; assert.throws(() => check(absent), /native fileUploads/u);
   const unmounted = make(); unmounted.owner.fiberPhase = 'pending'; assert.throws(() => check(unmounted), /one active configured upload provider/u);
+  const coexist = make(); coexist.entries.push({ ...coexist.owner, entryId: 'legacy', moduleName: helper });
+  assert.throws(() => check(coexist), /one active configured upload provider/u, 'an active legacy provider cannot hide beside the owned lane row');
+  for (const legacy of [{ enabled: false, fiberPhase: 'active' }, { enabled: true, fiberPhase: 'pending' }]) {
+    const inactive = make(); inactive.entries.push({ ...coexist.entries.at(-1), ...legacy }); assert.equal(check(inactive).upload.activeConfiguredProviders, 1);
+  }
+  const web = make(), stock = packageAt('@deepseek-ai/dsh-client-file-upload', { version: cli.version });
+  web.owner.moduleName = stock.name; web.entries.push({ ...coexist.entries.at(-1) });
+  const webPackageOf = web.ctx.pluginPackages.packageOf;
+  web.ctx.pluginPackages.packageOf = (name, importer) => name === stock.name ? stock : webPackageOf(name, importer);
+  assert.equal(inspectFacts(web.ctx, { version, mode: 'web' }, { entries: web.entries }).upload.activeConfiguredProviders, 1,
+    'web keeps its existing exclusion until native coexistence is reviewed');
   const wrongRow = make(), packageOf = wrongRow.ctx.pluginPackages.packageOf;
   wrongRow.owner.moduleName = helper;
   wrongRow.ctx.pluginPackages.packageOf = (name, importer) => name === helper ? { ...plugin, name: helper } : packageOf(name, importer);
@@ -1048,4 +1059,65 @@ test('groups proof bounds short socket bytes before daemon boot and uses the sel
   assert.match(source, /finally \{[\s\S]*?fs\.rmSync\(socketDirectory, \{ recursive: true, force: true \}\)/u);
   assert.equal((source.match(/run\(dsh\[0\], \[\.\.\.dsh\.slice\(1\),/gu) || []).length, 2);
   assert.doesNotMatch(source, /run\(path\.join\(home, 'node_modules\/\.bin\/dsh'\)/u);
+});
+
+test('groups worker requires the selected installed-profile kit with no ambient dependency tree', t => {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'sessionbus-worker-kit-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const plugin = path.join(work, 'installed/profiles/web/node_modules/@sessionbus/dsh');
+  const kit = path.join(plugin, 'node_modules/@sessionbus/kit');
+  mkdirSync(kit, { recursive: true });
+  writeFileSync(path.join(plugin, 'package.json'), JSON.stringify({ name: '@sessionbus/dsh', dependencies: { '@sessionbus/kit': '0.5.16' } }));
+  writeFileSync(path.join(kit, 'package.json'), JSON.stringify({ name: '@sessionbus/kit', version: '0.5.16', main: 'index.cjs' }));
+  writeFileSync(path.join(kit, 'index.cjs'), 'exports.serveWorker=()=>{console.log("selected-installed-kit");return {closed:Promise.resolve(),serving:Promise.resolve()}};\n');
+  const entry = createRequire(fs.realpathSync(path.join(plugin, 'package.json'))).resolve('@sessionbus/kit');
+  const isolated = path.join(work, 'isolated'); mkdirSync(isolated);
+  const worker = path.join(isolated, 'worker.cjs');
+  fs.copyFileSync(path.resolve('.github/fixtures/groups-worker/worker.cjs'), worker);
+  for (const ambient of [false, true]) {
+    if (ambient) {
+      const poison = path.join(isolated, 'node_modules/@sessionbus/kit'); mkdirSync(poison, { recursive: true });
+      writeFileSync(path.join(poison, 'index.js'), 'throw new Error("ambient kit must never load");\n');
+    }
+    const result = childProcess.spawnSync(process.execPath, [worker], { env: { W120_KIT_ENTRY: entry }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, 'selected-installed-kit\n');
+  }
+  const missing = childProcess.spawnSync(process.execPath, [worker], { env: {}, encoding: 'utf8' });
+  assert.notEqual(missing.status, 0); assert.match(missing.stderr, /W120_KIT_ENTRY/u);
+  const driver = readFileSync('.github/scripts/prove-session-groups.mjs', 'utf8');
+  assert.match(driver, /createRequire\(fs\.realpathSync\(path\.join\(home, 'profiles\/web\/node_modules\/@sessionbus\/dsh\/package\.json'\)\)\)/u);
+  assert.match(driver, /W120_KIT_ENTRY: kitEntry/u);
+});
+
+test('CI keeps every exact-floor universal cell and adds one logged newest-Node Linux cell', () => {
+  const workflow = yaml.load(readFileSync('.github/workflows/ci.yml', 'utf8'));
+  const job = workflow.jobs.universal, matrix = job.strategy.matrix;
+  assert.deepEqual(matrix.os, ['ubuntu-latest', 'macos-15']);
+  assert.deepEqual(matrix.mode, ['npm-global', 'pnpm10-global', 'pnpm11-global', 'pnpm12-global', 'npx', 'project', 'mixed']);
+  assert.deepEqual(matrix.node, ['24.9.0']);
+  assert.deepEqual(matrix.include, [{ os: 'ubuntu-latest', mode: 'npm-global', node: 'current' }]);
+  assert.equal(job.steps.find(step => step.uses?.startsWith('actions/setup-node@')).with['node-version'], '${{ matrix.node }}');
+  assert.ok(job.steps.some(step => step.run === 'node --version'), 'resolve and record the floating newest version');
+  assert.equal(job.strategy['fail-fast'], false);
+});
+
+test('upload-provider consumers share one list and the standalone checker copy equals it', () => {
+  const { UPLOAD_PROVIDER_MODULES, LEGACY_UPLOAD_PROVIDER } = createRequire(import.meta.url)('./.github/scripts/upload-providers.cjs');
+  assert.equal(UPLOAD_PROVIDER_MODULES.length, 3);
+  assert.equal(new Set(UPLOAD_PROVIDER_MODULES).size, 3);
+  assert.equal(LEGACY_UPLOAD_PROVIDER, helper);
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes(helper));
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes(ownEntry));
+  assert.ok(UPLOAD_PROVIDER_MODULES.includes('@deepseek-ai/dsh-client-file-upload'));
+  assert.equal(Object.isFrozen(UPLOAD_PROVIDER_MODULES), true);
+  const operator = readFileSync('docs/HOST-INSTALL.md', 'utf8');
+  const copied = operator.match(/const uploadProviderModules = (\[[^\n]*\])/u);
+  assert.ok(copied); assert.deepEqual(JSON.parse(copied[1]), UPLOAD_PROVIDER_MODULES);
+  const oracle = readFileSync('.github/scripts/runtime-oracle.cjs', 'utf8');
+  assert.match(oracle, /require\("\.\/upload-providers\.cjs"\)/u);
+  assert.match(oracle, /UPLOAD_PROVIDER_MODULES\.includes\(entry\.moduleName\)/u);
+  const conflicts = readFileSync('.github/scripts/prove-native-row-conflicts.mjs', 'utf8');
+  assert.match(conflicts, /import \{ UPLOAD_PROVIDER_MODULES \} from '\.\/upload-providers\.cjs'/u);
+  assert.ok(conflicts.includes('const uploadProviderModules=${JSON.stringify(UPLOAD_PROVIDER_MODULES)};'));
+  assert.match(conflicts, /uploadProviderModules\.includes\(row\.moduleName\)/u);
 });

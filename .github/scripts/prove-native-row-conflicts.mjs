@@ -4,6 +4,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertEmptyGroup, signalOwnedGroup, stopOwnedChild, installInterruptCleanup } from './proof-process-group.mjs';
+import { UPLOAD_PROVIDER_MODULES } from './upload-providers.cjs';
 
 const [work, commandJSON, candidate] = process.argv.slice(2);
 assert.ok(work && commandJSON && candidate);
@@ -50,7 +51,8 @@ exports.apply=async(ctx,config)=>{
  const walk=value=>{if(!value||typeof value!=='object')return;if(value.id==='sessionbus')buses.push(value);for(const child of Object.values(value))walk(child);};
  walk(composed);
  const rows=(await readPluginInventory(ctx)).entries;
- const providers=rows.filter(row=>row.enabled&&row.fiberPhase==='active'&&['@antst/dsh-file-uploads-none','@sessionbus/dsh/file-uploads-none'].includes(row.moduleName));
+ const uploadProviderModules=${JSON.stringify(UPLOAD_PROVIDER_MODULES)};
+ const providers=rows.filter(row=>row.enabled&&row.fiberPhase==='active'&&uploadProviderModules.includes(row.moduleName));
  if(providers.length!==1)throw Error('expected sole active configured upload row');
  for(const method of ['registerAgentResolver','resolve','bindPrompt','retirePrompt'])if(typeof ctx.fileUploads[method]!=='function')throw Error('missing native upload behavior '+method);
  const provider=providers[0],importer=pathToFileURL(path.join(ctx.profileContext.dir,'cordis.yml')).href;

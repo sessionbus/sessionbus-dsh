@@ -8,7 +8,7 @@
 - Use public `subagents.rootOf` over `agents.list` for peer publication, delivery and groups. Peer compositions require `subagents`; missing root authority gives a named startup refusal instead of publishing all agents or waiting indefinitely.
 - Select lane model and effort with `llm.resolveCallConfig` and `agent.model.select` inside public `runMaintenance`, never the profile-saving GUI API or a private selection lock. A busy resumed lane opened with model or effort refuses cleanly; it is not queued. Cancellation after a durable selection does not roll it back.
 - Fold the unreleased 0.1.6 file-transfer work below into 0.2.0. **0.1.6 was never published.** Kit 0.5.16, the frozen common declaration and the packaged skill stay unchanged by the DSH migration.
-- Native validation and live-model acceptance results are recorded in the W-155 proof map; no historical PASS establishes this candidate's result.
+- Native validation results are recorded in the W-155 proof map; the held live-model transfer acceptance is NOT RUN. No historical PASS establishes this candidate's result.
 
 ### Unreleased 0.1.6 work included in 0.2.0
 

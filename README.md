@@ -109,8 +109,10 @@ entry. There is no dependency or peer on `@antst/dsh-file-uploads-none`; web
 receives no no-upload row, and dashi-app keeps ownership of its own provider.
 Peer mode does not require the Session Controller: the same add/exec commands
 work for `acp`, `headless` and `sdk`, replacing `web` with the profile name.
-Peer mode requires DSH's `subagents` service for exact live root identity;
-ordinary forks remain independent roots, and managed children are not published.
+Peer publication follows DSH's required `subagents.rootOf` contract
+(`dsh-subagent` 0.2.2-rc.3, `lib/index.js:1643-1651`): only exact live agents
+that are their own runtime root are published. Unit and real-Cordis controls
+cover that predicate; a native fork/subagent control was not run.
 Lane mode requires the controller at host readiness. If the mode's required
 service is missing, startup prints one named fatal reason and exits 1 instead
 of waiting indefinitely.

@@ -1,15 +1,15 @@
 # W-155: DSH 0.2.2-rc.3 / plugin 0.2.0
 
 Authority: accepted phase-0 report a96e1f72, rulings ca041be7,
-STOP disposition 5c4964e7, renderer re-baseline k0fymi03 and cross-dashi
-sequencing fzsm3q1r. Base cb8a563a97e14810e9bce8d118ac7d48e19aa072.
+STOP disposition 5c4964e7, the architect's deliberate renderer re-baseline
+and cross-dashi sequencing rulings. Base cb8a563a97e14810e9bce8d118ac7d48e19aa072.
 Old W-154 and earlier proof maps are historical, not current support claims.
 Kit 0.5.16, common declaration and skill remain unchanged.
 
 ## Native preparation-refusal gap and shipped triggers (W1-W3)
 
-The sealed initial failing observation remains at
-`/home/antst/.local/state/dsh-architect/dsh-0.2.2/W155-PREPARATION-STOP/`:
+The sealed initial failing observation remains in the retained
+`W155-PREPARATION-STOP` evidence packet:
 REPORT 1b253400, MANIFEST 8a74a2e4. An acknowledged marker was claimed,
 refused, not retained, not committed and not model-seen; the native end was
 blocked. W2 makes these exact facts a rc.3-only KNOWN-GAP oracle, not a
@@ -56,6 +56,12 @@ plus one native observation, not an upstream fix or a model decision.
 - Six renderer-independent oracles retain the reviewed 0.1.6 bytes exactly.
   Separate model-renderer-0.2.0.json deliberately pins measured rc.3 TS9076B
   e02cad11… and Python9323B44334eb1…. Any other producer is UNVERIFIED/non-zero.
+  These pins use function-body format, re-implemented mapping, not the
+  executor's own output. The public renderToolsSdk/renderToolsSdkPy functions
+  are exported in dsh-tool-executor-ptc rc.3 lib/types/index.d.ts:36-37;
+  PtcExecutor.renderSdk is private (:17). Its internal mapping passes the
+  runtime's programFormat (lib/index.js:1829-1836); that private method is not
+  called by this proof. No active-runtime-format claim is made by these pins.
   Alpha.3 fixture stays byte-identical as history. Root-false carry stays.
 - Pre.20 GUI-selection and dashi-app/launcher0.2.0-alpha.2 native before-proofs
   are retired as historical evidence, never booted under rc.3. The ordinary
@@ -248,7 +254,7 @@ logical cancellation from joining: earlier peer removals, deferred admission
 timers and the Worker are not newly joined. The existing real Cordis 4.1
 replacement/disposal and held-import controls remain product evidence.
 
-Observer correction, approved in p416dzi3q42q: one alive flag per activation;
+Architect-approved observer correction: one alive flag per activation;
 register and cancel appReady.onReady through ctx.effect; check alive after
 each awaited probe and in catch. Active errors still save and throw. A
 disposed continuation must neither access a retired context, write PASS nor
@@ -257,7 +263,7 @@ the actual fixture with held import/probe results, stale resolve/reject,
 active failure, cancellation before ready, and first-error preservation.
 No new runtime dependency, product state, retry, permission or model action.
 
-Architect follow-up yh2d9p9grlxh: the setImmediate at plugin.cjs:285 is NOT
+Architect follow-up: the setImmediate at plugin.cjs:285 is NOT
 cleared by activation disposal (there is no clearImmediate/clearTimeout for
 it in the lifecycle disposer:678-687). After disposal the peer closure
 short-circuits at ready=false:465,679 before root or any ctx service; the
@@ -287,9 +293,9 @@ wake. It then STOPPED before its new released-daemon groups leg: the daemon
 refused its generated operator socket path (119 bytes, above its107 limit)
 under the long private evidence directory. Log aaa72f66; candidate archive
 remains05bcf6a6352e6fd70e26bf662a677c42c1d442fc596e472f7d5fa5b412790b6e.
-The stopped root is sessionbus-universal.jNcORTay; no native child remains.
+The stopped universal-project root is retained as evidence; no native child remains.
 
-Socket correction authority dndvtpnbbh7r: only the socket moves into a new
+Architect-approved socket correction: only the socket moves into a new
 private /tmp/sbg.* directory (never TMPDIR); all logs, table/state and session
 evidence stay in the original work. An actual preflight rejects >=100 BYTES
 before daemon start, naming path and length, so Linux and macOS bounds are
@@ -302,6 +308,225 @@ normal boots (packed default unchanged). A unit pins short ASCII/multibyte
 boundaries, pre-spawn ordering, cleanup and both CLI sites. It failed first
 without the guard. Only groups alone re-runs against the SAME install; the
 full local project row is not repeated. Hosted CI owns the full matrix.
+
+## First hosted run and package-lookup sweep
+
+Run43431283246, exact head6a4a4b9, completed with14 successes,2 project
+failures and the failed aggregate. There were ZERO cancellations (matrix
+fail-fast is false). Both project rows passed README, native lane/web/adverse
+and groups publication/Zod checks, then refused the test Worker spawn.
+The helper resolved bare @sessionbus/kit from the source-tree ancestry;
+universal rows deliberately do not install root dependencies. Local root
+dependencies had hidden this. After cleanup the same source anchor reports
+MODULE_NOT_FOUND. This is a proof dependency, not a plugin runtime finding.
+Original Linux and macOS job logs and job metadata are retained; no rerun.
+
+| Hosted row at6a4a4b9 | Result |
+| --- | --- |
+| DSH0.2.2-rc.3 compatibility / full packed | PASS |
+| Native DSHrc.2 below-floor refusal | PASS |
+| Universal ubuntu-latest / npm-global | PASS |
+| Universal ubuntu-latest / pnpm10-global | PASS |
+| Universal ubuntu-latest / pnpm11-global | PASS |
+| Universal ubuntu-latest / pnpm12-global | PASS |
+| Universal ubuntu-latest / npx | PASS |
+| Universal ubuntu-latest / project | FAIL: groups Worker spawn_failed |
+| Universal ubuntu-latest / mixed | PASS |
+| Universal macos-15 / npm-global | PASS |
+| Universal macos-15 / pnpm10-global | PASS |
+| Universal macos-15 / pnpm11-global | PASS |
+| Universal macos-15 / pnpm12-global | PASS |
+| Universal macos-15 / npx | PASS |
+| Universal macos-15 / project | FAIL: same groups Worker spawn_failed |
+| Universal macos-15 / mixed | PASS |
+| Aggregate gate | FAIL (dependencies failed) |
+
+Architect-approved test-only correction: resolve the kit entry with
+createRequire anchored at the installed web profile plugin's real
+package.json, and pass W120_KIT_ENTRY through the owned daemon environment.
+The Worker requires EXACTLY that absolute entry; absence refuses, with no
+ambient fallback. This also proves the shipped kit rather than a root-dev
+copy. It changes no product, action, tool, skill or archive bytes. The
+failing-first no-ambient control copies the actual Worker into an isolated
+consumer and supplies the selected fake installed-kit entry; it also poisons
+an ambient kit and checks missing-entry refusal. It is a dependency control,
+not a native Worker protocol or model result.
+
+CodeRabbit full exact-head review5891674693 and its sole inline4563744862
+were read in full. The provider-count finding is valid: the lane inventory
+could count own+legacy active rows as one. The approved correction includes
+legacy uploads-none in the LANE count, with a failing-first coexistence
+mutation; disabled/pending legacy rows remain excluded. Web stays unchanged
+pending a native coexistence consequence review. This is an oracle fix, not
+a product provider, permission or behavior change. Both test-only fixes are
+held for the independent review's findings before ONE correction push.
+
+Read-only package-lookup sweep at6a4a4b9 (line numbers below are that snapshot;
+the one corrected ambient site is marked). All proof scripts, workers,
+fixtures, inline shell drivers and root units were searched, including
+dynamic createRequire/resolve/load calls and generated code. Builtin node:*
+modules and relative/local files are excluded: they do not select a package.
+Fixture JSON strings, npm view/install operands and type-only declarations
+are distinguished from executable module loads. No other ambient case was
+found. Classes: INSTALLED PRODUCT; ROOT DEVDEPENDENCIES (the declared root
+test installation, including its production js-yaml/kit dependencies; allowed
+only in rows that install root); AMBIENT (must be corrected).
+
+| file:line, every non-builtin lookup site | Class and actual owner / caller |
+| --- | --- |
+| .github/fixtures/groups-worker/worker.cjs:6 @sessionbus/kit | AMBIENT → INSTALLED PRODUCT: corrected to W120_KIT_ENTRY, resolved by the groups driver from installed profile plugin package.json; no fallback. |
+| .github/scripts/prove-session-groups.mjs:15 @sessionbus/kit | INSTALLED PRODUCT: already bound to installed profile plugin; correction uses its real package.json for both connectPeer and Worker entry. |
+| .github/scripts/prove-agent-steer-boundary.mjs:2 Cordis | INSTALLED PRODUCT: packed driver:302 feeds this source to node stdin AFTER cd to installed home; not executed at source filename. |
+| .github/scripts/prove-agent-steer-boundary.mjs:3 dsh-agent | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:4 dsh-agent-loop | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:5 dsh-llm | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:6 dsh-session | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:7 dsh-session-projection | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:8 dsh-system-prompt | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:9 dsh-tools | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-agent-steer-boundary.mjs:10 native executor | INSTALLED PRODUCT: same installed-home stdin execution. |
+| .github/scripts/prove-domain-schema.mjs:14 storage-domain | INSTALLED PRODUCT: createRequire at CLI closure's real storage-domain producer manifest:12. |
+| .github/scripts/prove-domain-schema.mjs:15 storage | INSTALLED PRODUCT: same producer anchor. |
+| .github/scripts/prove-domain-schema.mjs:16 storage-json | INSTALLED PRODUCT: same producer anchor. |
+| .github/scripts/prove-domain-schema.mjs:17 Cordis | INSTALLED PRODUCT: same producer anchor. |
+| .github/scripts/prove-domain-schema.mjs:19 root Zod | ROOT DEVDEPENDENCIES: explicit4.6.6 foreign-factory control; packed compatibility row installs root before this driver. Never called by universal. |
+| .github/scripts/prove-domain-schema.mjs:24 foreign index.cjs | ROOT DEVDEPENDENCIES: explicit own copied foreign Zod fixture from:19, not an ambient selector. |
+| .github/scripts/prove-domain-schema.mjs:25 producer Zod | INSTALLED PRODUCT: native producer anchor:12. |
+| .github/scripts/dsh-cli-pins.mjs:16 Zod manifest | INSTALLED PRODUCT: traversed installed CLI storage-domain owner manifest. |
+| .github/scripts/dsh-cli-pins.mjs:22 dynamic DSH manifests | INSTALLED PRODUCT: per-package real manifest during installed-closure walk. |
+| .github/scripts/dsh-cli-pins.mjs:31 storage-domain | INSTALLED PRODUCT: real installed plugin manifest:30. |
+| .github/scripts/dsh-cli-pins.mjs:32 producer Zod | INSTALLED PRODUCT: real storage-domain manifest. |
+| .github/scripts/dsh-cli-pins.mjs:33 plugin Zod | INSTALLED PRODUCT: real installed plugin manifest:30. |
+| .github/scripts/prove-packed-install.sh:295 dynamic peer manifests | INSTALLED PRODUCT: inline createRequire at installed home/package.json:276. |
+| .github/scripts/prove-packed-install.sh:297 plugin manifest | INSTALLED PRODUCT: absolute installed profile path, no bare lookup. |
+| .github/scripts/prove-mode-controller.mjs:12 Cordis | INSTALLED PRODUCT: supplied real DSH manifest:10. |
+| .github/scripts/prove-mode-controller.mjs:13 dsh-tools | INSTALLED PRODUCT: same native anchor. |
+| .github/scripts/prove-mode-controller.mjs:14 native executor | INSTALLED PRODUCT: same native anchor. |
+| .github/scripts/prove-mode-controller.mjs:15 PTC renderer | INSTALLED PRODUCT: same native anchor. |
+| .github/scripts/prove-mode-controller.mjs:16 tools manifest | INSTALLED PRODUCT: same native anchor; explicit renderer oracle version. |
+| .github/scripts/prove-mode-controller.mjs:67 PTC manifest | INSTALLED PRODUCT: same native anchor; producer version pinned. |
+| .github/scripts/prove-mode-controller.mjs:213 Cordis resolution provenance | INSTALLED PRODUCT: same native anchor. |
+| .github/scripts/prove-peer-pending-input.mjs:66 @sessionbus/kit | INSTALLED PRODUCT: real supplied installed plugin manifest:65. |
+| .github/scripts/prove-peer-pending-input.mjs:72 plugin | INSTALLED PRODUCT: same installed plugin anchor; exact candidate version asserted. |
+| .github/scripts/prove-peer-pending-input.mjs:77 dynamic DSH modules and manifests | INSTALLED PRODUCT: supplied installed CLI manifest:64; each producer source/version recorded. |
+| .github/scripts/prove-peer-pending-input.mjs:82,83 profile-boot | INSTALLED PRODUCT: load helper uses installed CLI anchor, not source ancestry. |
+| .github/scripts/prove-peer-pending-input.mjs:82,84 app-boot | INSTALLED PRODUCT: same load helper/anchor. |
+| .github/scripts/prove-peer-pending-input.mjs:82,85 session | INSTALLED PRODUCT: same load helper/anchor. |
+| .github/fixtures/pending-input-model/plugin.cjs:15 llm | INSTALLED PRODUCT: supplied real native manifest:14; fixture copied into own scratch, not resolved from its source path. |
+| .github/scripts/runtime-oracle.cjs:12 host inventory | INSTALLED PRODUCT: public profileContext.installAnchor:11. |
+| .github/scripts/runtime-oracle.cjs:34 semver | INSTALLED PRODUCT: actual app-boot producer's real manifest, selected by public package table:29-34. |
+| .github/scripts/prove-native-row-conflicts.mjs:46 host inventory | INSTALLED PRODUCT: generated observer loads from public profileContext.installAnchor:45. |
+| .github/scripts/prove-native-row-conflicts.mjs:47 app-boot | INSTALLED PRODUCT: same native observer anchor. |
+| .github/scripts/prove-runtime-resolution.mjs:14 Cordis manifest | INSTALLED PRODUCT: installed CLI's real manifest:12-13; invokes runbook's anchored checker. |
+| .github/fixtures/groups-proof-plugin/plugin.cjs:37 producer Zod | INSTALLED PRODUCT: public native packageOf storage-domain manifest:36. |
+| .github/fixtures/groups-proof-plugin/plugin.cjs:38 plugin Zod | INSTALLED PRODUCT: public packageOf plugin's real importer:34-35. |
+| .github/scripts/prove-host.cjs:445 js-yaml | INSTALLED PRODUCT: real profile plugin importer:681. |
+| .github/scripts/prove-host.cjs:734 js-yaml | INSTALLED PRODUCT: same profile plugin importer. |
+| .github/scripts/prove-host.cjs:901 js-yaml | INSTALLED PRODUCT: same profile plugin importer. |
+| .github/scripts/prove-stock-peers.mjs:15 js-yaml | ROOT DEVDEPENDENCIES: explicit repo/package.json:14; invoked only packed:253, whose compatibility row installs root. Never called by universal. |
+| .github/scripts/prove-lane-options-before.mjs:7 js-yaml | ROOT DEVDEPENDENCIES: historical before-driver only, retired from current gate; no old native boot. |
+| .github/scripts/prove-dashi-resolution.mjs:39 DSH manifest | INSTALLED PRODUCT: historical before-driver discovery from supplied installed home manifest:38, retired from current gate. |
+| .github/scripts/prove-dashi-resolution.mjs:41 Cordis | INSTALLED PRODUCT: same historical CLI's real anchor:40. |
+| .github/scripts/prove-dashi-resolution.mjs:42 app-boot | INSTALLED PRODUCT: same historical CLI anchor. |
+| docs/HOST-INSTALL.md:479 Zod;486 dynamic DSH manifests | INSTALLED PRODUCT: real per-package manifests in installed CLI closure walk, not source cwd. |
+| docs/HOST-INSTALL.md:548 profile-boot | INSTALLED PRODUCT: checker anchored at installed CLI manifest:534-535. |
+| docs/HOST-INSTALL.md:549 app-boot | INSTALLED PRODUCT: same checker anchor. |
+| docs/HOST-INSTALL.md:550 host inventory | INSTALLED PRODUCT: same checker anchor. |
+| docs/HOST-INSTALL.md:577 producer Zod | INSTALLED PRODUCT: public native storage-domain package's real manifest. |
+| docs/HOST-INSTALL.md:599 plugin Zod | INSTALLED PRODUCT: public installed plugin's real importer. |
+| docs/HOST-INSTALL.md:1119 js-yaml | INSTALLED PRODUCT: CLI real manifest passed to helper:1114-1118. |
+| docs/HOST-INSTALL.md:1583 home-paths | INSTALLED PRODUCT: historical provider checker, anchored real installed CLI manifest:1581-1582. |
+| docs/HOST-INSTALL.md:1592 app-boot | INSTALLED PRODUCT: same historical checker anchor. |
+| plugin.test.cjs:12 kit;2500 kit ACTIONS | ROOT DEVDEPENDENCIES: declared kit0.5.16 in the frozen npm-test root installation; no universal subprocess depends on it. |
+| package.test.cjs:22 kit ACTIONS | ROOT DEVDEPENDENCIES: same root test installation. |
+| package.test.cjs:177 js-yaml;204 js-yaml | ROOT DEVDEPENDENCIES: declared root dependency, test-only callers. |
+| package.test.cjs:340,342 generated Zod consumers | ROOT DEVDEPENDENCIES: controlled unit fixture installs its own synthetic producer/plugin packages; intentionally wrong alias is a negative control, not a runtime dependency. |
+| package.test.cjs:409 file-uploads-none import | ROOT DEVDEPENDENCIES: controlled isolated installed-consumer test fixture; source package is supplied explicitly, not an undeclared global. |
+| universal-install.test.mjs:10 js-yaml | ROOT DEVDEPENDENCIES: root npm-test row installs declared dependencies; the universal driver does not import this unit module. |
+| universal-install.test.mjs:39 semver | INSTALLED PRODUCT: published npm executable's own dependency, required by the controlled inventory unit, not by a native profile. |
+| install.test.mjs:7 js-yaml | ROOT DEVDEPENDENCIES: declared root test installation. |
+| .github/fixtures/file-uploads-none-alpha/lib/index.d.ts:1 Cordis type | INSTALLED PRODUCT: historical fixture peer type declaration only; emitted JavaScript has no package load. Not run under current rc.3. |
+
+All other scripts/fixtures have only node:* builtins and/or local relative
+imports (including synthetic daemons and the lifecycle observer's relative
+runtime-oracle helper). JSON/YAML fixture payloads contain no executable bare
+package imports. No root install is added to universal to hide this defect.
+
+## Independent-review corrections after 6a4a4b9 (local complete, hosted pending)
+
+The runtime migration was accepted; the two red hosted project rows have the
+same installed-kit resolution defect above. One bundled correction follows
+that review and preserves all adverse assertions and historical failures.
+
+- The lane active-provider oracle must count the legacy no-upload row too.
+  Own+legacy active must refuse; disabled and pending rows do not count.
+  Web's prior legacy-row exclusion is unchanged: no unmeasured web coexistence
+  claim is added. One shared three-name constant feeds the runtime oracle and
+  generated row-conflict observer. The documented closure checker remains
+  standalone for copying to hosts; its sole literal copy is equality-pinned
+  by a unit. No product provider, lifecycle, permission or receipt changes.
+- The 14 exact Node24.9.0 universal cells stay; one Linux npm-global cell
+  additionally uses setup-node's documented `current` alias and logs the
+  resolved Node version. This is newest-line coverage, not a floating floor.
+  Alias provenance: actions/setup-node README, Supported version syntax.
+- README now qualifies publication by the public rootOf contract, citing
+  dsh-subagent rc.3 lib/index.js:1643-1651. A native fork/subagent control was
+  NOT RUN. The existing predicate units and real-Cordis controls are not
+  relabelled as native subagent observations. CHANGELOG says the held live
+  real-model transfer acceptance is NOT RUN.
+- The authorized archive re-cut changes only that README wording and the
+  plugin.cjs root-schema comment's rc.3 source cite (text/whitespace only).
+  Packed behavior, frozen declaration, skill and kit remain unchanged. The
+  new archive must be compared member-by-member to 05bcf6a6, not inferred from
+  a source diff. Cross-dashi preliminary results on the old bytes remain
+  preliminary; final cross-dashi gates require the reviewed new archive.
+- Public proof docs and the historical operations example use neutral host,
+  user and path placeholders. Historical versions, evidence hashes, facts
+  and limitations are preserved; no owner host is read or changed.
+- The PTC pin's limit is stated next to the pin: function-body format,
+  re-implemented mapping, not the executor's own output. The rc.3 declarations
+  make renderSdk private; no private call or new adapter is introduced.
+
+Deferred review notes, not behavior changes in this correction: root() may
+rethrow a non-UNAUTHORIZED native error through agent/created; native subagent
+coverage remains unrun. No queue, replay, fallback or new error swallowing is
+added to address either limitation.
+
+Correction checks on exact Node24.9.0, frozen pnpm10.28.1 installation:
+
+- Both failing-first controls failed before the fixture/oracle correction:
+  missing expected own+legacy refusal, and MODULE_NOT_FOUND in the isolated
+  actual worker. The corrected controls pass, including poisonous ambient
+  kit, missing-entry refusal, disabled/pending legacy rows and unchanged web
+  counting. These are dependency/inventory controls, not native model runs.
+- Focused correction controls4/4 PASS; full npm test260/260 PASS, zero skipped,
+  cancelled or TODO. The classified stale inventory remains181 entries, with
+  line positions updated for reviewed edits only; no new stale assumption.
+- Canonical npm11.12.1 pack on Node24.9.0:
+  `db14b0e6336772a6a94f691dda199f5922938cdf981238958a13e04fa244fc2a`.
+  All10 packed members equal source; the same10 names and modes are retained.
+  Comparison against earlier05bcf6a6, member by member:
+
+  | Member | Delta |
+  | --- | --- |
+  | README.md | Authorized source-qualified root contract / unrun-control wording only |
+  | bin.mjs | Byte-identical |
+  | docs/LANE-WITHOUT-TUI.md | Byte-identical |
+  | file-uploads-none.mjs | Byte-identical |
+  | install.mjs | Byte-identical |
+  | launcher.mjs | Byte-identical |
+  | package.json | Byte-identical |
+  | plugin.cjs | Exactly one // comment line changes the stale cite to rc.3 lib/types/schema.js:296-320; all other bytes identical |
+  | sessionbus-tool.json | Byte-identical,16430e214e8808ff7d9fbac30ef422f607c965903d14e7b4812a3e6b108209da |
+  | skills/sessionbus.md | Byte-identical,28eca4f3f014757c1e4b0a30f70afca1e83435d93843bc8e71be3b120907eff4 |
+
+No new full local project repeat was run. The original full packed and
+below-floor results above remain behavior evidence, not a claim that the
+corrected universal row passed locally. The corrected hosted matrix, including
+the newest-Node Linux cell and the macOS groups timing, is pending at push.
+The new reviewed archive replaces05bc for final cross-dashi validation; old
+preliminary results remain labelled preliminary. Live-model transfer
+acceptance is still NOT RUN.
 
 ## Classified stale-assumption sweep (before final full gate)
 
@@ -348,7 +573,7 @@ All kept hits (181):
 - (b) .github/scripts/prove-mode-controller.mjs:64 — "  const { prefix } = JSON.parse(fs.readFileSync(new URL('../fixtures/model-prefix-0.1.6.json', import.meta.url)));" — Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current.
 - (b) .github/scripts/prove-mode-controller.mjs:70 — "  for (const product of ['dsh', 'dashi', 'sessionbus-dsh']) {" — Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current.
 - (b) .github/scripts/prove-mode-controller.mjs:90 — "        typescript: renderToolsSdk(sdk), python: renderToolsSdkPy(sdk)," — Unchanged historical declaration/skill fixture or supported synthetic product label; actual renderer import and rc.3 pin are current.
-- (b) .github/scripts/prove-native-row-conflicts.mjs:76 — "    const added = await run(['plugin', '--profile', name, 'add', '--save-exact', candidate, bundle, '@antst/dsh-file-uploads-none@0.2.0-alpha.2'], `${kind}-native-add`);" — Intentional legacy external-provider coexistence negative control under current DSH; not an old DSH/dashi runtime.
+- (b) .github/scripts/prove-native-row-conflicts.mjs:78 — "    const added = await run(['plugin', '--profile', name, 'add', '--save-exact', candidate, bundle, '@antst/dsh-file-uploads-none@0.2.0-alpha.2'], `${kind}-native-add`);" — Intentional legacy external-provider coexistence negative control under current DSH; not an old DSH/dashi runtime.
 - (b) .github/scripts/prove-packed-install.sh:219 — "for profile in sessionbus web dashi; do" — Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh.
 - (b) .github/scripts/prove-packed-install.sh:226 — "  DSH_HOME=\"$home\" \"$dsh\" plugin --profile \"$profile\" add --save-exact @sessionbus/dsh@0.1.5 @antst/dsh-file-uploads-none@0.2.0-alpha.2" — Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh.
 - (b) .github/scripts/prove-packed-install.sh:244 — "DSH_HOME=\"$home\" \"$dsh\" plugin --profile dashi add \"$root/.github/fixtures/bundle-provides-sessionbus\"" — Published0.1.5/legacy unused-provider upgrade baseline, synthetic dashi-labelled bundle-refusal/profile checks, or explicit NOT RUN cross-dashi notice; actual standalone lane expects sessionbus-dsh.
@@ -478,27 +703,27 @@ All kept hits (181):
 - (b) plugin.test.cjs:2591 — "      const runtime = createRuntime(ctx, { product: \"dashi\" }, deps);" — Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call.
 - (b) plugin.test.cjs:2603 — "      [\"spawn\", { product: \"dashi\", name: \"worker\", extra_groups: [\"team\"], persistent: true, notify: false, notify_target: \"owner\", auto_close_ms: 0, trace: \"events\", open: { cwd: \"/workspace\", permission_mode: \"ask\", model: \"model\", reasoning_effort: \"high\", arguments: [\"--flag\"] } }]," — Synthetic product/envelope contract, historical byte golden, removed-root-API throwing trap, or injected JS reconnect clock; not a retired native API call.
 - (b) universal-install.test.mjs:66 — "  const floor = make(); floor.ctx.profileContext.installAnchor = packageAt('below-floor-cli', { version: '0.2.1-alpha.1' }).manifestPath; assert.throws(() => check(floor));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:83 — "  for (const text of [\"const expected = '0.5.12';\", \"agents.roots()\", \"const node = '22.x';\", \"tools.sdkSchemas()\"])" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:87 — "  assert.doesNotMatch(packed + universal, /prove-lane-options-before|dashi-app-version/u, 'historical runtime before-proofs are not current gates');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:151 — "  assert.doesNotMatch(packed, /daemon-v0\\.5\\.12/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:168 — "  writeFileSync(path.join(cli, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:176 — "      private: true, custom: { keep: true }, dependencies: { '@sessionbus/dsh': version, [helper]: '0.2.0-alpha.2', keeper: '1.2.3' }," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:182 — "  return { home, installAnchor: path.join(cli, 'package.json'), query: () => ({ status: 0, stdout: '[\"0.2.0-alpha.2\"]' })," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:196 — "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:201 — "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:213 — "    assert.throws(() => install(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes('sessionbus') && error.message.includes('package.json'));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:237 — "  assert.throws(() => install(['web', 'sessionbus', 'custom'], { ...f, product: 'dashi' }), /failed writing profile \"sessionbus\".*completed profiles: web; this profile may be partially written; profiles not attempted: custom/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:330 — "test('pre.20 marked no-upload row upgrades to the own entry without touching dependency pins', t => {" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:491 — "  const bus = `- id: sessionbus ${marker}\\n  name: '@sessionbus/dsh'\\n  config: { mode: lane, product: dashi }\\n`;" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:522 — "  assert.throws(() => install(['web', 'custom'], { ...f, product: 'dashi' }), error => error.exitCode === 2" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:530 — "    `# header\\n- insert:\\n    - { name: '@sessionbus/dsh', config: { groups: [native], product: dashi }, id: sessionbus } ${marker}\\n# footer\\n`," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:535 — "    assert.equal(readFileSync(f.file('web'), 'utf8'), body.replace('product: dashi', 'product: dsh'));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:606 — "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:629 — "    if (operation === remove) install(['web', 'sessionbus'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:637 — "      assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), /profile \"sessionbus\".*changed.*rerun.*completed profiles: web/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:703 — "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')) && /UTF-8/u.test(error.message));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:729 — "test('dashi metadata proof uses the actual CLI owner when app-boot is not hoisted', t => {" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:739 — "  writeFileSync(path.join(cli, 'package.json'), '{\"name\":\"@deepseek-ai/dsh\",\"version\":\"0.2.1-alpha.2\"}');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:747 — "  const source = readFileSync(new URL('./.github/scripts/prove-dashi-resolution.mjs', import.meta.url), 'utf8');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:789 — "  assert.doesNotMatch(prepared, /installer_exec .*--product dashi/u, 'cross-dashi call is retired to W-156, not retried');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
-- (b) universal-install.test.mjs:790 — "  assert.match(prepared, /prove-lane-options\\.mjs\" .*\"\\$root\" sessionbus-dsh/u, 'standalone options proof expects its actual product, not the retired cross-dashi product');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:94 — "  for (const text of [\"const expected = '0.5.12';\", \"agents.roots()\", \"const node = '22.x';\", \"tools.sdkSchemas()\"])" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:98 — "  assert.doesNotMatch(packed + universal, /prove-lane-options-before|dashi-app-version/u, 'historical runtime before-proofs are not current gates');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:162 — "  assert.doesNotMatch(packed, /daemon-v0\\.5\\.12/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:179 — "  writeFileSync(path.join(cli, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:187 — "      private: true, custom: { keep: true }, dependencies: { '@sessionbus/dsh': version, [helper]: '0.2.0-alpha.2', keeper: '1.2.3' }," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:193 — "  return { home, installAnchor: path.join(cli, 'package.json'), query: () => ({ status: 0, stdout: '[\"0.2.0-alpha.2\"]' })," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:207 — "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:212 — "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:224 — "    assert.throws(() => install(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes('sessionbus') && error.message.includes('package.json'));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:248 — "  assert.throws(() => install(['web', 'sessionbus', 'custom'], { ...f, product: 'dashi' }), /failed writing profile \"sessionbus\".*completed profiles: web; this profile may be partially written; profiles not attempted: custom/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:341 — "test('pre.20 marked no-upload row upgrades to the own entry without touching dependency pins', t => {" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:502 — "  const bus = `- id: sessionbus ${marker}\\n  name: '@sessionbus/dsh'\\n  config: { mode: lane, product: dashi }\\n`;" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:533 — "  assert.throws(() => install(['web', 'custom'], { ...f, product: 'dashi' }), error => error.exitCode === 2" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:541 — "    `# header\\n- insert:\\n    - { name: '@sessionbus/dsh', config: { groups: [native], product: dashi }, id: sessionbus } ${marker}\\n# footer\\n`," — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:546 — "    assert.equal(readFileSync(f.file('web'), 'utf8'), body.replace('product: dashi', 'product: dsh'));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:617 — "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:640 — "    if (operation === remove) install(['web', 'sessionbus'], { ...f, product: 'dashi' });" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:648 — "      assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), /profile \"sessionbus\".*changed.*rerun.*completed profiles: web/u);" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:714 — "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')) && /UTF-8/u.test(error.message));" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:740 — "test('dashi metadata proof uses the actual CLI owner when app-boot is not hoisted', t => {" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:750 — "  writeFileSync(path.join(cli, 'package.json'), '{\"name\":\"@deepseek-ai/dsh\",\"version\":\"0.2.1-alpha.2\"}');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:758 — "  const source = readFileSync(new URL('./.github/scripts/prove-dashi-resolution.mjs', import.meta.url), 'utf8');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:800 — "  assert.doesNotMatch(prepared, /installer_exec .*--product dashi/u, 'cross-dashi call is retired to W-156, not retried');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.
+- (b) universal-install.test.mjs:801 — "  assert.match(prepared, /prove-lane-options\\.mjs\" .*\"\\$root\" sessionbus-dsh/u, 'standalone options proof expects its actual product, not the retired cross-dashi product');" — Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection.

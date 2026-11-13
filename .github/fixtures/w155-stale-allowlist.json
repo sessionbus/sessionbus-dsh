@@ -190,7 +190,7 @@
   },
   {
     "path": ".github/scripts/prove-native-row-conflicts.mjs",
-    "line": 76,
+    "line": 78,
     "text": "    const added = await run(['plugin', '--profile', name, 'add', '--save-exact', candidate, bundle, '@antst/dsh-file-uploads-none@0.2.0-alpha.2'], `${kind}-native-add`);",
     "class": "b",
     "reason": "Intentional legacy external-provider coexistence negative control under current DSH; not an old DSH/dashi runtime."
@@ -1100,168 +1100,168 @@
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 83,
+    "line": 94,
     "text": "  for (const text of [\"const expected = '0.5.12';\", \"agents.roots()\", \"const node = '22.x';\", \"tools.sdkSchemas()\"])",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 87,
+    "line": 98,
     "text": "  assert.doesNotMatch(packed + universal, /prove-lane-options-before|dashi-app-version/u, 'historical runtime before-proofs are not current gates');",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 151,
+    "line": 162,
     "text": "  assert.doesNotMatch(packed, /daemon-v0\\.5\\.12/u);",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 168,
+    "line": 179,
     "text": "  writeFileSync(path.join(cli, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.1-alpha.2' }));",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 176,
+    "line": 187,
     "text": "      private: true, custom: { keep: true }, dependencies: { '@sessionbus/dsh': version, [helper]: '0.2.0-alpha.2', keeper: '1.2.3' },",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 182,
+    "line": 193,
     "text": "  return { home, installAnchor: path.join(cli, 'package.json'), query: () => ({ status: 0, stdout: '[\"0.2.0-alpha.2\"]' }),",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 196,
+    "line": 207,
     "text": "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 201,
+    "line": 212,
     "text": "  install(['sessionbus', 'web', 'custom'], { ...f, product: 'dashi' });",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 213,
+    "line": 224,
     "text": "    assert.throws(() => install(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes('sessionbus') && error.message.includes('package.json'));",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 237,
+    "line": 248,
     "text": "  assert.throws(() => install(['web', 'sessionbus', 'custom'], { ...f, product: 'dashi' }), /failed writing profile \"sessionbus\".*completed profiles: web; this profile may be partially written; profiles not attempted: custom/u);",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 330,
+    "line": 341,
     "text": "test('pre.20 marked no-upload row upgrades to the own entry without touching dependency pins', t => {",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 491,
+    "line": 502,
     "text": "  const bus = `- id: sessionbus ${marker}\\n  name: '@sessionbus/dsh'\\n  config: { mode: lane, product: dashi }\\n`;",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 522,
+    "line": 533,
     "text": "  assert.throws(() => install(['web', 'custom'], { ...f, product: 'dashi' }), error => error.exitCode === 2",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 530,
+    "line": 541,
     "text": "    `# header\\n- insert:\\n    - { name: '@sessionbus/dsh', config: { groups: [native], product: dashi }, id: sessionbus } ${marker}\\n# footer\\n`,",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 535,
+    "line": 546,
     "text": "    assert.equal(readFileSync(f.file('web'), 'utf8'), body.replace('product: dashi', 'product: dsh'));",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 606,
+    "line": 617,
     "text": "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')));",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 629,
+    "line": 640,
     "text": "    if (operation === remove) install(['web', 'sessionbus'], { ...f, product: 'dashi' });",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 637,
+    "line": 648,
     "text": "      assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), /profile \"sessionbus\".*changed.*rerun.*completed profiles: web/u);",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 703,
+    "line": 714,
     "text": "    assert.throws(() => operation(['web', 'sessionbus'], { ...f, product: 'dashi' }), error => error.exitCode === 2 && error.message.includes(f.file('sessionbus')) && /UTF-8/u.test(error.message));",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 729,
+    "line": 740,
     "text": "test('dashi metadata proof uses the actual CLI owner when app-boot is not hoisted', t => {",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 739,
+    "line": 750,
     "text": "  writeFileSync(path.join(cli, 'package.json'), '{\"name\":\"@deepseek-ai/dsh\",\"version\":\"0.2.1-alpha.2\"}');",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 747,
+    "line": 758,
     "text": "  const source = readFileSync(new URL('./.github/scripts/prove-dashi-resolution.mjs', import.meta.url), 'utf8');",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 789,
+    "line": 800,
     "text": "  assert.doesNotMatch(prepared, /installer_exec .*--product dashi/u, 'cross-dashi call is retired to W-156, not retried');",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."
   },
   {
     "path": "universal-install.test.mjs",
-    "line": 790,
+    "line": 801,
     "text": "  assert.match(prepared, /prove-lane-options\\.mjs\" .*\"\\$root\" sessionbus-dsh/u, 'standalone options proof expects its actual product, not the retired cross-dashi product');",
     "class": "b",
     "reason": "Synthetic installer/protocol baseline, stale-literal mutation/negative assertion, or metadata-only legacy fixture; not a current native target selection."

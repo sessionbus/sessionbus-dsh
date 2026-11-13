@@ -16,15 +16,15 @@ installs may coexist and are not scanned, counted or changed. Stale peer-only
 lock records, snapshots and the optional project-local companion pins below
 belong to this operations procedure, not to DSH's plugin requirements.
 
-The Linux/systemd user-service procedure uses `umka-dev1` as a worked example,
-not a requirement for an installation layout or operating system. Its GNU
-tools and `/proc` checks are Linux-specific. Run it as the ordinary account returned by `id -un`, never with
-`sudo`, and refer to its home as `$HOME` in commands. On `umka-dev1` that
-account is `antst` and its home is `/home/antst`; earlier references to `pdev`
-were wrong. The target set is DSH `0.2.1-alpha.2`, `@antst/dashi-launcher`
+The Linux/systemd user-service procedure uses a generic `target-host` and
+`/home/example` account layout, not a required installation layout or operating
+system. Substitute the operator-selected host and paths; example output is
+schematic. Its GNU tools and `/proc` checks are Linux-specific. Run it as the
+ordinary account returned by `id -un`, never with `sudo`, and refer to its home
+as `$HOME` in commands. The historical target set is DSH `0.2.1-alpha.2`, `@antst/dashi-launcher`
 `0.2.0-alpha.2`, `@antst/dashi-app` `0.2.0-alpha.2`, `@sessionbus/dsh`
 `0.1.4`, `@sessionbus/kit` `0.5.12`, and the Sessionbus daemon
-`v0.5.9` or newer. The dsh host runs `v0.5.12` at revision
+`v0.5.9` or newer. The historical source host ran `v0.5.12` at revision
 `fd85d7ee3a19735b2712fbbacdef30d62720cd5b`; v0.5.12 is not a higher host minimum.
 The published dashi target pins plugin pre.20 and its own exact upload provider.
 The 0.1.4 candidate beside that pin is a labelled coexistence case, not a
@@ -63,13 +63,13 @@ tarballs, and alpha.21 repaired the release pipeline. Dashi 0.1.0 was the
 first stable cut. They are historical releases, not install targets for this
 runbook.
 The previous targets were dashi 0.1.2/0.1.3, plugin pre.15/pre.16, kit
-0.5.9/0.5.12 and DSH 0.1.5-rc.2. Earlier umka observations were DSH
+0.5.9/0.5.12 and DSH 0.1.5-rc.2. Earlier example-host observations were DSH
 0.1.2-rc.1, dashi alpha.17 and plugin pre.1; the old graph-repair reproduction
 had 233 records (25 old, 208 target), then 231 target records, and an optional
 physical reconciliation moved 214 old entries to 231. These counts are
 historical inventory, not alpha.2 expected counts. The dsh-codex 0.3.0
 example was verified on the old DSH line only; it is not an alpha.2 provider target.
-The current dsh and umka sessionbus/web baseline is plugin pre.16 on kit 0.5.12
+The historical source and target sessionbus/web baseline was plugin pre.16 on kit 0.5.12
 with DSH 0.1.5-rc.2. Inventory again before an authorised host upgrade.
 
 Run these exact probes immediately before starting:
@@ -125,8 +125,8 @@ startup file. Every direct DSH or dashi invocation below uses the absolute
 paths the operator selects. The task PATH lets the `sessionbus-dsh` launcher
 resolve its child `dsh` by name; the rows-only installer starts no child.
 Set `DSH_INSTALL_DIR` to the project being upgraded and `DSH_BIN` to that
-project's executable before the block. The umka worked example uses
-`DSH_INSTALL_DIR=/home/antst` and `DSH_BIN=/home/antst/node_modules/.bin/dsh`;
+project's executable before the block. The example-host worked example uses
+`DSH_INSTALL_DIR=/home/example` and `DSH_BIN=/home/example/node_modules/.bin/dsh`;
 these are examples, not discovery defaults.
 
 ```sh
@@ -150,16 +150,16 @@ printf 'npm='; npm --version
 printf 'explicit dsh=%s\n' "$DSH_BIN"
 ```
 
-Expected output on `umka-dev1` includes:
+Expected output on `target-host` includes:
 
 ```text
-host user=antst
-host home=/home/antst
-login-path dsh=/home/antst/node_modules/.bin/dsh
+host user=example
+host home=/home/example
+login-path dsh=/home/example/node_modules/.bin/dsh
 pnpm=10.28.1
 node=v25.3.0
 npm=11.6.2
-explicit dsh=/home/antst/node_modules/.bin/dsh
+explicit dsh=/home/example/node_modules/.bin/dsh
 ```
 
 The `login-path dsh` line is observational for the already-prepared task
@@ -183,7 +183,7 @@ done
 ```
 
 Expected output inventories the current versions and profiles, without assuming
-the historical umka baseline. The final line is the current DSH version. On
+the historical example-host baseline. The final line is the current DSH version. On
 the existing hosts, upgrade profiles in place, never delete or recreate them.
 Record whether web exists before taking snapshots.
 
@@ -261,15 +261,15 @@ grep '^SESSIONBUS_PRODUCTS=' "$SESSIONBUS_SERVICE_ENV"
 systemctl --user is-active "$SESSIONBUS_UNIT"
 ```
 
-Expected `umka-dev1` output identifies `/home/antst/.config/systemd/user/sessionbus.service`,
+Expected `target-host` output identifies `/home/example/.config/systemd/user/sessionbus.service`,
 no drop-ins, the effective PATH below, only `sessionbus` resolving under it,
 one products assignment containing `dashi` but not `sessionbus-dsh`, and an
 active service:
 
 ```text
-lane cwd=/home/antst/e2e-work
-PATH=/home/antst/.local/bin:/usr/local/bin:/usr/bin:/bin
-/home/antst/.local/bin/sessionbus
+lane cwd=/home/example/e2e-work
+PATH=/home/example/.local/bin:/usr/local/bin:/usr/bin:/bin
+/home/example/.local/bin/sessionbus
 daemon version=sessionbus v0.5.12 (fd85d7ee3a19735b2712fbbacdef30d62720cd5b)
 service PATH does not resolve sessionbus-dsh and dsh
 Environment=<redacted>
@@ -279,10 +279,10 @@ active
 ```
 
 On this host the unit's `Environment=` owns PATH and its
-`EnvironmentFile=-/home/antst/.config/sessionbus/service.env` does not set
+`EnvironmentFile=-/home/example/.config/sessionbus/service.env` does not set
 PATH. On another host, stop here if an EnvironmentFile sets PATH: edit that
 file's PATH assignment instead, because it can override a drop-in. The
-umka-dev1 branch below adds a drop-in because its EnvironmentFile does not set
+target-host branch below adds a drop-in because its EnvironmentFile does not set
 PATH.
 
 Record exact rollback facts and make recoverable copies before the first
@@ -290,7 +290,7 @@ mutation. The service environment copy is private, and the existing dashi and
 sessionbus and web profile manifests, lockfiles, and patch files are preserved:
 
 ```sh
-ROLLBACK_ROOT="$HOME/.local/state/umka-dev1-dsh-upgrade/$(date -u +%Y%m%dT%H%M%SZ)"
+ROLLBACK_ROOT="$HOME/.local/state/target-host-dsh-upgrade/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$ROLLBACK_ROOT/host" "$ROLLBACK_ROOT/profiles/dashi" "$ROLLBACK_ROOT/profiles/sessionbus" "$ROLLBACK_ROOT/profiles/web" "$ROLLBACK_ROOT/service"
 chmod 700 "$ROLLBACK_ROOT"
 if [ -f "$DSH_HOME/settings.yaml" ]; then
@@ -603,8 +603,11 @@ try {
   }
   if (ownsPlugin) {
     const inventory = await readPluginInventory(boot.ctx)
+    const uploadProviderModules = ["@antst/dsh-file-uploads-none", "@sessionbus/dsh/file-uploads-none", "@deepseek-ai/dsh-client-file-upload"]
+    const [legacyUploadProvider] = uploadProviderModules
     const rows = inventory.entries.filter(row => row.enabled && row.fiberPhase === 'active'
-      && ['@sessionbus/dsh/file-uploads-none', '@deepseek-ai/dsh-client-file-upload'].includes(row.moduleName))
+      && uploadProviderModules.includes(row.moduleName)
+      && (profile === 'sessionbus' || row.moduleName !== legacyUploadProvider))
     if (rows.length !== 1) throw new Error('expected one active configured upload-provider row')
     const row = rows[0], mounted = packages.packageOf(row.moduleName, importer)
     if (!mounted) throw new Error('configured upload provider has no native package selection')
@@ -831,7 +834,7 @@ missing=0
 wrong=0
 legacy_extras=<inventory count>: REPORTED ONLY
 legacy_entry=<old shared-directory package name>
-DSH graph coherent: /home/antst
+DSH graph coherent: /home/example
 host DSH graph nonzero
 ```
 
@@ -1275,7 +1278,7 @@ against the backup. Run section 5's registration checks before any model turn.
 
 ### Give the daemon its product command and advertisement
 
-On the measured umka-dev1 layout, the service's current PATH lacks
+On the measured target-host layout, the service's current PATH lacks
 `$HOME/node_modules/.bin`, its EnvironmentFile does not set PATH, and no
 drop-in exists. Add that directory ahead of the existing effective PATH with
 a direct controlled write of the already-backed-up owned drop-in. Separately,
@@ -1346,9 +1349,9 @@ are:
 
 ```text
 active
-PATH=/home/antst/node_modules/.bin:/home/antst/.local/bin:/usr/local/bin:/usr/bin:/bin
-/home/antst/node_modules/.bin/sessionbus-dsh
-/home/antst/node_modules/.bin/dsh
+PATH=/home/example/node_modules/.bin:/home/example/.local/bin:/usr/local/bin:/usr/bin:/bin
+/home/example/node_modules/.bin/sessionbus-dsh
+/home/example/node_modules/.bin/dsh
 sessionbus v0.5.12 (fd85d7ee3a19735b2712fbbacdef30d62720cd5b)
 sessionbus-dsh advertised: true
 ```
@@ -1358,7 +1361,7 @@ drop-in is the persistent authority used by daemon-launched products.
 
 ### Variant: dashi as the only registered product
 
-This subsection is an alternative, not a step in the live `umka-dev1`
+This subsection is an alternative, not a step in the live `target-host`
 two-product procedure above. Choose the two-product form when the daemon needs
 the package-owned `sessionbus-dsh` lane command independently of dashi. Choose
 this variant on a dashi host when peers and lanes should share the one registered
@@ -1388,11 +1391,11 @@ single restart, verify both commands under the effective service PATH:
 PATH="$SERVICE_PATH" command -v dashi dsh
 ```
 
-Expected output on `umka-dev1` is:
+Expected output on `target-host` is:
 
 ```text
-/home/antst/node_modules/.bin/dashi
-/home/antst/node_modules/.bin/dsh
+/home/example/node_modules/.bin/dashi
+/home/example/node_modules/.bin/dsh
 ```
 
 For the lane acceptance below, use product `dashi` in both `describe` and
@@ -1437,7 +1440,7 @@ pnpm --dir "$DSH_HOME/profiles/dashi" list --depth 0
 Expected output contains `@antst/dashi-app 0.2.0-alpha.2` and the selected
 provider's direct plugin packages with their exact installed versions.
 
-The umka worked example selects `deepseek-official`, so it adds no provider
+The example-host worked example selects `deepseek-official`, so it adds no provider
 package to either profile:
 
 ```sh
@@ -1725,13 +1728,13 @@ From the existing remote Sessionbus peer, first prove federated product
 discovery. The daemon's local product list is not enough:
 
 ```json
-{"action":"describe","arguments":{"product":"sessionbus-dsh","host":"umka-dev1"}}
+{"action":"describe","arguments":{"product":"sessionbus-dsh","host":"target-host"}}
 ```
 
 Expected result: the call succeeds and lists the DSH lane's supported open
 fields, including `cwd`.
 
-In the umka-dev1 task shell, record the daemon's current direct children before
+In the target-host task shell, record the daemon's current direct children before
 the spawn:
 
 ```sh
@@ -1750,16 +1753,16 @@ the shell and not printed.
 
 Through the one long-lived controller, make the spawn, ordinary send, and wait
 calls below. Replace `LANE_CWD` only with the exact `$LANE_CWD` printed during
-preflight (`/home/antst/e2e-work` on umka-dev1); replace returned IDs only
+preflight (`/home/example/e2e-work` on target-host); replace returned IDs only
 after successful calls.
 
 ```json
-{"id":"lane-spawn","action":"spawn","arguments":{"product":"sessionbus-dsh","host":"umka-dev1","name":"umka-dev1-lane-check","open":{"cwd":"LANE_CWD"},"extra_groups":["peer-dev"],"persistent":false,"auto_close_ms":0,"notify":false}}
+{"id":"lane-spawn","action":"spawn","arguments":{"product":"sessionbus-dsh","host":"target-host","name":"target-host-lane-check","open":{"cwd":"LANE_CWD"},"extra_groups":["lane-check"],"persistent":false,"auto_close_ms":0,"notify":false}}
 {"id":"lane-send","action":"send","arguments":{"target":"RETURNED_SESSION_ID","message":"Reply with exactly: lane hello"}}
 {"id":"lane-wait","action":"wait","arguments":{"session_id":"RETURNED_SESSION_ID","timeout_ms":150000}}
 ```
 
-Expected spawn result: a new session ID with host suffix `@umka-dev1`. The
+Expected spawn result: a new session ID with host suffix `@target-host`. The
 send returns one admitted delivery. The idle worker starts one managed Run
 without an explicit `run` or `start` call. Expected wait handling depends on
 the complete retained record:
@@ -1820,7 +1823,7 @@ Expected results: `ack` consumes the already-inspected terminal record,
 record; it does not delete DSH's native session history. The all-rows check
 below independently proves that no retained or offline row remains.
 
-Back in the umka-dev1 task shell, also prove that the owned native process is
+Back in the target-host task shell, also prove that the owned native process is
 gone and that the daemon's all-rows roster has no forgotten row. Substitute
 only the returned canonical session ID:
 
@@ -1855,7 +1858,7 @@ uncertainty.
 ### Plain DSH peer: environment groups and a real reply
 
 This proof deliberately does not use dashi. In a second terminal on
-umka-dev1, run the plain web profile with no launch token and one non-secret
+target-host, run the plain web profile with no launch token and one non-secret
 environment group:
 
 ```sh
@@ -1863,7 +1866,7 @@ export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 : "${DSH_BIN:?use the executable selected in section 1}"
 HOST_BIN_DIR="$(dirname "$DSH_BIN")"
 export PATH="$HOST_BIN_DIR:$PATH"
-env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["peer-dev"]' "$HOST_BIN_DIR/dsh" --profile web --no-open --host 127.0.0.1 --port 0
+env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["lane-check"]' "$HOST_BIN_DIR/dsh" --profile web --no-open --host 127.0.0.1 --port 0
 ```
 
 Expected terminal result: the web server stays up without a sessionbus
@@ -1873,10 +1876,10 @@ nonempty `SESSIONBUS_SOCKET`, otherwise
 `/tmp/sessionbus-<uid>/presence.sock`. A daemon using a custom socket must set
 `SESSIONBUS_SOCKET` for the launched peer. Open its local URL through the host's approved access
 path and create one root DSH session. That root advertises product `dsh` and
-group `peer-dev`; no profile row supplies the group.
+group `lane-check`; no profile row supplies the group.
 
 Use the long-lived SDK 0.5.9+ controller as a same-group sender. Keep a
-separate persistent native observer in `peer-dev` as the reply target because
+separate persistent native observer in `lane-check` as the reply target because
 the acceptance controller is not a model and may reject incoming deliveries.
 The controller first lists and then messages the exact idle web session.
 `list` shows only peers that share at least one group with its caller:
@@ -1887,7 +1890,7 @@ The controller first lists and then messages the exact idle web session.
 ```
 
 Expected results: the controller's `list` discovers the new `dsh` peer with
-`peer-dev` among its groups. Replace `REPLY_SESSION_ID` with the persistent
+`lane-check` among its groups. Replace `REPLY_SESSION_ID` with the persistent
 observer's authenticated `self_info.session_id`, then `send` returns a
 successful delivery receipt. A receipt proves admission, not model
 consumption. Without a browser prompt or keypress, the idle web root starts a
@@ -1911,12 +1914,12 @@ export DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 : "${DASHI_BIN:?use the executable selected in section 1}"
 HOST_BIN_DIR="$(dirname "$DASHI_BIN")"
 export PATH="$HOST_BIN_DIR:$PATH"
-env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["peer-dev"]' "$HOST_BIN_DIR/dashi"
+env -u SESSIONBUS_LAUNCH_TOKEN SESSIONBUS_GROUPS='["lane-check"]' "$HOST_BIN_DIR/dashi"
 ```
 
 Expected terminal result: dashi opens normally with no Sessionbus
 configuration error. The same-group controller's `list` sees its root as
-product `dashi` with group `peer-dev`. Keep the persistent native observer as
+product `dashi` with group `lane-check`. Keep the persistent native observer as
 the reply target and perform both human-visible checks:
 
 1. Type `/sessionbus reply over the bus to REPLY_SESSION_ID with exactly:
