@@ -1095,7 +1095,7 @@ test('CI keeps every exact-floor universal cell and adds one logged newest-Node 
   assert.deepEqual(matrix.os, ['ubuntu-latest', 'macos-15']);
   assert.deepEqual(matrix.mode, ['npm-global', 'pnpm10-global', 'pnpm11-global', 'pnpm12-global', 'npx', 'project', 'mixed']);
   assert.deepEqual(matrix.node, ['24.9.0']);
-  assert.deepEqual(matrix.include, [{ os: 'ubuntu-latest', mode: 'npm-global', node: 'current' }]);
+  assert.deepEqual(matrix.include, [{ os: 'ubuntu-latest', mode: 'npm-global', node: '26' }]);
   assert.equal(job.steps.find(step => step.uses?.startsWith('actions/setup-node@')).with['node-version'], '${{ matrix.node }}');
   assert.ok(job.steps.some(step => step.run === 'node --version'), 'resolve and record the floating newest version');
   assert.equal(job.strategy['fail-fast'], false);

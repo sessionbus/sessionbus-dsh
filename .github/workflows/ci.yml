@@ -75,7 +75,7 @@ jobs:
         include:
           - os: ubuntu-latest
             mode: npm-global
-            node: current
+            node: '26'
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

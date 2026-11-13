@@ -528,6 +528,56 @@ The new reviewed archive replaces05bc for final cross-dashi validation; old
 preliminary results remain labelled preliminary. Live-model transfer
 acceptance is still NOT RUN.
 
+## Hosted correction result at 491c981 and newest released Node selection
+
+Run43436322954 completed with16 successful test jobs, one failed test job and
+the failed aggregate. No job was cancelled; fail-fast remained false.
+
+| Row | Result |
+| --- | --- |
+| DSH0.2.2-rc.3 full packed | PASS |
+| Native rc.2 below-floor refusal | PASS |
+| Ubuntu / npm-global / Node24.9.0 | PASS |
+| Ubuntu / pnpm10-global / Node24.9.0 | PASS |
+| Ubuntu / pnpm11-global / Node24.9.0 | PASS |
+| Ubuntu / pnpm12-global / Node24.9.0 | PASS |
+| Ubuntu / npx / Node24.9.0 | PASS |
+| Ubuntu / project / Node24.9.0 | PASS |
+| Ubuntu / mixed / Node24.9.0 | PASS |
+| macOS / npm-global / Node24.9.0 | PASS |
+| macOS / pnpm10-global / Node24.9.0 | PASS |
+| macOS / pnpm11-global / Node24.9.0 | PASS |
+| macOS / pnpm12-global / Node24.9.0 | PASS |
+| macOS / npx / Node24.9.0 | PASS |
+| macOS / project / Node24.9.0 | PASS; released-daemon groups adds23130ms |
+| macOS / mixed / Node24.9.0 | PASS |
+| Ubuntu / npm-global / Node current | FAIL before DSH installation |
+| Aggregate | FAIL, because the added Node cell failed |
+
+The `current` alias resolved to Node27.0.0-alpha.0.1.0/npm12.2.2. Its first pack
+preflight stopped at pack.json[0].filename with an undefined value. The pack
+payload was not retained by hosted CI, so its exact shape and underlying npm12
+cause are UNKNOWN; this is not claimed as a plugin failure. The row was not
+rerun. The official release index identified newest non-prerelease26.13.1
+(2026-11-10); the release page labels27 Alpha and26 LTS.
+
+Architect-approved correction: the added cell now deliberately selects Node
+major `26`, logs its resolved version, and the equality test pins that exact
+choice. No prerelease Node is a support row; the explicit major moves only
+with a deliberate new-release decision. All14 exact-floor cells and every
+adverse assertion stay unchanged. No Node27/npm12 adapter is added. Sources:
+[Node releases](https://nodejs.org/en/about/previous-releases),
+[official release index](https://nodejs.org/dist/index.json).
+
+This CI/test/proof-map-only correction leaves archive db14b0e6 unchanged. Its
+new hosted result is pending; the above successes remain attributed to491c981.
+The corrected selector expectation and full npm test260/260 pass on exact
+Node24.9.0; an archive-to-source check re-attests all10 existing db14 members
+without making another archive. No native row or failed CI job was rerun.
+CodeRabbit's491c981 auto review was rate-limited, not an exact-head review
+PASS. The earlier sole provider-count comment has been answered with the
+failing-first evidence and corrected source; the new-head bot gate is pending.
+
 ## Classified stale-assumption sweep (before final full gate)
 
 Scope: every proof script/driver, fixture member, workflow and root unit file,
