@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-13
 
 - Name and pin the DSH 0.2.2-rc.3 preparation-refusal gap: a pre-step rejection drops already-claimed peer input without consumption; injected is native admission only. No plugin compensation is added.
 
