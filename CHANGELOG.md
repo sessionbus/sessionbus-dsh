@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-13
 
 - Name and pin the DSH 0.2.2-rc.3 preparation-refusal gap: a pre-step rejection drops already-claimed peer input without consumption; injected is native admission only. No plugin compensation is added.
 
@@ -8,7 +8,11 @@
 - Use public `subagents.rootOf` over `agents.list` for peer publication, delivery and groups. Peer compositions require `subagents`; missing root authority gives a named startup refusal instead of publishing all agents or waiting indefinitely.
 - Select lane model and effort with `llm.resolveCallConfig` and `agent.model.select` inside public `runMaintenance`, never the profile-saving GUI API or a private selection lock. A busy resumed lane opened with model or effort refuses cleanly; it is not queued. Cancellation after a durable selection does not roll it back.
 - Fold the unreleased 0.1.6 file-transfer work below into 0.2.0. **0.1.6 was never published.** Kit 0.5.16, the frozen common declaration and the packaged skill stay unchanged by the DSH migration.
-- Native validation results are recorded in the W-155 proof map; the held live-model transfer acceptance is NOT RUN. No historical PASS establishes this candidate's result.
+- Native validation results (units, packed, universal and cross-product checks) are recorded in `.github/W155-PROOFS.md`.
+- Live real-model acceptance passed on one Linux host with DSH 0.2.2-rc.3, the `deepseek-official/deepseek-flash` route, plugin 0.2.0 and the Sessionbus 0.5.16 kit/daemon: ten scoped checks covering file transfers, transfer errors, idle wake, and busy delivery to interactive and lane sessions. ACP and headless profiles were installed but not exercised. This does not claim macOS or full-matrix acceptance, or a global process/configuration audit. Interactive busy delivery passed within the original task despite completing five of eight requested list calls. The streaming hold/close check passed, but its later filesystem observation does not establish SDK cleanup because unobserved model shell actions followed the close. Observed during that acceptance:
+  - Peer messages and transfer notices were persisted with role `user` and source `plugin:sessionbus-dsh` / `relay`, distinguishable in persisted metadata from typed input carrying `source.rpcId`. This records the observed framing; it does not establish how the model interprets that attribution.
+  - On a Linux host with direct DSH-family dependencies pinned to rc.2, the normal native DSH rc.3 upgrade left 32 of those direct pins unchanged. A dependency requesting rc.3 resolved to an rc.2 sibling; upgrading those direct family entries to exact rc.3 with one normal package-manager command completed the graph. The architecture review attributed the mismatch to peer-dependency resolution from the stale direct pins; no independent lockfile diagnosis was performed.
+  - Interactive and lane checks observed the native tool error `Error: unknown_transfer` with `isError: true`, followed by successful list calls from the same sessions. The numeric error code `-32020` was not persisted in the native history and was not observed in these checks.
 
 ### Unreleased 0.1.6 work included in 0.2.0
 
@@ -16,8 +20,6 @@
 - Kit 0.5.16 distinguishes SDK-local unknown/ended transfer accepts as `unknown_transfer` while preserving field/role/path conflicts, and negotiates `unknown_transfer` for status with no accessible live transfer; old kits retain their legacy status answer.
 - Final disposal awaits current peers' public `closed` promises, which include transfer retirement in kit 0.5.15. Earlier peer removals and the lane worker remain unjoined; no retired-peer registry or group-admission wait is added.
 - Vendor the frozen common tool declaration from peer-common db8f85d byte-exact, adapting only DSH's native schema shape. Adopting its closed envelope makes arguments required and refuses undeclared outer keys. Tool and skill changes cause one deliberate re-prefill. Daemons before 0.5.14 do not grant transfer support.
-- Validated on fleet DSH 0.2.1-rc.2 and the 0.2.1-alpha.3 floor (with kit 0.5.15; to be re-validated on 0.5.16). DSH 0.2.2 prereleases are not yet validated: opening a lane with an explicit model or reasoning_effort is refused there (spawn_failed), and other DSH 0.2.2 changes are under review (W-155).
-- Live real-model acceptance is pending: three turns across two preparation windows ended with DSH’s SERVER error (its classification of backend server failures; no HTTP status was observed), before any transfer; no plugin fault was established.
 
 ## 0.1.5 — 2026-10-15
 
